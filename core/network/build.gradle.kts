@@ -65,5 +65,8 @@ tasks.named("preBuild").configure {
 }
 
 // Подключаем сгенерированные исходники в модуль
-sourceSets["main"].java.srcDir("$buildDir/generated/openapi/src/main/kotlin")
-
+sourceSets {
+        getByName("main") {
+            java.srcDir("$buildDir/generated/openapi/src/main/kotlin")
+        }
+    }
