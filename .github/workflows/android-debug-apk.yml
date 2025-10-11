@@ -66,6 +66,11 @@ jobs:
 
           echo "sdk.dir=$SDK" > local.properties
 
+      - name: Generate OpenAPI client
+        uses: gradle/gradle-build-action@v3
+          with:
+          arguments: :core:network:openApiGenerate
+
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
