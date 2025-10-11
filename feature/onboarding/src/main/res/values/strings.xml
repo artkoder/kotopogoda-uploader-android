@@ -1,5 +1,9 @@
 <resources>
-    <string name="onboarding_title">Kotopogoda Uploader</string>
-    <string name="onboarding_body">Добро пожаловать! Загружайте отчёты о кошачьей погоде в одно касание.</string>
+    <string name="onboarding_choose_folder_title">Выберите папку</string>
+    <string name="onboarding_choose_folder_body">Приложению нужен доступ к папке, где вы храните фотографии. Предоставьте доступ через системный выбор папки.</string>
+    <string name="onboarding_choose_folder_action">Выбрать папку</string>
+    <string name="onboarding_selected_folder_title">Папка выбрана</string>
+    <string name="onboarding_selected_folder_body">Текущая папка: %1$s</string>
+    <string name="onboarding_change_folder">Сменить папку</string>
     <string name="onboarding_continue">Продолжить</string>
 </resources>
