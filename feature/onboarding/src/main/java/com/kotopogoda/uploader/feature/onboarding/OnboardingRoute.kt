@@ -49,10 +49,21 @@ fun OnboardingRoute(
                     contentResolver.persistedUriPermissions
                         .firstOrNull { it.uri == previousUri }
                         ?.let { persistedPermission ->
+                            val releaseFlags =
+                                (if (persistedPermission.isReadPermission) {
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                } else {
+                                    0
+                                }) or
+                                    (if (persistedPermission.isWritePermission) {
+                                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                    } else {
+                                        0
+                                    })
                             runCatching {
                                 contentResolver.releasePersistableUriPermission(
                                     persistedPermission.uri,
-                                    persistedPermission.flags
+                                    releaseFlags
                                 )
                             }
                         }
