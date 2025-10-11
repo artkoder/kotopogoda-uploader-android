@@ -7,6 +7,7 @@ import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
+import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -51,4 +52,8 @@ object DataModule {
         folderRepository = folderRepository,
         photoDao = photoDao
     )
+
+    @Provides
+    @Singleton
+    fun providePhotoRepository(photoDao: PhotoDao): PhotoRepository = PhotoRepository(photoDao)
 }

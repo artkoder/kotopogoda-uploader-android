@@ -16,6 +16,11 @@ interface PhotoDao {
     @Query("SELECT * FROM photos WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): PhotoEntity?
 
+    @Query(
+        "SELECT * FROM photos WHERE mime IN ('image/jpeg', 'image/jpg') ORDER BY exif_date DESC, id DESC"
+    )
+    fun observeAllJpeg(): Flow<List<PhotoEntity>>
+
     @Query("SELECT * FROM photos WHERE sha256 = :sha LIMIT 1")
     suspend fun getBySha256(sha: String): PhotoEntity?
 
