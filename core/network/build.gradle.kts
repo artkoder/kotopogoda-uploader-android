@@ -60,7 +60,7 @@ openApiGenerate {
 }
 
 // Компиляция должна ждать генерацию
-tasks.named("compileKotlin").configure {
+tasks.named("preBuild").configure {
     dependsOn("openApiGenerate")
 }
 
