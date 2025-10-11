@@ -19,8 +19,16 @@ jobs:
       ANDROID_HOME: ${{ github.workspace }}/android-sdk
 
     steps:
-      - name: Checkout
+      - name: Checkout (with submodules)
         uses: actions/checkout@v4
+        with:
+          submodules: recursive   # ← выкачать субмодули
+          fetch-depth: 0          # ← теги для submodule pin
+
+      - name: Verify contract presence
+        run: |
+          ls -la api/contract/openapi || true
+          test -f api/contract/openapi/openapi.yaml
 
       - name: Setup Java
         uses: actions/setup-java@v4
