@@ -1,0 +1,4 @@
+<resources>
+    <string name="viewer_title">Галерея отчётов</string>
+    <string name="viewer_placeholder">Здесь появятся ваши загруженные котопогодные истории.</string>
+</resources>
