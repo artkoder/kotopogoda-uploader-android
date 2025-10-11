@@ -17,8 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -64,7 +64,7 @@ private fun ViewerScreen(
         return
     }
 
-    var rememberedIndex by rememberSaveable(currentIndex) { mutableIntStateOf(currentIndex) }
+    var rememberedIndex by rememberSaveable(currentIndex) { mutableStateOf(currentIndex) }
     val pagerState = rememberPagerState(initialPage = rememberedIndex, pageCount = { photos.size })
 
     LaunchedEffect(currentIndex, photos.size) {
