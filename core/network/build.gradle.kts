@@ -20,11 +20,15 @@ android {
     }
 }
 
+val contractSpec = rootProject.file("api/contract/openapi/openapi.yaml")
+val fallbackSpec = file("src/main/openapi/fallback-openapi.yaml")
+val resolvedSpec = if (contractSpec.exists()) contractSpec else fallbackSpec
+
 openApiGenerate {
     generatorName.set("kotlin")
     library.set("jvm-retrofit2")
-    // OpenAPI spec comes from the contract submodule
-    inputSpec.set("${rootDir}/api/contract/openapi/openapi.yaml")
+    // Prefer the contract submodule; fall back to the bundled spec when it is absent.
+    inputSpec.set(resolvedSpec.absolutePath)
     outputDir.set("${buildDir}/generated/openapi")
     packageName.set("com.kotopogoda.uploader.api")
     additionalProperties.set(
