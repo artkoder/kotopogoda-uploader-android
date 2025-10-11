@@ -76,7 +76,7 @@ jobs:
           path: app/build/outputs/apk/**/debug/*.apk
 
       - name: Generate OpenAPI client (optional explicit step)
-        run: ./gradlew --no-daemon :core:network:openApiGenerate
+        run: gradle --no-daemon :core:network:openApiGenerate
 
       - name: Upload generated OpenAPI sources
         if: always()
