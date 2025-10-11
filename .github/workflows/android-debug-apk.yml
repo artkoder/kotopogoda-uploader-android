@@ -14,6 +14,10 @@ jobs:
   build:
     runs-on: ubuntu-24.04
 
+    env:
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,25 +34,27 @@ jobs:
           gradle-version: 8.9
           cache-read-only: true
 
-      # Устанавливаем Android SDK вручную в $HOME/android-sdk
+      # --- УСТАНОВКА ANDROID SDK БЕЗ pipefail ---
       - name: Install Android SDK (API 35)
         shell: bash
         run: |
-          set -euxo pipefail
-          SDK="$HOME/android-sdk"
+          set -eux
+          SDK="$ANDROID_SDK_ROOT"
           mkdir -p "$SDK/cmdline-tools"
           cd /tmp
           curl -L -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q cmdtools.zip
           mv cmdline-tools "$SDK/cmdline-tools/latest"
 
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platform-tools"
-          # build-tools 35.0.1 может отсутствовать на зеркале — пробуем 35.0.1, если нет, ставим 35.0.0
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "build-tools;35.0.1" || \
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "build-tools;35.0.0"
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platforms;android-35"
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --update || true
 
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses
+          # Вызовы через `yes | ...` могут отдавать SIGPIPE -> добавляем `|| true`
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platform-tools" || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "build-tools;35.0.1" || \
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "build-tools;35.0.0" || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platforms;android-35" || true
+
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses > /dev/null || true
 
           echo "sdk.dir=$SDK" > local.properties
 
