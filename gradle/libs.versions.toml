@@ -19,6 +19,7 @@ junit = "4.13.2"
 kotlin = "1.9.23"
 agp = "8.4.2"            # опционально, но лучше поднять вместе с Kotlin
 composeCompiler = "1.5.11"   # оставить как есть
+kotlinxCoroutines = "1.8.1"
 
 
 [plugins]
