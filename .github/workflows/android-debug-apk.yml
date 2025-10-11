@@ -30,17 +30,17 @@ jobs:
           ls -la api/contract/openapi || true
           test -f api/contract/openapi/openapi.yaml
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
+      - name: Setup Gradle (use system Gradle, no wrapper)
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 8.9
-          cache-read-only: true
+          gradle-version: '8.9'
+          cache-read-only: false
 
       # --- УСТАНОВКА ANDROID SDK БЕЗ pipefail ---
       - name: Install Android SDK (API 35)
@@ -66,6 +66,11 @@ jobs:
 
           echo "sdk.dir=$SDK" > local.properties
 
+      # --- OpenAPI generation (uses system gradle) ---
+      - name: Generate OpenAPI client
+        run: gradle --no-daemon :core:network:openApiGenerate
+
+      # --- Build APK (uses system gradle) ---
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
@@ -74,9 +79,6 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/**/debug/*.apk
-
-      - name: Generate OpenAPI client (optional explicit step)
-        run: gradle --no-daemon :core:network:openApiGenerate
 
       - name: Upload generated OpenAPI sources
         if: always()
