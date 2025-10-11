@@ -47,7 +47,7 @@ class ViewerViewModel @Inject constructor(
                     scanJob = null
                     _uiState.update { current -> current.copy(isScanning = false) }
                 }
-                .collect()
+                .collect {}
         }
     }
 
