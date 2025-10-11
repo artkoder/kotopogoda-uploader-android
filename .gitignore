@@ -7,11 +7,13 @@ local.properties
 
 # Log/OS Files
 *.log
+.DS_Store
 
 # Android Studio generated files and folders
 captures/
 .externalNativeBuild/
 .cxx/
+**/build/
 *.aab
 *.apk
 output-metadata.json
@@ -32,3 +34,6 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Gradle wrapper binary
+gradle/wrapper/gradle-wrapper.jar

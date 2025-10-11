@@ -1,0 +1,5 @@
+<resources>
+    <string name="onboarding_title">Kotopogoda Uploader</string>
+    <string name="onboarding_body">Добро пожаловать! Загружайте отчёты о кошачьей погоде в одно касание.</string>
+    <string name="onboarding_continue">Продолжить</string>
+</resources>
