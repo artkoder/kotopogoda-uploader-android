@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.kotopogoda.uploader.core.data.database.KotopogodaDatabase
 import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
+import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
+import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,12 +26,29 @@ object DataModule {
         context,
         KotopogodaDatabase::class.java,
         "kotopogoda.db"
+    ).addMigrations(
+        KotopogodaDatabase.MIGRATION_1_2
     ).build()
 
     @Provides
     fun provideFolderDao(database: KotopogodaDatabase): FolderDao = database.folderDao()
 
     @Provides
+    fun providePhotoDao(database: KotopogodaDatabase): PhotoDao = database.photoDao()
+
+    @Provides
     @Singleton
     fun provideFolderRepository(folderDao: FolderDao): FolderRepository = FolderRepository(folderDao)
+
+    @Provides
+    @Singleton
+    fun provideIndexerRepository(
+        @ApplicationContext context: Context,
+        folderRepository: FolderRepository,
+        photoDao: PhotoDao
+    ): IndexerRepository = IndexerRepository(
+        context = context,
+        folderRepository = folderRepository,
+        photoDao = photoDao
+    )
 }
