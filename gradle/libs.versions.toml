@@ -21,6 +21,7 @@ kotlin = "1.9.23"
 agp = "8.4.2"            # опционально, но лучше поднять вместе с Kotlin
 composeCompiler = "1.5.11"   # оставить как есть
 kotlinxCoroutines = "1.8.1"
+moshi = "1.15.1"
 
 
 [plugins]
@@ -55,6 +56,9 @@ com-squareup-okhttp3-logging-interceptor = { group = "com.squareup.okhttp3", nam
 com-squareup-okhttp3-okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 com-squareup-retrofit2-converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "retrofit" }
 com-squareup-retrofit2-retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+com-squareup-retrofit2-converter-scalars = { group = "com.squareup.retrofit2", name = "converter-scalars", version.ref = "retrofit" }
+com-squareup-moshi-moshi = { group = "com.squareup.moshi", name = "moshi", version.ref = "moshi" }
+com-squareup-moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExt" }

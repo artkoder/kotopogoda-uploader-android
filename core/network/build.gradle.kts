@@ -50,6 +50,14 @@ tasks.named("preBuild").configure {
 }
 
 dependencies {
-    // Retrofit brings OkHttp transitively; enough to compile generated interfaces
-    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation(libs.com.squareup.retrofit2.retrofit)
+    implementation(libs.com.squareup.retrofit2.converter.moshi)
+    implementation(libs.com.squareup.retrofit2.converter.scalars)
+    implementation(libs.com.squareup.okhttp3.okhttp)
+    implementation(libs.com.squareup.okhttp3.logging.interceptor)
+    implementation(libs.com.squareup.moshi.moshi)
+    implementation(libs.com.squareup.moshi.kotlin)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.core.ktx)
+    implementation("javax.inject:javax.inject:1")
 }
