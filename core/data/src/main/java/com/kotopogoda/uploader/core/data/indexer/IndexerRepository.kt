@@ -70,7 +70,10 @@ class IndexerRepository @Inject constructor(
                 traverse(child, onOutcome)
             }
         } else if (document.isFile && document.isJpegFile()) {
-            processFile(document)?.let(onOutcome)
+            val outcome = processFile(document)
+            if (outcome != null) {
+                onOutcome(outcome)
+            }
         }
     }
 
