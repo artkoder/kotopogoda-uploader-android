@@ -84,6 +84,8 @@ dependencies {
     kapt(libs.androidx.room.compiler)
     implementation(libs.dagger.hilt.android)
     kapt(libs.dagger.hilt.compiler)
+    implementation(libs.material)
+
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
