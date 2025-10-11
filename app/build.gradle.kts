@@ -44,9 +44,8 @@ android {
     buildFeatures {
         compose = true
     }
-
     composeOptions {
-        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get() // 1.5.11
     }
 
     packaging {
