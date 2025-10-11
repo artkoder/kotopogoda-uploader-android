@@ -1,21 +1,38 @@
+name: Android Debug APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v3
+      # Gradle без wrapper.jar
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.9
           cache-read-only: true
 
-      # Ставим Android SDK и нужные пакеты
-      - name: Install Android SDK packages
+      # Ставит SDK + нужные пакеты для API 35
+      - name: Install Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: |
@@ -24,7 +41,7 @@ jobs:
             platforms;android-35
             build-tools;35.0.0
 
-      # На некоторых раннерах нужно принудительно подтвердить лицензии
+      # На некоторых раннерах нужно явно принять лицензии
       - name: Accept licenses
         run: yes | sdkmanager --licenses
 
@@ -35,4 +52,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/**/debug/*.apk
