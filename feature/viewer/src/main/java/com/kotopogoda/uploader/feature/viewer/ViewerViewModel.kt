@@ -1,72 +1,69 @@
 package com.kotopogoda.uploader.feature.viewer
 
-import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
-import com.kotopogoda.uploader.core.data.indexer.IndexerRepository.ScanProgress
+import com.kotopogoda.uploader.core.data.photo.PhotoItem
+import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.onCompletion
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
 class ViewerViewModel @Inject constructor(
-    private val indexerRepository: IndexerRepository
+    photoRepository: PhotoRepository,
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ViewerUiState())
-    val uiState: StateFlow<ViewerUiState> = _uiState.asStateFlow()
+    val photos: StateFlow<List<PhotoItem>> = photoRepository.observePhotos()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList()
+        )
 
-    private var scanJob: Job? = null
+    private val _isPagerScrollEnabled = MutableStateFlow(true)
+    val isPagerScrollEnabled: StateFlow<Boolean> = _isPagerScrollEnabled.asStateFlow()
 
-    fun startScan() {
-        if (_uiState.value.isScanning) {
-            return
-        }
-        scanJob?.cancel()
-        _uiState.update { it.copy(isScanning = true, progress = ScanProgress(), errorMessage = null) }
-        scanJob = viewModelScope.launch {
-            indexerRepository.scanAll()
-                .onEach { progress ->
-                    _uiState.update { current -> current.copy(progress = progress) }
+    private val startIndexArgument: Int =
+        savedStateHandle.get<Int>(VIEWER_START_INDEX_ARG)?.coerceAtLeast(0) ?: 0
+
+    private val currentIndexKey = "viewer_current_index"
+    private val _currentIndex: MutableStateFlow<Int> =
+        MutableStateFlow(savedStateHandle.get<Int>(currentIndexKey) ?: startIndexArgument)
+    val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+
+    init {
+        savedStateHandle[currentIndexKey] = _currentIndex.value
+
+        viewModelScope.launch {
+            combine(currentIndex, photos) { index, photos -> index to photos.size }
+                .collect { (index, count) ->
+                    val maxIndex = (count - 1).coerceAtLeast(0)
+                    val clamped = index.coerceIn(0, maxIndex)
+                    if (clamped != index) {
+                        setCurrentIndex(clamped)
+                    }
                 }
-                .catch { error ->
-                    Log.w(TAG, "Scan failed", error)
-                    val message = error.localizedMessage ?: error.javaClass.simpleName
-                    _uiState.update { current -> current.copy(errorMessage = message) }
-                }
-                .onCompletion {
-                    scanJob = null
-                    _uiState.update { current -> current.copy(isScanning = false) }
-                }
-                .collect {}
         }
     }
 
-    fun cancelScan() {
-        if (scanJob?.isActive != true) {
-            return
-        }
-        scanJob?.cancel()
-        scanJob = null
-        _uiState.update { it.copy(isScanning = false) }
+    fun setPagerScrollEnabled(isEnabled: Boolean) {
+        _isPagerScrollEnabled.value = isEnabled
     }
 
-    companion object {
-        private const val TAG = "ViewerViewModel"
+    fun setCurrentIndex(index: Int) {
+        val normalized = index.coerceAtLeast(0)
+        if (_currentIndex.value == normalized) {
+            return
+        }
+        _currentIndex.value = normalized
+        savedStateHandle[currentIndexKey] = normalized
     }
 }
-
-data class ViewerUiState(
-    val isScanning: Boolean = false,
-    val progress: ScanProgress = ScanProgress(),
-    val errorMessage: String? = null
-)

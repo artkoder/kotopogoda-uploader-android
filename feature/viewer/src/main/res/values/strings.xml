@@ -1,7 +1,4 @@
 <resources>
-    <string name="viewer_title">Галерея отчётов</string>
-    <string name="viewer_placeholder">Здесь появятся ваши загруженные котопогодные истории.</string>
-    <string name="viewer_scan_button">Сканировать</string>
-    <string name="viewer_scan_progress">Сканировано: %1$d, добавлено: %2$d, обновлено: %3$d, пропущено: %4$d</string>
-    <string name="viewer_scan_error">Ошибка индексации: %1$s</string>
+    <string name="viewer_empty_title">Фотографии не найдены</string>
+    <string name="viewer_empty_body">Сначала просканируйте выбранную папку, чтобы увидеть снимки.</string>
 </resources>
