@@ -24,6 +24,14 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+
+    sourceSets {
+        getByName("main") {
+            java.srcDir("$buildDir/generated/openapi/src/main/kotlin")
+        }
+    }
+
 }
 
 dependencies {
