@@ -3,7 +3,6 @@ package com.kotopogoda.uploader.core.data.indexer
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
-import android.provider.OpenableColumns
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.exifinterface.media.ExifInterface
@@ -170,7 +169,13 @@ class IndexerRepository @Inject constructor(
             return lastModified
         }
 
-        return resolver.query(uri, arrayOf(OpenableColumns.DATE_MODIFIED), null, null, null)
+        return resolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+            null,
+            null,
+            null
+        )
             ?.use { cursor ->
                 if (!cursor.moveToFirst()) {
                     return@use null
