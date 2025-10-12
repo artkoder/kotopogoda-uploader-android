@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
 
 @Singleton
 class SettingsRepositoryImpl @Inject constructor(
-    private val dataStore: DataStore<Preferences>,
+    @SettingsPreferencesStore private val dataStore: DataStore<Preferences>,
     @DefaultBaseUrl private val defaultBaseUrl: String,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : SettingsRepository {

@@ -31,6 +31,7 @@ abstract class SettingsModule {
 
         @Provides
         @Singleton
+        @SettingsPreferencesStore
         fun provideSettingsDataStore(
             @ApplicationContext context: Context,
         ): DataStore<Preferences> {
