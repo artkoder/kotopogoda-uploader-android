@@ -19,6 +19,8 @@ rootProject.name = "kotopogoda-uploader-android"
 include(":app")
 include(":core:data")
 include(":core:network")
+include(":core:security")
 include(":feature:onboarding")
+include(":feature:pairing")
 include(":feature:viewer")
 include(":feature:queue")

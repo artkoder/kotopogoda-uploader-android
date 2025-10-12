@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -14,6 +15,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kotopogoda.uploader.core.network.health.HealthState
+import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.feature.onboarding.OnboardingRoute
 import com.kotopogoda.uploader.feature.viewer.ViewerRoute
 import com.kotopogoda.uploader.feature.viewer.VIEWER_ROUTE_PATTERN
@@ -22,6 +25,11 @@ import com.kotopogoda.uploader.feature.viewer.viewerRoute
 import androidx.navigation.navArgument
 import com.kotopogoda.uploader.feature.queue.QUEUE_ROUTE
 import com.kotopogoda.uploader.feature.queue.QueueRoute
+import com.kotopogoda.uploader.feature.pairing.navigation.PairingRoute
+import com.kotopogoda.uploader.feature.pairing.navigation.pairingScreen
+import com.kotopogoda.uploader.ui.SettingsScreen
+
+private const val SETTINGS_ROUTE = "settings"
 
 enum class AppDestination(val route: String, val startRoute: String) {
     Onboarding("onboarding", "onboarding"),
@@ -31,12 +39,29 @@ enum class AppDestination(val route: String, val startRoute: String) {
 @Composable
 fun KotopogodaNavHost(
     modifier: Modifier = Modifier,
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
+    deviceCreds: DeviceCreds?,
+    healthState: HealthState,
+    onResetPairing: () -> Unit,
 ) {
     val viewModel: AppStartDestinationViewModel = hiltViewModel()
     val startDestination by viewModel.startDestination.collectAsState()
 
     val resolvedStartDestination = startDestination
+
+    LaunchedEffect(deviceCreds, resolvedStartDestination) {
+        val targetRoute = when {
+            deviceCreds == null -> PairingRoute
+            resolvedStartDestination != null -> resolvedStartDestination.startRoute
+            else -> null
+        }
+        if (targetRoute != null) {
+            navController.navigate(targetRoute) {
+                popUpTo(0)
+                launchSingleTop = true
+            }
+        }
+    }
 
     if (resolvedStartDestination == null) {
         Box(
@@ -51,6 +76,13 @@ fun KotopogodaNavHost(
             startDestination = resolvedStartDestination.startRoute,
             modifier = modifier
         ) {
+            pairingScreen(onPaired = {
+                val target = resolvedStartDestination.startRoute
+                navController.navigate(target) {
+                    popUpTo(0)
+                    launchSingleTop = true
+                }
+            })
             composable(AppDestination.Onboarding.route) {
                 OnboardingRoute(
                     onFinished = {
@@ -71,11 +103,28 @@ fun KotopogodaNavHost(
             ) {
                 ViewerRoute(
                     onBack = { navController.popBackStack() },
-                    onOpenQueue = { navController.navigate(QUEUE_ROUTE) }
+                    onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
+                    onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
+                    healthState = healthState,
                 )
             }
             composable(QUEUE_ROUTE) {
-                QueueRoute(onBack = { navController.popBackStack() })
+                QueueRoute(
+                    onBack = { navController.popBackStack() },
+                    healthState = healthState,
+                )
+            }
+            composable(SETTINGS_ROUTE) {
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onResetPairing = {
+                        onResetPairing()
+                        navController.navigate(PairingRoute) {
+                            popUpTo(0)
+                            launchSingleTop = true
+                        }
+                    }
+                )
             }
         }
     }

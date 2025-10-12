@@ -3,4 +3,12 @@
     <string name="upload_notification_in_progress">Загрузка…</string>
     <string name="upload_notification_progress_percent">%1$d%%</string>
     <string name="upload_notification_cancel">Отмена</string>
+    <string name="settings_title">Настройки</string>
+    <string name="settings_back">Назад</string>
+    <string name="settings_pairing_description">Сбросьте привязку устройства, если хотите подключить новый бот или переустановить приложение.</string>
+    <string name="settings_reset_button">Сбросить привязку</string>
+    <string name="settings_reset_title">Сбросить привязку устройства?</string>
+    <string name="settings_reset_message">Текущий deviceId и ключ подписи будут удалены. Приложение вернётся на экран привязки.</string>
+    <string name="settings_reset_confirm">Сбросить</string>
+    <string name="settings_reset_cancel">Отмена</string>
 </resources>

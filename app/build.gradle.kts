@@ -58,7 +58,9 @@ android {
 dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:network"))
+    implementation(project(":core:security"))
     implementation(project(":feature:onboarding"))
+    implementation(project(":feature:pairing"))
     implementation(project(":feature:viewer"))
     implementation(project(":feature:queue"))
 
@@ -72,6 +74,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.navigation)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.hilt.work)
     implementation(libs.coil.compose)
     implementation(libs.androidx.work.runtime.ktx)

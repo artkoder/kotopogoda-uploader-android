@@ -1,0 +1,48 @@
+package com.kotopogoda.uploader
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.kotopogoda.uploader.core.network.health.HealthMonitor
+import com.kotopogoda.uploader.core.network.health.HealthState
+import com.kotopogoda.uploader.core.security.DeviceCreds
+import com.kotopogoda.uploader.core.security.DeviceCredsStore
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+@HiltViewModel
+class MainViewModel @Inject constructor(
+    private val deviceCredsStore: DeviceCredsStore,
+    private val healthMonitor: HealthMonitor,
+) : ViewModel() {
+
+    val uiState: StateFlow<MainUiState> = combine(
+        deviceCredsStore.credsFlow,
+        healthMonitor.state,
+    ) { creds, health ->
+        MainUiState(deviceCreds = creds, healthState = health)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = MainUiState(deviceCreds = null, healthState = HealthState.Unknown),
+    )
+
+    init {
+        healthMonitor.start(viewModelScope)
+    }
+
+    fun clearPairing() {
+        viewModelScope.launch {
+            deviceCredsStore.clear()
+        }
+    }
+}
+
+data class MainUiState(
+    val deviceCreds: DeviceCreds?,
+    val healthState: HealthState,
+)

@@ -18,6 +18,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
+import com.kotopogoda.uploader.core.network.health.HealthState
+import com.kotopogoda.uploader.core.network.health.HealthStatus
 import com.kotopogoda.uploader.feature.viewer.R
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
@@ -61,6 +64,8 @@ import kotlinx.coroutines.flow.flowOf
 fun ViewerRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenSettings: () -> Unit,
+    healthState: HealthState,
     viewModel: ViewerViewModel = hiltViewModel()
 ) {
     val photos by viewModel.photos.collectAsState()
@@ -81,6 +86,8 @@ fun ViewerRoute(
         observeUploadEnqueued = viewModel::observeUploadEnqueued,
         onBack = onBack,
         onOpenQueue = onOpenQueue,
+        onOpenSettings = onOpenSettings,
+        healthState = healthState,
         onPageChanged = viewModel::setCurrentIndex,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
         onSkip = viewModel::onSkip,
@@ -102,6 +109,8 @@ private fun ViewerScreen(
     observeUploadEnqueued: (Uri) -> Flow<Boolean>,
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenSettings: () -> Unit,
+    healthState: HealthState,
     onPageChanged: (Int) -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
     onSkip: () -> Unit,
@@ -177,7 +186,9 @@ private fun ViewerScreen(
         topBar = {
             ViewerTopBar(
                 onBack = onBack,
-                onOpenQueue = onOpenQueue
+                onOpenQueue = onOpenQueue,
+                onOpenSettings = onOpenSettings,
+                healthState = healthState,
             )
         },
         bottomBar = {
@@ -230,10 +241,14 @@ private fun ViewerScreen(
 @Composable
 private fun ViewerTopBar(
     onBack: () -> Unit,
-    onOpenQueue: () -> Unit
+    onOpenQueue: () -> Unit,
+    onOpenSettings: () -> Unit,
+    healthState: HealthState,
 ) {
     SmallTopAppBar(
-        title = {},
+        title = {
+            HealthStatusBadge(healthState = healthState)
+        },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
@@ -249,9 +264,40 @@ private fun ViewerTopBar(
                     contentDescription = stringResource(id = R.string.viewer_open_queue)
                 )
             }
+            IconButton(onClick = onOpenSettings) {
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = stringResource(id = R.string.viewer_open_settings)
+                )
+            }
         },
         colors = TopAppBarDefaults.smallTopAppBarColors()
     )
+}
+
+@Composable
+private fun HealthStatusBadge(
+    healthState: HealthState,
+    modifier: Modifier = Modifier,
+) {
+    val (labelRes, color) = when (healthState.status) {
+        HealthStatus.ONLINE -> R.string.viewer_health_online to MaterialTheme.colorScheme.tertiary
+        HealthStatus.DEGRADED -> R.string.viewer_health_degraded to MaterialTheme.colorScheme.secondary
+        HealthStatus.OFFLINE -> R.string.viewer_health_offline to MaterialTheme.colorScheme.error
+        HealthStatus.UNKNOWN -> R.string.viewer_health_unknown to MaterialTheme.colorScheme.outline
+    }
+    Surface(
+        modifier = modifier,
+        color = color.copy(alpha = 0.12f),
+        shape = MaterialTheme.shapes.extraSmall,
+    ) {
+        Text(
+            text = stringResource(id = labelRes),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+        )
+    }
 }
 
 @Composable

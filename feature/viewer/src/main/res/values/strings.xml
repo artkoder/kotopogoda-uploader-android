@@ -18,4 +18,9 @@
     <string name="viewer_badge_enqueued">В очереди</string>
     <string name="viewer_open_queue">Очередь</string>
     <string name="viewer_back">Назад</string>
+    <string name="viewer_open_settings">Настройки</string>
+    <string name="viewer_health_online">Онлайн</string>
+    <string name="viewer_health_degraded">Проблемы</string>
+    <string name="viewer_health_offline">Оффлайн</string>
+    <string name="viewer_health_unknown">—</string>
 </resources>
