@@ -7,28 +7,47 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
+import com.kotopogoda.uploader.feature.viewer.R
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flowOf
 
 @Composable
 fun ViewerRoute(
@@ -38,14 +57,26 @@ fun ViewerRoute(
     val photos by viewModel.photos.collectAsState()
     val pagerScrollEnabled by viewModel.isPagerScrollEnabled.collectAsState()
     val currentIndex by viewModel.currentIndex.collectAsState()
+    val undoCount by viewModel.undoCount.collectAsState()
+    val canUndo by viewModel.canUndo.collectAsState()
+    val actionInProgress by viewModel.actionInProgress.collectAsState()
 
     ViewerScreen(
         photos = photos,
         currentIndex = currentIndex,
         isPagerScrollEnabled = pagerScrollEnabled,
+        undoCount = undoCount,
+        canUndo = canUndo,
+        actionInProgress = actionInProgress,
+        events = viewModel.events,
+        observeUploadEnqueued = viewModel::observeUploadEnqueued,
         onBack = onBack,
         onPageChanged = viewModel::setCurrentIndex,
-        onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) }
+        onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
+        onSkip = viewModel::onSkip,
+        onMoveToProcessing = viewModel::onMoveToProcessing,
+        onEnqueueUpload = viewModel::onEnqueueUpload,
+        onUndo = viewModel::onUndo
     )
 }
 
@@ -54,9 +85,18 @@ private fun ViewerScreen(
     photos: List<PhotoItem>,
     currentIndex: Int,
     isPagerScrollEnabled: Boolean,
+    undoCount: Int,
+    canUndo: Boolean,
+    actionInProgress: ViewerViewModel.ViewerActionInProgress?,
+    events: Flow<ViewerViewModel.ViewerEvent>,
+    observeUploadEnqueued: (Uri) -> Flow<Boolean>,
     onBack: () -> Unit,
     onPageChanged: (Int) -> Unit,
-    onZoomStateChanged: (Boolean) -> Unit
+    onZoomStateChanged: (Boolean) -> Unit,
+    onSkip: () -> Unit,
+    onMoveToProcessing: () -> Unit,
+    onEnqueueUpload: () -> Unit,
+    onUndo: () -> Unit
 ) {
     BackHandler(onBack = onBack)
 
@@ -67,6 +107,14 @@ private fun ViewerScreen(
 
     var rememberedIndex by rememberSaveable(currentIndex) { mutableStateOf(currentIndex) }
     val pagerState = rememberPagerState(initialPage = rememberedIndex, pageCount = { photos.size })
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val currentPhoto = photos.getOrNull(currentIndex)
+    val isQueuedFlow = remember(currentPhoto?.uri) {
+        currentPhoto?.let { observeUploadEnqueued(it.uri) } ?: flowOf(false)
+    }
+    val isCurrentQueued by isQueuedFlow.collectAsState(initial = false)
+    val isBusy = actionInProgress != null
 
     LaunchedEffect(currentIndex, photos.size) {
         val clamped = currentIndex.coerceIn(0, photos.lastIndex)
@@ -88,19 +136,182 @@ private fun ViewerScreen(
             }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        VerticalPager(
-            state = pagerState,
-            userScrollEnabled = isPagerScrollEnabled,
-            modifier = Modifier.fillMaxSize()
-        ) { page ->
-            val item = photos[page]
-            ZoomableImage(
-                uri = item.uri,
-                modifier = Modifier.fillMaxSize(),
-                onZoomChanged = onZoomStateChanged
+    val context = LocalContext.current
+
+    LaunchedEffect(events, context) {
+        events.collectLatest { event ->
+            when (event) {
+                is ViewerViewModel.ViewerEvent.ShowSnackbar -> {
+                    val message = context.getString(event.messageRes)
+                    val actionLabel = if (event.withUndo) {
+                        context.getString(R.string.viewer_snackbar_action_undo)
+                    } else {
+                        null
+                    }
+                    val result = snackbarHostState.showSnackbar(
+                        message = message,
+                        actionLabel = actionLabel
+                    )
+                    if (result == SnackbarResult.ActionPerformed && event.withUndo) {
+                        onUndo()
+                    }
+                }
+            }
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        bottomBar = {
+            ViewerActionBar(
+                skipEnabled = !isBusy && currentIndex < photos.lastIndex,
+                processingEnabled = !isBusy && currentPhoto != null,
+                publishEnabled = !isBusy && currentPhoto != null && !isCurrentQueued,
+                processingBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing,
+                publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
+                canUndo = canUndo && !isBusy,
+                undoCount = undoCount,
+                onSkip = onSkip,
+                onMoveToProcessing = onMoveToProcessing,
+                onEnqueueUpload = onEnqueueUpload,
+                onUndo = onUndo
             )
         }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            VerticalPager(
+                state = pagerState,
+                userScrollEnabled = isPagerScrollEnabled && !isBusy,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                val item = photos[page]
+                Box(modifier = Modifier.fillMaxSize()) {
+                    ZoomableImage(
+                        uri = item.uri,
+                        modifier = Modifier.fillMaxSize(),
+                        onZoomChanged = onZoomStateChanged
+                    )
+                    if (page == currentIndex && isCurrentQueued) {
+                        UploadQueuedBadge(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ViewerActionBar(
+    skipEnabled: Boolean,
+    processingEnabled: Boolean,
+    publishEnabled: Boolean,
+    processingBusy: Boolean,
+    publishBusy: Boolean,
+    canUndo: Boolean,
+    undoCount: Int,
+    onSkip: () -> Unit,
+    onMoveToProcessing: () -> Unit,
+    onEnqueueUpload: () -> Unit,
+    onUndo: () -> Unit
+) {
+    Surface(
+        tonalElevation = 3.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FilledTonalButton(
+                onClick = onSkip,
+                enabled = skipEnabled,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(text = stringResource(id = R.string.viewer_action_skip))
+            }
+            FilledTonalButton(
+                onClick = onMoveToProcessing,
+                enabled = processingEnabled,
+                modifier = Modifier.weight(1f)
+            ) {
+                ActionButtonContent(
+                    text = stringResource(id = R.string.viewer_action_processing),
+                    busy = processingBusy
+                )
+            }
+            Button(
+                onClick = onEnqueueUpload,
+                enabled = publishEnabled,
+                modifier = Modifier.weight(1f)
+            ) {
+                ActionButtonContent(
+                    text = stringResource(id = R.string.viewer_action_publish),
+                    busy = publishBusy
+                )
+            }
+            OutlinedButton(
+                onClick = onUndo,
+                enabled = canUndo,
+                modifier = Modifier.weight(1f)
+            ) {
+                val label = if (undoCount > 0) {
+                    stringResource(id = R.string.viewer_action_undo_with_count, undoCount)
+                } else {
+                    stringResource(id = R.string.viewer_action_undo)
+                }
+                Text(text = label)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionButtonContent(
+    text: String,
+    busy: Boolean
+) {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text)
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 8.dp)
+                    .size(18.dp),
+                strokeWidth = 2.dp
+            )
+        }
+    }
+}
+
+@Composable
+private fun UploadQueuedBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 6.dp
+    ) {
+        Text(
+            text = stringResource(id = R.string.viewer_badge_enqueued),
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
     }
 }
 

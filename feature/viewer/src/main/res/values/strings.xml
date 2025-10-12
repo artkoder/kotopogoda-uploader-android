@@ -1,4 +1,19 @@
 <resources>
     <string name="viewer_empty_title">Фотографии не найдены</string>
     <string name="viewer_empty_body">Сначала просканируйте выбранную папку, чтобы увидеть снимки.</string>
+    <string name="viewer_action_skip">Пропустить</string>
+    <string name="viewer_action_processing">На обработку</string>
+    <string name="viewer_action_publish">К публикации</string>
+    <string name="viewer_action_undo">Отменить</string>
+    <string name="viewer_action_undo_with_count">Отменить (%1$d)</string>
+    <string name="viewer_snackbar_action_undo">Отменить</string>
+    <string name="viewer_snackbar_skip_success">Фотография пропущена</string>
+    <string name="viewer_snackbar_processing_success">Перенесено в «На обработку»</string>
+    <string name="viewer_snackbar_processing_failed">Не удалось перенести в «На обработку»</string>
+    <string name="viewer_snackbar_publish_success">Фото поставлено в очередь на публикацию</string>
+    <string name="viewer_snackbar_publish_failed">Не удалось поставить фото в очередь</string>
+    <string name="viewer_snackbar_processing_undone">Перенос отменён</string>
+    <string name="viewer_snackbar_publish_undone">Публикация отменена</string>
+    <string name="viewer_snackbar_undo_failed">Не удалось отменить действие</string>
+    <string name="viewer_badge_enqueued">В очереди</string>
 </resources>
