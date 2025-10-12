@@ -306,7 +306,7 @@ class ViewerViewModel @Inject constructor(
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_SIZE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-            DocumentsContract.Document.COLUMN_PARENT_DOCUMENT
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID
         )
         val resolver = context.contentResolver
         val cursor = resolver.query(uri, projection, null, null, null)
@@ -318,7 +318,7 @@ class ViewerViewModel @Inject constructor(
             val displayNameIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val sizeIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
             val lastModifiedIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-            val parentIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_PARENT_DOCUMENT)
+            val documentIdIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
 
             val name = result.getString(displayNameIndex) ?: DEFAULT_FILE_NAME
             val size = if (result.isNull(sizeIndex)) {
@@ -331,14 +331,21 @@ class ViewerViewModel @Inject constructor(
             } else {
                 result.getLong(lastModifiedIndex)
             }
-            val parentId = if (result.isNull(parentIndex)) {
-                null
-            } else {
-                result.getString(parentIndex)
+            val documentId = result.getString(documentIdIndex)
+            val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+            val parentDocumentId = when {
+                documentId == null -> treeDocumentId
+                documentId == treeDocumentId -> treeDocumentId
+                else -> {
+                    val slashIndex = documentId.lastIndexOf('/')
+                    if (slashIndex > 0) {
+                        documentId.substring(0, slashIndex)
+                    } else {
+                        treeDocumentId
+                    }
+                }
             }
-            val parentUri = parentId?.let {
-                DocumentsContract.buildDocumentUriUsingTree(treeUri, it)
-            } ?: treeUri
+            val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
             DocumentInfo(
                 uri = uri,
                 displayName = name,
