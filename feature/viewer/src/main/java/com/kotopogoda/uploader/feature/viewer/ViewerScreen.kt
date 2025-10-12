@@ -15,17 +15,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallTopAppBar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +60,7 @@ import kotlinx.coroutines.flow.flowOf
 @Composable
 fun ViewerRoute(
     onBack: () -> Unit,
+    onOpenQueue: () -> Unit,
     viewModel: ViewerViewModel = hiltViewModel()
 ) {
     val photos by viewModel.photos.collectAsState()
@@ -71,6 +80,7 @@ fun ViewerRoute(
         events = viewModel.events,
         observeUploadEnqueued = viewModel::observeUploadEnqueued,
         onBack = onBack,
+        onOpenQueue = onOpenQueue,
         onPageChanged = viewModel::setCurrentIndex,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
         onSkip = viewModel::onSkip,
@@ -91,6 +101,7 @@ private fun ViewerScreen(
     events: Flow<ViewerViewModel.ViewerEvent>,
     observeUploadEnqueued: (Uri) -> Flow<Boolean>,
     onBack: () -> Unit,
+    onOpenQueue: () -> Unit,
     onPageChanged: (Int) -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
     onSkip: () -> Unit,
@@ -163,6 +174,12 @@ private fun ViewerScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        topBar = {
+            ViewerTopBar(
+                onBack = onBack,
+                onOpenQueue = onOpenQueue
+            )
+        },
         bottomBar = {
             ViewerActionBar(
                 skipEnabled = !isBusy && currentIndex < photos.lastIndex,
@@ -207,6 +224,34 @@ private fun ViewerScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ViewerTopBar(
+    onBack: () -> Unit,
+    onOpenQueue: () -> Unit
+) {
+    SmallTopAppBar(
+        title = {},
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.Rounded.ArrowBack,
+                    contentDescription = stringResource(id = R.string.viewer_back)
+                )
+            }
+        },
+        actions = {
+            IconButton(onClick = onOpenQueue) {
+                Icon(
+                    imageVector = Icons.Rounded.CloudUpload,
+                    contentDescription = stringResource(id = R.string.viewer_open_queue)
+                )
+            }
+        },
+        colors = TopAppBarDefaults.smallTopAppBarColors()
+    )
 }
 
 @Composable

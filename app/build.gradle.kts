@@ -60,6 +60,7 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":feature:onboarding"))
     implementation(project(":feature:viewer"))
+    implementation(project(":feature:queue"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

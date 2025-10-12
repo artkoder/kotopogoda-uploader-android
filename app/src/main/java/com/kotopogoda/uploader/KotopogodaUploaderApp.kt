@@ -1,19 +1,22 @@
 package com.kotopogoda.uploader
 
 import android.app.Application
-import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
-import javax.inject.Inject
+import com.kotopogoda.uploader.notifications.UploadNotif
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
 @HiltAndroidApp
 class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     @Inject
-    lateinit var workerFactory: HiltWorkerFactory
+    lateinit var workManagerConfigurationDelegate: Configuration
+
+    override fun onCreate() {
+        super.onCreate()
+        UploadNotif.ensureChannel(this)
+    }
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
-            .setWorkerFactory(workerFactory)
-            .build()
+        get() = workManagerConfigurationDelegate
 }

@@ -20,6 +20,8 @@ import com.kotopogoda.uploader.feature.viewer.VIEWER_ROUTE_PATTERN
 import com.kotopogoda.uploader.feature.viewer.VIEWER_START_INDEX_ARG
 import com.kotopogoda.uploader.feature.viewer.viewerRoute
 import androidx.navigation.navArgument
+import com.kotopogoda.uploader.feature.queue.QUEUE_ROUTE
+import com.kotopogoda.uploader.feature.queue.QueueRoute
 
 enum class AppDestination(val route: String, val startRoute: String) {
     Onboarding("onboarding", "onboarding"),
@@ -67,7 +69,13 @@ fun KotopogodaNavHost(
                     }
                 )
             ) {
-                ViewerRoute(onBack = { navController.popBackStack() })
+                ViewerRoute(
+                    onBack = { navController.popBackStack() },
+                    onOpenQueue = { navController.navigate(QUEUE_ROUTE) }
+                )
+            }
+            composable(QUEUE_ROUTE) {
+                QueueRoute(onBack = { navController.popBackStack() })
             }
         }
     }

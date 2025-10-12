@@ -5,8 +5,11 @@ import android.net.Uri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.ForegroundInfo
+import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.network.KotopogodaApi
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.IOException
@@ -17,7 +20,8 @@ import kotlinx.coroutines.withContext
 class UploadWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted params: WorkerParameters,
-    private val api: KotopogodaApi
+    private val api: KotopogodaApi,
+    private val foregroundDelegate: UploadForegroundDelegate
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -29,11 +33,24 @@ class UploadWorker @AssistedInject constructor(
         val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext Result.failure()
 
         try {
-            val bytes = readDocumentBytes(uri)
+            setProgress(
+                workDataOf(
+                    UploadEnqueuer.KEY_PROGRESS to INDETERMINATE_PROGRESS,
+                    UploadEnqueuer.KEY_DISPLAY_NAME to displayName
+                )
+            )
+            setForeground(createForeground(displayName, INDETERMINATE_PROGRESS))
+
+            val totalBytes = appContext.contentResolver
+                .openAssetFileDescriptor(uri, "r")
+                ?.use { it.length }
+                ?: -1L
+
+            val uploadedBytes = readDocumentBytes(uri, totalBytes, displayName)
             val payload = buildString {
                 append("name=").append(displayName).append(';')
                 append("uri=").append(uriString).append(';')
-                append("size=").append(bytes).append(';')
+                append("size=").append(uploadedBytes).append(';')
                 append("key=").append(idempotencyKey)
             }
             val success = api.uploadCatWeatherReport(payload)
@@ -49,7 +66,11 @@ class UploadWorker @AssistedInject constructor(
         }
     }
 
-    private fun readDocumentBytes(uri: Uri): Long {
+    private suspend fun readDocumentBytes(
+        uri: Uri,
+        totalBytes: Long,
+        displayName: String
+    ): Long {
         val resolver = appContext.contentResolver
         val inputStream = resolver.openInputStream(uri)
             ?: throw IOException("Unable to open input stream for $uri")
@@ -63,14 +84,38 @@ class UploadWorker @AssistedInject constructor(
                 }
                 if (read > 0) {
                     total += read
+                    if (totalBytes > 0) {
+                        val progress = ((total * 100) / totalBytes).toInt().coerceIn(0, 100)
+                        updateProgress(displayName, progress)
+                    }
                 }
             }
         }
+        if (totalBytes <= 0) {
+            updateProgress(displayName, INDETERMINATE_PROGRESS)
+        } else {
+            updateProgress(displayName, 100)
+        }
         return total
+    }
+
+    private suspend fun updateProgress(displayName: String, progress: Int) {
+        setProgress(
+            workDataOf(
+                UploadEnqueuer.KEY_PROGRESS to progress,
+                UploadEnqueuer.KEY_DISPLAY_NAME to displayName
+            )
+        )
+        setForeground(createForeground(displayName, progress))
+    }
+
+    private fun createForeground(displayName: String, progress: Int): ForegroundInfo {
+        return foregroundDelegate.create(displayName, progress, id)
     }
 
     companion object {
         private const val BUFFER_SIZE = 64 * 1024
         private const val DEFAULT_FILE_NAME = "photo.jpg"
+        private const val INDETERMINATE_PROGRESS = -1
     }
 }
