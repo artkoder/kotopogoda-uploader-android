@@ -5,7 +5,9 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+import org.gradle.api.Action
 import org.gradle.api.GradleException
+import org.gradle.api.execution.TaskExecutionGraph
 
 android {
     namespace = "com.kotopogoda.uploader"
@@ -32,14 +34,12 @@ android {
     signingConfigs {
         create("release") {
             val keystorePath = System.getenv("ANDROID_KEYSTORE_FILE").orEmpty()
-            if (keystorePath.isBlank()) {
-                throw GradleException("ANDROID_KEYSTORE_FILE is not set. Release signing cannot proceed.")
+            if (keystorePath.isNotBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
             }
-
-            storeFile = file(keystorePath)
-            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
         }
     }
 
@@ -83,6 +83,29 @@ android {
         }
     }
 }
+
+gradle.taskGraph.whenReady(object : Action<TaskExecutionGraph> {
+    override fun execute(graph: TaskExecutionGraph) {
+        val releaseTaskRequested = graph.allTasks.any { task ->
+            task.project == project && task.name.contains("Release")
+        }
+
+        if (releaseTaskRequested) {
+            fun requireEnv(name: String) {
+                if (System.getenv(name).isNullOrBlank()) {
+                    throw GradleException("$name is not set. Release signing cannot proceed.")
+                }
+            }
+
+            listOf(
+                "ANDROID_KEYSTORE_FILE",
+                "ANDROID_KEYSTORE_PASSWORD",
+                "ANDROID_KEY_ALIAS",
+                "ANDROID_KEY_ALIAS_PASSWORD",
+            ).forEach(::requireEnv)
+        }
+    }
+})
 
 dependencies {
     implementation(project(":core:data"))
