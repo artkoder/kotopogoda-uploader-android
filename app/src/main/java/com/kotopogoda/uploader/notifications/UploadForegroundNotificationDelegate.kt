@@ -44,7 +44,11 @@ class UploadForegroundNotificationDelegate @Inject constructor(
             .build()
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_DATA_SYNC)
+            ForegroundInfo(
+                notificationId,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
         } else {
             ForegroundInfo(notificationId, notification)
         }
