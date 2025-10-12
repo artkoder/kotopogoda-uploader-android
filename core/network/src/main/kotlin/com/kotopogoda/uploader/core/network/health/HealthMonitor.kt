@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.network.health
 
 import com.kotopogoda.uploader.core.network.api.HealthApi
+import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -17,7 +18,7 @@ import kotlinx.coroutines.withContext
 
 @Singleton
 class HealthMonitor @Inject constructor(
-    private val api: HealthApi,
+    private val networkClientProvider: NetworkClientProvider,
 ) {
 
     private val started = AtomicBoolean(false)
@@ -45,6 +46,7 @@ class HealthMonitor @Inject constructor(
     private suspend fun updateState() {
         val now = Instant.now()
         val result = withContext(Dispatchers.IO) {
+            val api = networkClientProvider.create(HealthApi::class.java)
             runCatching { api.health() }
         }
 
