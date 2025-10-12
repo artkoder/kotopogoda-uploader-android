@@ -33,9 +33,10 @@ class QueueViewModel @Inject constructor(
     fun onCancel(item: QueueItemUiModel) {
         val metadata = item.metadata
         val uniqueName = metadata.uniqueName
+        val metadataUri = metadata.uri
         when {
             uniqueName != null -> uploadEnqueuer.cancel(uniqueName)
-            metadata.uri != null -> uploadEnqueuer.cancel(metadata.uri)
+            metadataUri != null -> uploadEnqueuer.cancel(metadataUri)
         }
     }
 
@@ -47,19 +48,20 @@ class QueueViewModel @Inject constructor(
 
     private fun WorkInfo.toUiModel(): QueueItemUiModel {
         val metadata = UploadTags.metadataFrom(this)
+        val metadataUri = metadata.uri
         val progressValue = progress.getInt(UploadEnqueuer.KEY_PROGRESS, DEFAULT_PROGRESS_VALUE)
         val normalizedProgress = if (progressValue >= 0) progressValue.coerceIn(0, 100) else DEFAULT_PROGRESS_VALUE
         val progressName = progress.getString(UploadEnqueuer.KEY_DISPLAY_NAME)
         val displayName = when {
             !progressName.isNullOrBlank() -> progressName
             !metadata.displayName.isNullOrBlank() -> metadata.displayName
-            metadata.uri != null -> metadata.uri.lastPathSegment ?: DEFAULT_TITLE
+            metadataUri != null -> metadataUri.lastPathSegment ?: DEFAULT_TITLE
             else -> DEFAULT_TITLE
         }
         val canCancel = state == WorkInfo.State.ENQUEUED || state == WorkInfo.State.RUNNING
         val canRetry = state == WorkInfo.State.FAILED &&
             metadata.uniqueName != null &&
-            metadata.uri != null &&
+            metadataUri != null &&
             metadata.idempotencyKey != null
 
         return QueueItemUiModel(
