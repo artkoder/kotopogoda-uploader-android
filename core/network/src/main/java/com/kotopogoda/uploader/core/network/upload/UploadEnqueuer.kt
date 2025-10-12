@@ -146,7 +146,7 @@ class UploadEnqueuer @Inject constructor(
 
         return OneTimeWorkRequestBuilder<PollStatusWorker>()
             .setInputData(inputData)
-            .setInputMerger(OverwritingInputMerger::class)
+            .setInputMerger(OverwritingInputMerger::class.java)
             .setConstraints(networkConstraints())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, POLL_INITIAL_BACKOFF_SECONDS, TimeUnit.SECONDS)
             .addTag(UploadTags.TAG_POLL)
