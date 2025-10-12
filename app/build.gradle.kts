@@ -5,36 +5,59 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+import org.gradle.api.Action
+import org.gradle.api.GradleException
+import org.gradle.api.execution.TaskExecutionGraph
+
 android {
     namespace = "com.kotopogoda.uploader"
     compileSdk = 35
 
+    val appTag = (project.findProperty("appTag") as? String) ?: "0.0.0"
+    val appCode = project.findProperty("appCode")?.toString()?.toIntOrNull() ?: 1
     val contractTag = (project.findProperty("contractTag") as? String) ?: "v1.0.0"
-    val apiBaseUrl = (project.findProperty("apiBaseUrl") as? String) ?: "https://api.kotopogoda.local"
+    val baseUrl = (project.findProperty("baseUrl") as? String) ?: "https://<prod-host>"
 
     defaultConfig {
         applicationId = "com.kotopogoda.uploader"
         minSdk = 35
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appCode
+        versionName = appTag
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
-        buildConfigField("String", "CONTRACT_VERSION", "\"$contractTag\"")
-        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("ANDROID_KEYSTORE_FILE").orEmpty()
+            if (keystorePath.isNotBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = false
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    buildTypes.all {
+        buildConfigField("String", "CONTRACT_VERSION", "\"$contractTag\"")
+        buildConfigField("String", "API_BASE_URL", "\"$baseUrl\"")
     }
 
     compileOptions {
@@ -60,6 +83,29 @@ android {
         }
     }
 }
+
+gradle.taskGraph.whenReady(object : Action<TaskExecutionGraph> {
+    override fun execute(graph: TaskExecutionGraph) {
+        val releaseTaskRequested = graph.allTasks.any { task ->
+            task.project == project && task.name.contains("Release")
+        }
+
+        if (releaseTaskRequested) {
+            fun requireEnv(name: String) {
+                if (System.getenv(name).isNullOrBlank()) {
+                    throw GradleException("$name is not set. Release signing cannot proceed.")
+                }
+            }
+
+            listOf(
+                "ANDROID_KEYSTORE_FILE",
+                "ANDROID_KEYSTORE_PASSWORD",
+                "ANDROID_KEY_ALIAS",
+                "ANDROID_KEY_ALIAS_PASSWORD",
+            ).forEach(::requireEnv)
+        }
+    }
+})
 
 dependencies {
     implementation(project(":core:data"))

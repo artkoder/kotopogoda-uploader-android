@@ -1,0 +1,116 @@
+name: Android Release (signed APK)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle (system)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.9'
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+          gradle-home-cache-cleanup: true
+          add-job-summary: false
+
+      - name: Ensure signing secrets
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_ALIAS_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required secret $name" >&2
+              exit 1
+            fi
+          done
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
+
+      - name: Restore keystore
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/keystore.jks"
+          echo "ANDROID_KEYSTORE_FILE=$GITHUB_WORKSPACE/keystore.jks" >> "$GITHUB_ENV"
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Detect tags (app & contract)
+        id: ver
+        run: |
+          set -euo pipefail
+          APP_TAG="${GITHUB_REF_NAME}"
+          APP_CODE=$(date +%y%j%H)
+          CONTRACT_TAG=$(git -C api/contract describe --tags --exact-match 2>/dev/null || git -C api/contract describe --tags --abbrev=0)
+          echo "app_tag=$APP_TAG" >> "$GITHUB_OUTPUT"
+          echo "app_code=$APP_CODE" >> "$GITHUB_OUTPUT"
+          echo "contract_tag=$CONTRACT_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Install Android SDK (API 35)
+        run: |
+          set -euo pipefail
+          SDK="$HOME/android-sdk"
+          mkdir -p "$SDK/cmdline-tools" && cd /tmp
+          curl -L -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q cmdtools.zip
+          mv cmdline-tools "$SDK/cmdline-tools/latest"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          echo "sdk.dir=$SDK" > local.properties
+
+      - name: Build signed Release APK
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ env.ANDROID_KEYSTORE_FILE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
+        run: |
+          set -euo pipefail
+          gradle --no-daemon clean \
+            :core:network:openApiGenerate \
+            assembleRelease \
+            -PappTag='${{ steps.ver.outputs.app_tag }}' \
+            -PappCode='${{ steps.ver.outputs.app_code }}' \
+            -PcontractTag='${{ steps.ver.outputs.contract_tag }}' \
+            -PbaseUrl='https://<prod-host>'
+
+      - name: Collect artifacts
+        run: |
+          set -euo pipefail
+          ls -la app/build/outputs/apk/release || true
+          APK_PATH=$(ls app/build/outputs/apk/release/*-release.apk | head -n1)
+          echo "APK_PATH=$APK_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: ${{ env.APK_PATH }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.app_tag }}
+          name: ${{ steps.ver.outputs.app_tag }}
+          body: ${{ secrets.RELEASE_NOTES || 'Signed release APK' }}
+          files: |
+            ${{ env.APK_PATH }}
