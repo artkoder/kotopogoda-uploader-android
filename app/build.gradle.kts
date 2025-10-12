@@ -58,7 +58,9 @@ android {
 dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:network"))
+    implementation(project(":core:security"))
     implementation(project(":feature:onboarding"))
+    implementation(project(":feature:pairing"))
     implementation(project(":feature:viewer"))
     implementation(project(":feature:queue"))
 
