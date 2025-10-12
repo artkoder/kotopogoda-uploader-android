@@ -12,4 +12,8 @@
     <string name="queue_action_cancel">Отменить</string>
     <string name="queue_action_retry">Повторить</string>
     <string name="queue_back">Назад</string>
+    <string name="queue_health_online">Онлайн</string>
+    <string name="queue_health_degraded">Проблемы</string>
+    <string name="queue_health_offline">Оффлайн</string>
+    <string name="queue_health_unknown">—</string>
 </resources>

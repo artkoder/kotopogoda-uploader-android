@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallTopAppBar
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -36,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.WorkInfo
+import com.kotopogoda.uploader.core.network.health.HealthState
+import com.kotopogoda.uploader.core.network.health.HealthStatus
 import com.kotopogoda.uploader.feature.queue.R
 
 const val QUEUE_ROUTE = "queue"
@@ -43,11 +46,13 @@ const val QUEUE_ROUTE = "queue"
 @Composable
 fun QueueRoute(
     onBack: () -> Unit,
+    healthState: HealthState,
     viewModel: QueueViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     QueueScreen(
         state = state,
+        healthState = healthState,
         onBack = onBack,
         onCancel = viewModel::onCancel,
         onRetry = viewModel::onRetry
@@ -58,6 +63,7 @@ fun QueueRoute(
 @Composable
 fun QueueScreen(
     state: QueueUiState,
+    healthState: HealthState,
     onBack: () -> Unit,
     onCancel: (QueueItemUiModel) -> Unit,
     onRetry: (QueueItemUiModel) -> Unit
@@ -65,7 +71,12 @@ fun QueueScreen(
     Scaffold(
         topBar = {
             SmallTopAppBar(
-                title = { Text(text = stringResource(id = R.string.queue_title)) },
+                title = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(text = stringResource(id = R.string.queue_title))
+                        HealthStatusBadge(healthState = healthState)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -192,4 +203,29 @@ private fun statusLabel(state: WorkInfo.State): String {
         WorkInfo.State.BLOCKED -> R.string.queue_status_blocked
     }
     return stringResource(id = resId)
+}
+
+@Composable
+private fun HealthStatusBadge(
+    healthState: HealthState,
+    modifier: Modifier = Modifier,
+) {
+    val (labelRes, color) = when (healthState.status) {
+        HealthStatus.ONLINE -> R.string.queue_health_online to MaterialTheme.colorScheme.tertiary
+        HealthStatus.DEGRADED -> R.string.queue_health_degraded to MaterialTheme.colorScheme.secondary
+        HealthStatus.OFFLINE -> R.string.queue_health_offline to MaterialTheme.colorScheme.error
+        HealthStatus.UNKNOWN -> R.string.queue_health_unknown to MaterialTheme.colorScheme.outline
+    }
+    Surface(
+        modifier = modifier,
+        color = color.copy(alpha = 0.12f),
+        shape = MaterialTheme.shapes.extraSmall,
+    ) {
+        Text(
+            text = stringResource(id = labelRes),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+        )
+    }
 }
