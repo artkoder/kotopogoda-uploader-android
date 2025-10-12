@@ -27,7 +27,7 @@ import com.kotopogoda.uploader.feature.queue.QUEUE_ROUTE
 import com.kotopogoda.uploader.feature.queue.QueueRoute
 import com.kotopogoda.uploader.feature.pairing.navigation.PairingRoute
 import com.kotopogoda.uploader.feature.pairing.navigation.pairingScreen
-import com.kotopogoda.uploader.ui.SettingsScreen
+import com.kotopogoda.uploader.ui.SettingsRoute
 
 private const val SETTINGS_ROUTE = "settings"
 
@@ -115,7 +115,7 @@ fun KotopogodaNavHost(
                 )
             }
             composable(SETTINGS_ROUTE) {
-                SettingsScreen(
+                SettingsRoute(
                     onBack = { navController.popBackStack() },
                     onResetPairing = {
                         onResetPairing()

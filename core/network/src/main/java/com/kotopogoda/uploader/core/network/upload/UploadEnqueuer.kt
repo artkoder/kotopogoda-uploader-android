@@ -58,6 +58,10 @@ class UploadEnqueuer @Inject constructor(
         workManager.cancelUniqueWork(uniqueName)
     }
 
+    fun cancelAllUploads() {
+        workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD)
+    }
+
     fun retry(metadata: UploadWorkMetadata) {
         val uniqueName = metadata.uniqueName ?: return
         val uri = metadata.uri ?: return

@@ -9,6 +9,9 @@ android {
     namespace = "com.kotopogoda.uploader"
     compileSdk = 35
 
+    val contractTag = (project.findProperty("contractTag") as? String) ?: "v1.0.0"
+    val apiBaseUrl = (project.findProperty("apiBaseUrl") as? String) ?: "https://api.kotopogoda.local"
+
     defaultConfig {
         applicationId = "com.kotopogoda.uploader"
         minSdk = 35
@@ -20,6 +23,8 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        buildConfigField("String", "CONTRACT_VERSION", "\"$contractTag\"")
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {
@@ -43,6 +48,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get() // 1.5.11
@@ -60,6 +66,7 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
+    implementation(project(":core:logging"))
     implementation(project(":feature:onboarding"))
     implementation(project(":feature:pairing"))
     implementation(project(":feature:viewer"))
@@ -84,6 +91,7 @@ dependencies {
     implementation(libs.com.squareup.retrofit2.converter.moshi)
     implementation(libs.com.squareup.okhttp3.okhttp)
     implementation(libs.com.squareup.okhttp3.logging.interceptor)
+    implementation(libs.timber)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)

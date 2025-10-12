@@ -2,39 +2,33 @@ package com.kotopogoda.uploader.core.network.di
 
 import android.content.Context
 import androidx.work.WorkManager
-import com.kotopogoda.uploader.core.network.api.HealthApi
-import com.kotopogoda.uploader.core.network.api.PairingApi
+import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
+import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
+import com.kotopogoda.uploader.core.settings.DefaultBaseUrl
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
-import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
-import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-
-    private const val BASE_URL = "https://api.kotopogoda.local"
-
     @Provides
     @Singleton
-    fun provideLoggingInterceptor(): Interceptor {
-        return HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
-        }
+    fun provideLoggingInterceptor(): HttpLoggingInterceptor = HttpLoggingInterceptor().apply {
+        level = HttpLoggingInterceptor.Level.NONE
     }
 
     @Provides
     @Singleton
     fun provideOkHttpClient(
-        loggingInterceptor: Interceptor,
+        loggingInterceptor: HttpLoggingInterceptor,
         hmacInterceptor: HmacInterceptor,
     ): OkHttpClient {
         return OkHttpClient.Builder()
@@ -51,21 +45,25 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create())
-            .client(okHttpClient)
-            .build()
-    }
+    fun provideMoshiConverterFactory(): MoshiConverterFactory = MoshiConverterFactory.create()
 
     @Provides
     @Singleton
-    fun providePairingApi(retrofit: Retrofit): PairingApi = retrofit.create(PairingApi::class.java)
+    fun provideNetworkClientProvider(
+        okHttpClient: OkHttpClient,
+        moshiConverterFactory: MoshiConverterFactory,
+        @DefaultBaseUrl defaultBaseUrl: String,
+    ): NetworkClientProvider = NetworkClientProvider(
+        okHttpClient = okHttpClient,
+        converterFactory = moshiConverterFactory,
+        defaultBaseUrl = defaultBaseUrl,
+    )
 
     @Provides
     @Singleton
-    fun provideHealthApi(retrofit: Retrofit): HealthApi = retrofit.create(HealthApi::class.java)
+    fun provideHttpLoggingController(
+        loggingInterceptor: HttpLoggingInterceptor,
+    ): HttpLoggingController = HttpLoggingController(loggingInterceptor)
 
     @Provides
     fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
