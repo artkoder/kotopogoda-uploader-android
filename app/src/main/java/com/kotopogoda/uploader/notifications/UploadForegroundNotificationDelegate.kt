@@ -8,6 +8,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.R
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
+import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,15 +19,23 @@ class UploadForegroundNotificationDelegate @Inject constructor(
     @ApplicationContext private val context: Context
 ) : UploadForegroundDelegate {
 
-    override fun create(displayName: String, progress: Int, workId: UUID): ForegroundInfo {
+    override fun create(
+        displayName: String,
+        progress: Int,
+        workId: UUID,
+        kind: UploadForegroundKind
+    ): ForegroundInfo {
         UploadNotif.ensureChannel(context)
         val notificationId = workId.hashCode()
         val cancelIntent = WorkManager.getInstance(context).createCancelPendingIntent(workId)
 
-        val progressText = if (progress in 0..100) {
-            context.getString(R.string.upload_notification_progress_percent, progress)
-        } else {
-            context.getString(R.string.upload_notification_in_progress)
+        val progressText = when {
+            kind == UploadForegroundKind.POLL ->
+                context.getString(R.string.upload_notification_waiting_processing)
+            progress in 0..100 ->
+                context.getString(R.string.upload_notification_progress_percent, progress)
+            else ->
+                context.getString(R.string.upload_notification_in_progress)
         }
 
         val notification = NotificationCompat.Builder(context, UploadNotif.CHANNEL_ID)

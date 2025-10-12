@@ -36,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.work.WorkInfo
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus
 import com.kotopogoda.uploader.feature.queue.R
@@ -168,9 +167,13 @@ private fun QueueItemCard(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = statusLabel(item.state),
+                text = stringResource(id = item.statusResId),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary
+                color = if (item.highlightWarning) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(
@@ -190,19 +193,6 @@ private fun QueueItemCard(
             }
         }
     }
-}
-
-@Composable
-private fun statusLabel(state: WorkInfo.State): String {
-    val resId = when (state) {
-        WorkInfo.State.ENQUEUED -> R.string.queue_status_enqueued
-        WorkInfo.State.RUNNING -> R.string.queue_status_running
-        WorkInfo.State.SUCCEEDED -> R.string.queue_status_succeeded
-        WorkInfo.State.FAILED -> R.string.queue_status_failed
-        WorkInfo.State.CANCELLED -> R.string.queue_status_cancelled
-        WorkInfo.State.BLOCKED -> R.string.queue_status_blocked
-    }
-    return stringResource(id = resId)
 }
 
 @Composable

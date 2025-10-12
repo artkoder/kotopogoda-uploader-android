@@ -10,6 +10,7 @@ import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.network.KotopogodaApi
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
+import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.IOException
@@ -53,11 +54,18 @@ class UploadWorker @AssistedInject constructor(
                 append("size=").append(uploadedBytes).append(';')
                 append("key=").append(idempotencyKey)
             }
-            val success = api.uploadCatWeatherReport(payload)
-            if (success) {
-                Result.success()
-            } else {
+            val response = api.uploadCatWeatherReport(payload)
+            val uploadId = response.uploadId
+            if (uploadId.isNullOrBlank()) {
                 Result.retry()
+            } else {
+                Result.success(
+                    workDataOf(
+                        UploadEnqueuer.KEY_UPLOAD_ID to uploadId,
+                        UploadEnqueuer.KEY_URI to uriString,
+                        UploadEnqueuer.KEY_DISPLAY_NAME to displayName
+                    )
+                )
             }
         } catch (io: IOException) {
             Result.retry()
@@ -110,7 +118,7 @@ class UploadWorker @AssistedInject constructor(
     }
 
     private fun createForeground(displayName: String, progress: Int): ForegroundInfo {
-        return foregroundDelegate.create(displayName, progress, id)
+        return foregroundDelegate.create(displayName, progress, id, UploadForegroundKind.UPLOAD)
     }
 
     companion object {

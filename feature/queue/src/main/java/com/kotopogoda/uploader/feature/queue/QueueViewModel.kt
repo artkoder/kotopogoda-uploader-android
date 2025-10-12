@@ -1,10 +1,12 @@
 package com.kotopogoda.uploader.feature.queue
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadTags
+import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import java.util.UUID
+import com.kotopogoda.uploader.feature.queue.R
 
 @HiltViewModel
 class QueueViewModel @Inject constructor(
@@ -64,7 +67,12 @@ class QueueViewModel @Inject constructor(
         val canRetry = state == WorkInfo.State.FAILED &&
             metadataUniqueName != null &&
             metadataUri != null &&
-            metadataIdempotencyKey != null
+            metadataIdempotencyKey != null &&
+            metadata.kind == UploadWorkKind.UPLOAD
+        val deleted = outputData.keyValueMap[UploadEnqueuer.KEY_DELETED] as? Boolean
+        val statusResId = statusResId(state, metadata.kind, deleted)
+        val highlightWarning = metadata.kind == UploadWorkKind.POLL &&
+            state == WorkInfo.State.SUCCEEDED && deleted == false
 
         return QueueItemUiModel(
             id = id,
@@ -73,8 +81,39 @@ class QueueViewModel @Inject constructor(
             state = state,
             metadata = metadata,
             canCancel = canCancel,
-            canRetry = canRetry
+            canRetry = canRetry,
+            statusResId = statusResId,
+            highlightWarning = highlightWarning
         )
+    }
+
+    @StringRes
+    private fun statusResId(
+        state: WorkInfo.State,
+        kind: UploadWorkKind,
+        deleted: Boolean?
+    ): Int {
+        return when (kind) {
+            UploadWorkKind.UPLOAD -> when (state) {
+                WorkInfo.State.ENQUEUED -> R.string.queue_status_enqueued
+                WorkInfo.State.RUNNING -> R.string.queue_status_running
+                WorkInfo.State.SUCCEEDED -> R.string.queue_status_succeeded
+                WorkInfo.State.FAILED -> R.string.queue_status_failed
+                WorkInfo.State.CANCELLED -> R.string.queue_status_cancelled
+                WorkInfo.State.BLOCKED -> R.string.queue_status_blocked
+            }
+            UploadWorkKind.POLL -> when (state) {
+                WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING -> R.string.queue_status_poll_waiting
+                WorkInfo.State.SUCCEEDED -> if (deleted == false) {
+                    R.string.queue_status_poll_manual_delete
+                } else {
+                    R.string.queue_status_poll_succeeded
+                }
+                WorkInfo.State.FAILED -> R.string.queue_status_poll_failed
+                WorkInfo.State.CANCELLED -> R.string.queue_status_cancelled
+                WorkInfo.State.BLOCKED -> R.string.queue_status_blocked
+            }
+        }
     }
 
     companion object {
@@ -96,7 +135,9 @@ data class QueueItemUiModel(
     val state: WorkInfo.State,
     val metadata: UploadWorkMetadata,
     val canCancel: Boolean,
-    val canRetry: Boolean
+    val canRetry: Boolean,
+    @StringRes val statusResId: Int,
+    val highlightWarning: Boolean
 ) {
     val isIndeterminate: Boolean get() = progress < 0
 }
