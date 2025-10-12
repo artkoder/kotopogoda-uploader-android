@@ -84,6 +84,7 @@ dependencies {
     kapt(libs.androidx.room.compiler)
     implementation(libs.dagger.hilt.android)
     kapt(libs.dagger.hilt.compiler)
+    kapt(libs.androidx.hilt.compiler)
     implementation(libs.material)
 
 
