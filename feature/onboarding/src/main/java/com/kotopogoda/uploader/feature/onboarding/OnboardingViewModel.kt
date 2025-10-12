@@ -3,29 +3,53 @@ package com.kotopogoda.uploader.feature.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
+import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.settings.ReviewPosition
+import com.kotopogoda.uploader.core.settings.ReviewProgressStore
+import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
-    private val folderRepository: FolderRepository
+    private val folderRepository: FolderRepository,
+    private val photoRepository: PhotoRepository,
+    private val reviewProgressStore: ReviewProgressStore
 ) : ViewModel() {
 
     private val _uiState: MutableStateFlow<OnboardingUiState> =
         MutableStateFlow(OnboardingUiState.Loading)
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
+    private val _events = MutableSharedFlow<OnboardingEvent>(extraBufferCapacity = 1)
+    val events: SharedFlow<OnboardingEvent> = _events.asSharedFlow()
+
+    private var currentFolderId: String? = null
+
     init {
         viewModelScope.launch {
             folderRepository.observeFolder().collect { folder ->
-                _uiState.value = if (folder == null) {
-                    OnboardingUiState.FolderNotSelected
+                if (folder == null) {
+                    currentFolderId = null
+                    _uiState.value = OnboardingUiState.FolderNotSelected
                 } else {
-                    OnboardingUiState.FolderSelected(folder.treeUri)
+                    val folderId = reviewProgressFolderId(folder.treeUri)
+                    currentFolderId = folderId
+                    val progress = reviewProgressStore.loadPosition(folderId)
+                    val photoCount = photoRepository.countAll()
+                    _uiState.value = OnboardingUiState.FolderSelected(
+                        treeUri = folder.treeUri,
+                        photoCount = photoCount,
+                        progress = progress
+                    )
                 }
             }
         }
@@ -36,10 +60,81 @@ class OnboardingViewModel @Inject constructor(
             folderRepository.setFolder(treeUri)
         }
     }
+
+    fun onStartReview(option: ReviewStartOption, selectedDate: Instant?) {
+        val state = _uiState.value as? OnboardingUiState.FolderSelected ?: return
+        currentFolderId ?: return
+        viewModelScope.launch {
+            val targetIndex = when (option) {
+                ReviewStartOption.CONTINUE -> {
+                    val maxIndex = (state.photoCount - 1).coerceAtLeast(0)
+                    state.progress?.index?.coerceIn(0, maxIndex) ?: 0
+                }
+
+                ReviewStartOption.NEW -> {
+                    val anchor = state.progress?.anchorDate
+                    if (anchor != null) {
+                        val target = runCatching { anchor.plusMillis(1) }.getOrDefault(anchor)
+                        photoRepository.findIndexAtOrAfter(target)
+                    } else {
+                        val raw = (state.progress?.index ?: -1) + 1
+                        val maxIndex = (state.photoCount - 1).coerceAtLeast(0)
+                        raw.coerceIn(0, maxIndex)
+                    }
+                }
+
+                ReviewStartOption.DATE -> {
+                    val date = selectedDate ?: Instant.EPOCH
+                    photoRepository.findIndexAtOrAfter(date)
+                }
+            }
+            _events.emit(OnboardingEvent.OpenViewer(targetIndex))
+        }
+    }
+
+    fun onResetProgress() {
+        val folderId = currentFolderId ?: return
+        viewModelScope.launch {
+            reviewProgressStore.clear(folderId)
+            refreshFolderState()
+        }
+    }
+
+    fun onResetAnchor() {
+        val folderId = currentFolderId ?: return
+        val state = _uiState.value as? OnboardingUiState.FolderSelected ?: return
+        val index = state.progress?.index ?: return
+        viewModelScope.launch {
+            reviewProgressStore.savePosition(folderId, index, anchorDate = null)
+            refreshFolderState()
+        }
+    }
+
+    private suspend fun refreshFolderState() {
+        val state = _uiState.value as? OnboardingUiState.FolderSelected ?: return
+        val folderId = currentFolderId ?: return
+        val progress = reviewProgressStore.loadPosition(folderId)
+        val photoCount = photoRepository.countAll()
+        _uiState.value = state.copy(photoCount = photoCount, progress = progress)
+    }
 }
 
 sealed interface OnboardingUiState {
     data object Loading : OnboardingUiState
     data object FolderNotSelected : OnboardingUiState
-    data class FolderSelected(val treeUri: String) : OnboardingUiState
+    data class FolderSelected(
+        val treeUri: String,
+        val photoCount: Int,
+        val progress: ReviewPosition?
+    ) : OnboardingUiState
+}
+
+enum class ReviewStartOption {
+    CONTINUE,
+    NEW,
+    DATE
+}
+
+sealed interface OnboardingEvent {
+    data class OpenViewer(val startIndex: Int) : OnboardingEvent
 }

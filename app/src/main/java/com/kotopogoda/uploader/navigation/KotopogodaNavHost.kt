@@ -85,8 +85,8 @@ fun KotopogodaNavHost(
             })
             composable(AppDestination.Onboarding.route) {
                 OnboardingRoute(
-                    onFinished = {
-                        navController.navigate(viewerRoute()) {
+                    onOpenViewer = { startIndex ->
+                        navController.navigate(viewerRoute(startIndex)) {
                             popUpTo(AppDestination.Onboarding.route) { inclusive = true }
                         }
                     }

@@ -35,6 +35,7 @@ android {
 
 dependencies {
     implementation(project(":core:data"))
+    implementation(project(":core:settings"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)

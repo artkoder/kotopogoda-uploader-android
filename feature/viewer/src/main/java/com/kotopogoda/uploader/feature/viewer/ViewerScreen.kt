@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 
 package com.kotopogoda.uploader.feature.viewer
 
@@ -18,14 +18,17 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallTopAppBar
@@ -35,6 +38,11 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -59,6 +68,10 @@ import com.kotopogoda.uploader.feature.viewer.R
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 @Composable
 fun ViewerRoute(
@@ -93,7 +106,8 @@ fun ViewerRoute(
         onSkip = viewModel::onSkip,
         onMoveToProcessing = viewModel::onMoveToProcessing,
         onEnqueueUpload = viewModel::onEnqueueUpload,
-        onUndo = viewModel::onUndo
+        onUndo = viewModel::onUndo,
+        onJumpToDate = viewModel::jumpToDate
     )
 }
 
@@ -116,7 +130,8 @@ private fun ViewerScreen(
     onSkip: () -> Unit,
     onMoveToProcessing: () -> Unit,
     onEnqueueUpload: () -> Unit,
-    onUndo: () -> Unit
+    onUndo: () -> Unit,
+    onJumpToDate: (Instant) -> Unit
 ) {
     BackHandler(onBack = onBack)
 
@@ -128,6 +143,9 @@ private fun ViewerScreen(
     var rememberedIndex by rememberSaveable(currentIndex) { mutableStateOf(currentIndex) }
     val pagerState = rememberPagerState(initialPage = rememberedIndex, pageCount = { photos.size })
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    var showJumpSheet by rememberSaveable { mutableStateOf(false) }
+    val jumpSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val currentPhoto = photos.getOrNull(currentIndex)
     val isQueuedFlow = remember(currentPhoto?.uri) {
@@ -135,6 +153,26 @@ private fun ViewerScreen(
     }
     val isCurrentQueued by isQueuedFlow.collectAsState(initial = false)
     val isBusy = actionInProgress != null
+
+    if (showJumpSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showJumpSheet = false },
+            sheetState = jumpSheetState
+        ) {
+            JumpToDateSheet(
+                initialDate = currentPhoto?.takenAt,
+                onJump = { target ->
+                    onJumpToDate(target)
+                    coroutineScope.launch { jumpSheetState.hide() }
+                        .invokeOnCompletion { showJumpSheet = false }
+                },
+                onDismiss = {
+                    coroutineScope.launch { jumpSheetState.hide() }
+                        .invokeOnCompletion { showJumpSheet = false }
+                }
+            )
+        }
+    }
 
     LaunchedEffect(currentIndex, photos.size) {
         val clamped = currentIndex.coerceIn(0, photos.lastIndex)
@@ -188,6 +226,7 @@ private fun ViewerScreen(
                 onBack = onBack,
                 onOpenQueue = onOpenQueue,
                 onOpenSettings = onOpenSettings,
+                onOpenJumpToDate = { showJumpSheet = true },
                 healthState = healthState,
             )
         },
@@ -242,6 +281,7 @@ private fun ViewerScreen(
 private fun ViewerTopBar(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenJumpToDate: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
 ) {
@@ -258,6 +298,12 @@ private fun ViewerTopBar(
             }
         },
         actions = {
+            IconButton(onClick = onOpenJumpToDate) {
+                Icon(
+                    imageVector = Icons.Rounded.CalendarMonth,
+                    contentDescription = stringResource(id = R.string.viewer_open_calendar)
+                )
+            }
             IconButton(onClick = onOpenQueue) {
                 Icon(
                     imageVector = Icons.Rounded.CloudUpload,
@@ -274,6 +320,102 @@ private fun ViewerTopBar(
         colors = TopAppBarDefaults.smallTopAppBarColors()
     )
 }
+
+@Composable
+private fun JumpToDateSheet(
+    initialDate: Instant?,
+    onJump: (Instant) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val zoneId = remember { ZoneId.systemDefault() }
+    val initialLocalDate = remember(initialDate, zoneId) {
+        initialDate?.atZone(zoneId)?.toLocalDate() ?: LocalDate.now(zoneId)
+    }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = initialLocalDate.startOfDayInstant(zoneId).toEpochMilli()
+    )
+    var jumpMode by rememberSaveable { mutableStateOf(JumpMode.DATE) }
+    val presets = remember(zoneId) {
+        val today = LocalDate.now(zoneId)
+        listOf(
+            R.string.viewer_jump_today to today,
+            R.string.viewer_jump_minus_week to today.minusWeeks(1),
+            R.string.viewer_jump_minus_month to today.minusMonths(1)
+        )
+    }
+    val canConfirm = datePickerState.selectedDateMillis != null
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = stringResource(id = R.string.viewer_jump_title),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Start
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            FilterChip(
+                selected = jumpMode == JumpMode.DATE,
+                onClick = { jumpMode = JumpMode.DATE },
+                label = { Text(text = stringResource(id = R.string.viewer_jump_mode_date)) }
+            )
+            FilterChip(
+                selected = jumpMode == JumpMode.MONTH,
+                onClick = { jumpMode = JumpMode.MONTH },
+                label = { Text(text = stringResource(id = R.string.viewer_jump_mode_month)) }
+            )
+        }
+        DatePicker(state = datePickerState)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            presets.forEach { (labelRes, date) ->
+                AssistChip(
+                    onClick = {
+                        datePickerState.selectedDateMillis = date.startOfDayInstant(zoneId).toEpochMilli()
+                    },
+                    label = { Text(text = stringResource(id = labelRes)) }
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(text = stringResource(id = android.R.string.cancel))
+            }
+            Button(
+                onClick = {
+                    val selectedMillis = datePickerState.selectedDateMillis ?: return@Button
+                    val selectedDate = Instant.ofEpochMilli(selectedMillis).atZone(zoneId).toLocalDate()
+                    val targetInstant = when (jumpMode) {
+                        JumpMode.DATE -> selectedDate.startOfDayInstant(zoneId)
+                        JumpMode.MONTH -> selectedDate.withDayOfMonth(1).startOfDayInstant(zoneId)
+                    }
+                    onJump(targetInstant)
+                },
+                enabled = canConfirm,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(text = stringResource(id = R.string.viewer_jump_confirm))
+            }
+        }
+    }
+}
+
+private enum class JumpMode { DATE, MONTH }
+
+private fun LocalDate.startOfDayInstant(zoneId: ZoneId): Instant =
+    atStartOfDay(zoneId).toInstant()
 
 @Composable
 private fun HealthStatusBadge(

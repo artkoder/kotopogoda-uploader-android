@@ -23,7 +23,7 @@ data class PhotoEntity(
     @ColumnInfo(name = "sha256")
     val sha256: String,
     @ColumnInfo(name = "exif_date")
-    val exifDate: Long,
+    val takenAt: Long?,
     @ColumnInfo(name = "size")
     val size: Long,
     @ColumnInfo(name = "mime", defaultValue = "image/jpeg")

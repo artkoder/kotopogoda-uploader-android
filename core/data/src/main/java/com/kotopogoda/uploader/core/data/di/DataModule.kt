@@ -28,7 +28,8 @@ object DataModule {
         KotopogodaDatabase::class.java,
         "kotopogoda.db"
     ).addMigrations(
-        KotopogodaDatabase.MIGRATION_1_2
+        KotopogodaDatabase.MIGRATION_1_2,
+        KotopogodaDatabase.MIGRATION_2_3
     ).build()
 
     @Provides
