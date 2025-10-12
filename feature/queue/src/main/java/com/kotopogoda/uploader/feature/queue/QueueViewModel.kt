@@ -33,10 +33,10 @@ class QueueViewModel @Inject constructor(
     fun onCancel(item: QueueItemUiModel) {
         val metadata = item.metadata
         val uniqueName = metadata.uniqueName
-        val metadataUri = metadata.uri
-        when {
-            uniqueName != null -> uploadEnqueuer.cancel(uniqueName)
-            metadataUri != null -> uploadEnqueuer.cancel(metadataUri)
+        if (uniqueName != null) {
+            uploadEnqueuer.cancel(uniqueName)
+        } else {
+            metadata.uri?.let(uploadEnqueuer::cancel)
         }
     }
 
@@ -49,20 +49,22 @@ class QueueViewModel @Inject constructor(
     private fun WorkInfo.toUiModel(): QueueItemUiModel {
         val metadata = UploadTags.metadataFrom(this)
         val metadataUri = metadata.uri
+        val metadataDisplayName = metadata.displayName
+        val metadataUniqueName = metadata.uniqueName
+        val metadataIdempotencyKey = metadata.idempotencyKey
+
         val progressValue = progress.getInt(UploadEnqueuer.KEY_PROGRESS, DEFAULT_PROGRESS_VALUE)
         val normalizedProgress = if (progressValue >= 0) progressValue.coerceIn(0, 100) else DEFAULT_PROGRESS_VALUE
         val progressName = progress.getString(UploadEnqueuer.KEY_DISPLAY_NAME)
-        val displayName = when {
-            !progressName.isNullOrBlank() -> progressName
-            !metadata.displayName.isNullOrBlank() -> metadata.displayName
-            metadataUri != null -> metadataUri.lastPathSegment ?: DEFAULT_TITLE
-            else -> DEFAULT_TITLE
-        }
+        val displayName = progressName?.takeIf { it.isNotBlank() }
+            ?: metadataDisplayName?.takeIf { it.isNotBlank() }
+            ?: metadataUri?.lastPathSegment?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_TITLE
         val canCancel = state == WorkInfo.State.ENQUEUED || state == WorkInfo.State.RUNNING
         val canRetry = state == WorkInfo.State.FAILED &&
-            metadata.uniqueName != null &&
+            metadataUniqueName != null &&
             metadataUri != null &&
-            metadata.idempotencyKey != null
+            metadataIdempotencyKey != null
 
         return QueueItemUiModel(
             id = id,
