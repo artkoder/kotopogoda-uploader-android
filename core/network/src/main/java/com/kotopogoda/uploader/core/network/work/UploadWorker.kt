@@ -8,9 +8,10 @@ import androidx.work.WorkerParameters
 import androidx.work.ForegroundInfo
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.network.KotopogodaApi
-import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
+import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.IOException
@@ -22,10 +23,12 @@ class UploadWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted params: WorkerParameters,
     private val api: KotopogodaApi,
-    private val foregroundDelegate: UploadForegroundDelegate
+    private val foregroundDelegate: UploadForegroundDelegate,
+    private val summaryStarter: UploadSummaryStarter,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        summaryStarter.ensureRunning()
         val uriString = inputData.getString(UploadEnqueuer.KEY_URI)
             ?: return@withContext Result.failure()
         val idempotencyKey = inputData.getString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY)

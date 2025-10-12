@@ -1,0 +1,32 @@
+<resources>
+    <string name="status_title">Статусы</string>
+    <string name="status_back">Назад</string>
+    <string name="status_refresh_health">Обновить состояние</string>
+    <string name="status_section_server">Сервер</string>
+    <string name="status_health_online">Онлайн</string>
+    <string name="status_health_degraded">Проблемы</string>
+    <string name="status_health_offline">Оффлайн</string>
+    <string name="status_health_unknown">Неизвестно</string>
+    <string name="status_health_checked_at">Проверено: %1$s</string>
+    <string name="status_health_ping">Health-пинг</string>
+    <string name="status_section_pairing">Привязка</string>
+    <string name="status_pairing_unknown">Определяем состояние…</string>
+    <string name="status_pairing_unpaired">Устройство не привязано.</string>
+    <string name="status_pairing_open_settings">Открыть настройки</string>
+    <string name="status_pairing_id">Device ID: %1$s</string>
+    <string name="status_pairing_reset">Сбросить привязку</string>
+    <string name="status_section_queue">Очередь</string>
+    <string name="status_queue_empty">Очередь пуста.</string>
+    <string name="status_queue_running">В работе: %1$d из %2$d</string>
+    <string name="status_queue_enqueued">Ожидают: %1$d</string>
+    <string name="status_queue_failed">Ошибок: %1$d</string>
+    <string name="status_queue_open">Открыть очередь</string>
+    <string name="status_section_storage">Хранилище</string>
+    <string name="status_storage_loading">Получаем данные о хранилище…</string>
+    <string name="status_storage_not_selected">Папка не выбрана.</string>
+    <string name="status_storage_error">Не удалось получить информацию о хранилище.</string>
+    <string name="status_storage_check_access">Проверить доступ</string>
+    <string name="status_storage_permission_missing">Нет доступа к папке «%1$s».</string>
+    <string name="status_storage_request_permission">Выдать доступ</string>
+    <string name="status_storage_space">Свободно %1$s из %2$s</string>
+</resources>

@@ -19,6 +19,7 @@
     <string name="viewer_badge_enqueued">В очереди</string>
     <string name="viewer_open_queue">Очередь</string>
     <string name="viewer_back">Назад</string>
+    <string name="viewer_open_status">Статусы</string>
     <string name="viewer_open_settings">Настройки</string>
     <string name="viewer_open_calendar">К дате</string>
     <string name="viewer_jump_title">Перейти к дате</string>

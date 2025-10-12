@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.network.di
 
 import android.content.Context
+import android.net.ConnectivityManager
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
@@ -68,5 +69,9 @@ object NetworkModule {
     @Provides
     fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
         WorkManager.getInstance(context)
+
+    @Provides
+    fun provideConnectivityManager(@ApplicationContext context: Context): ConnectivityManager =
+        context.getSystemService(ConnectivityManager::class.java)
 
 }

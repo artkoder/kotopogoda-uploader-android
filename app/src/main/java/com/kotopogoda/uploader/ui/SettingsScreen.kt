@@ -91,6 +91,7 @@ fun SettingsRoute(
         onApplyBaseUrl = viewModel::onApplyBaseUrl,
         onAppLoggingChanged = viewModel::onAppLoggingChanged,
         onHttpLoggingChanged = viewModel::onHttpLoggingChanged,
+        onQueueNotificationChanged = viewModel::onQueueNotificationChanged,
         onExportLogs = viewModel::onExportLogs,
         onClearQueue = viewModel::onClearQueue,
         onResetPairing = viewModel::onResetPairingConfirmed,
@@ -109,6 +110,7 @@ fun SettingsScreen(
     onApplyBaseUrl: () -> Unit,
     onAppLoggingChanged: (Boolean) -> Unit,
     onHttpLoggingChanged: (Boolean) -> Unit,
+    onQueueNotificationChanged: (Boolean) -> Unit,
     onExportLogs: () -> Unit,
     onClearQueue: () -> Unit,
     onResetPairing: () -> Unit,
@@ -216,6 +218,12 @@ fun SettingsScreen(
                         description = stringResource(id = R.string.settings_http_logging_desc),
                         checked = uiState.httpLoggingEnabled,
                         onCheckedChange = onHttpLoggingChanged,
+                    )
+                    SettingsSwitchRow(
+                        title = stringResource(id = R.string.settings_queue_notification),
+                        description = stringResource(id = R.string.settings_queue_notification_desc),
+                        checked = uiState.queueNotificationPersistent,
+                        onCheckedChange = onQueueNotificationChanged,
                     )
                     Button(
                         onClick = onExportLogs,

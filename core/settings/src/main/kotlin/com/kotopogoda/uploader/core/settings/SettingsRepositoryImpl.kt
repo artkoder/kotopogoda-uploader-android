@@ -38,6 +38,7 @@ class SettingsRepositoryImpl @Inject constructor(
                 baseUrl = storedBaseUrl ?: defaultBaseUrl,
                 appLogging = preferences[APP_LOGGING_KEY] ?: false,
                 httpLogging = preferences[HTTP_LOGGING_KEY] ?: false,
+                persistentQueueNotification = preferences[PERSISTENT_QUEUE_NOTIFICATION_KEY] ?: true,
             )
         }
         .distinctUntilChanged()
@@ -71,9 +72,18 @@ class SettingsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun setPersistentQueueNotification(enabled: Boolean) {
+        withContext(ioDispatcher) {
+            dataStore.edit { preferences ->
+                preferences[PERSISTENT_QUEUE_NOTIFICATION_KEY] = enabled
+            }
+        }
+    }
+
     private companion object {
         private val BASE_URL_KEY = stringPreferencesKey("base_url")
         private val APP_LOGGING_KEY = booleanPreferencesKey("app_logging")
         private val HTTP_LOGGING_KEY = booleanPreferencesKey("http_logging")
+        private val PERSISTENT_QUEUE_NOTIFICATION_KEY = booleanPreferencesKey("persistent_queue_notification")
     }
 }

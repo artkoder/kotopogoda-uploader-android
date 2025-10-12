@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
@@ -19,8 +20,13 @@ import com.kotopogoda.uploader.feature.queue.R
 
 @HiltViewModel
 class QueueViewModel @Inject constructor(
-    private val uploadEnqueuer: UploadEnqueuer
+    private val uploadEnqueuer: UploadEnqueuer,
+    private val summaryStarter: UploadSummaryStarter,
 ) : ViewModel() {
+
+    init {
+        summaryStarter.ensureRunning()
+    }
 
     val uiState: StateFlow<QueueUiState> = uploadEnqueuer.getAllUploadsFlow()
         .map { infos ->
@@ -47,6 +53,10 @@ class QueueViewModel @Inject constructor(
         if (item.canRetry) {
             uploadEnqueuer.retry(item.metadata)
         }
+    }
+
+    fun ensureSummaryRunning() {
+        summaryStarter.ensureRunning()
     }
 
     private fun WorkInfo.toUiModel(): QueueItemUiModel {

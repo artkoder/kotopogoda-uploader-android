@@ -12,8 +12,6 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkQuery
 import androidx.work.workDataOf
-import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
-import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.work.PollStatusWorker
 import com.kotopogoda.uploader.core.network.work.UploadWorker
 import java.security.MessageDigest
@@ -26,7 +24,8 @@ import kotlin.text.Charsets
 
 @Singleton
 class UploadEnqueuer @Inject constructor(
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val summaryStarter: UploadSummaryStarter,
 ) {
 
     fun enqueue(uri: Uri, idempotencyKey: String, displayName: String) {
@@ -35,6 +34,7 @@ class UploadEnqueuer @Inject constructor(
         val poll = createPollRequest(uniqueName, uri, idempotencyKey, displayName)
 
         enqueueChain(uniqueName, ExistingWorkPolicy.KEEP, upload, poll)
+        summaryStarter.ensureRunning()
     }
 
     fun cancel(uri: Uri) {
@@ -60,6 +60,7 @@ class UploadEnqueuer @Inject constructor(
         val poll = createPollRequest(uniqueName, uri, idempotencyKey, displayName)
 
         enqueueChain(uniqueName, ExistingWorkPolicy.REPLACE, upload, poll)
+        summaryStarter.ensureRunning()
     }
 
     fun getAllUploadsFlow(): Flow<List<WorkInfo>> {

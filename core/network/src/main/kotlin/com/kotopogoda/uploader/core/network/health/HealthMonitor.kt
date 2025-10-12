@@ -8,6 +8,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ class HealthMonitor @Inject constructor(
     private val started = AtomicBoolean(false)
     private val _state = MutableStateFlow(HealthState.Unknown)
     val state: StateFlow<HealthState> = _state.asStateFlow()
+    private val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun start(scope: CoroutineScope, intervalMillis: Long = DEFAULT_INTERVAL_MS) {
         if (!started.compareAndSet(false, true)) {
@@ -34,6 +36,12 @@ class HealthMonitor @Inject constructor(
 
     suspend fun checkOnce() {
         updateState()
+    }
+
+    fun refreshNow() {
+        refreshScope.launch {
+            updateState()
+        }
     }
 
     private fun CoroutineScope.launchCheckLoop(intervalMillis: Long) = launch {

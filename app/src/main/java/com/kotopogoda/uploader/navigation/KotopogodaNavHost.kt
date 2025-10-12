@@ -27,7 +27,11 @@ import com.kotopogoda.uploader.feature.queue.QUEUE_ROUTE
 import com.kotopogoda.uploader.feature.queue.QueueRoute
 import com.kotopogoda.uploader.feature.pairing.navigation.PairingRoute
 import com.kotopogoda.uploader.feature.pairing.navigation.pairingScreen
+import com.kotopogoda.uploader.feature.status.StatusRoute
+import com.kotopogoda.uploader.feature.status.navigation.STATUS_ROUTE
 import com.kotopogoda.uploader.ui.SettingsRoute
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
 
 private const val SETTINGS_ROUTE = "settings"
 
@@ -43,11 +47,27 @@ fun KotopogodaNavHost(
     deviceCreds: DeviceCreds?,
     healthState: HealthState,
     onResetPairing: () -> Unit,
+    navigationEvents: Flow<AppNavigationEvent>? = null,
 ) {
     val viewModel: AppStartDestinationViewModel = hiltViewModel()
     val startDestination by viewModel.startDestination.collectAsState()
 
     val resolvedStartDestination = startDestination
+
+    LaunchedEffect(navigationEvents) {
+        navigationEvents?.let { events ->
+            events.collectLatest { event ->
+                when (event) {
+                    AppNavigationEvent.OpenQueue -> navController.navigate(QUEUE_ROUTE) {
+                        launchSingleTop = true
+                    }
+                    AppNavigationEvent.OpenStatus -> navController.navigate(STATUS_ROUTE) {
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(deviceCreds, resolvedStartDestination) {
         val targetRoute = when {
@@ -104,6 +124,7 @@ fun KotopogodaNavHost(
                 ViewerRoute(
                     onBack = { navController.popBackStack() },
                     onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
+                    onOpenStatus = { navController.navigate(STATUS_ROUTE) },
                     onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
                     healthState = healthState,
                 )
@@ -124,6 +145,13 @@ fun KotopogodaNavHost(
                             launchSingleTop = true
                         }
                     }
+                )
+            }
+            composable(STATUS_ROUTE) {
+                StatusRoute(
+                    onBack = { navController.popBackStack() },
+                    onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
+                    onOpenPairingSettings = { navController.navigate(SETTINGS_ROUTE) },
                 )
             }
         }
