@@ -70,4 +70,6 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     kapt(libs.androidx.hilt.compiler)
     implementation(libs.androidx.documentfile)
+
+    testImplementation(libs.junit)
 }
