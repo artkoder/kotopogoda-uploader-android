@@ -5,10 +5,14 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+import org.gradle.api.GradleException
+
 android {
     namespace = "com.kotopogoda.uploader"
     compileSdk = 35
 
+    val appTag = (project.findProperty("appTag") as? String) ?: "0.0.0"
+    val appCode = project.findProperty("appCode")?.toString()?.toIntOrNull() ?: 1
     val contractTag = (project.findProperty("contractTag") as? String) ?: "v1.0.0"
     val baseUrl = (project.findProperty("baseUrl") as? String) ?: "https://<prod-host>"
 
@@ -16,8 +20,8 @@ android {
         applicationId = "com.kotopogoda.uploader"
         minSdk = 35
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appCode
+        versionName = appTag
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -28,12 +32,14 @@ android {
     signingConfigs {
         create("release") {
             val keystorePath = System.getenv("ANDROID_KEYSTORE_FILE").orEmpty()
-            if (keystorePath.isNotEmpty()) {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+            if (keystorePath.isBlank()) {
+                throw GradleException("ANDROID_KEYSTORE_FILE is not set. Release signing cannot proceed.")
             }
+
+            storeFile = file(keystorePath)
+            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
         }
     }
 
@@ -52,16 +58,6 @@ android {
     buildTypes.all {
         buildConfigField("String", "CONTRACT_VERSION", "\"$contractTag\"")
         buildConfigField("String", "API_BASE_URL", "\"$baseUrl\"")
-    }
-
-    @Suppress("UnstableApiUsage")
-    applicationVariants.all {
-        val tag = project.findProperty("appTag") as String? ?: "0.0.0"
-        val code = project.findProperty("appCode")?.toString()?.toIntOrNull() ?: 1
-        outputs.forEach { output ->
-            output.versionName = tag
-            output.versionCode = code
-        }
     }
 
     compileOptions {
