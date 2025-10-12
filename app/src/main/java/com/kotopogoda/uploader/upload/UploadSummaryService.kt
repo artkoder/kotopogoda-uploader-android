@@ -14,7 +14,6 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkQuery
 import androidx.lifecycle.Observer
-import androidx.work.getWorkInfosLiveData
 import com.kotopogoda.uploader.MainActivity
 import com.kotopogoda.uploader.R
 import com.kotopogoda.uploader.core.network.upload.UploadTags
@@ -176,7 +175,7 @@ class UploadSummaryService : LifecycleService() {
 }
 
 private fun WorkManager.workInfosFlow(query: WorkQuery): Flow<List<WorkInfo>> = callbackFlow {
-    val liveData = getWorkInfosLiveData(query)
+    val liveData = this.getWorkInfosLiveData(query)
     val observer = Observer<List<WorkInfo>> { infos ->
         trySend(infos).isSuccess
     }
