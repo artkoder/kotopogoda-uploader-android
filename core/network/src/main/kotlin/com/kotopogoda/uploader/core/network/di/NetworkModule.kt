@@ -1,11 +1,14 @@
 package com.kotopogoda.uploader.core.network.di
 
+import android.content.Context
+import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.network.api.HealthApi
 import com.kotopogoda.uploader.core.network.api.PairingApi
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import okhttp3.Interceptor
@@ -63,5 +66,9 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideHealthApi(retrofit: Retrofit): HealthApi = retrofit.create(HealthApi::class.java)
+
+    @Provides
+    fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
+        WorkManager.getInstance(context)
 
 }

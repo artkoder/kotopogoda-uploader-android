@@ -52,6 +52,7 @@ tasks.named("preBuild").configure {
 }
 
 dependencies {
+    implementation(project(":core:security"))
     implementation(libs.com.squareup.retrofit2.retrofit)
     implementation(libs.com.squareup.retrofit2.converter.moshi)
     implementation(libs.com.squareup.retrofit2.converter.scalars)
