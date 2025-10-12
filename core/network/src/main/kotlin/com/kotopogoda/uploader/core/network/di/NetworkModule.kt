@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.network.di
 import android.content.Context
 import android.net.ConnectivityManager
 import androidx.work.WorkManager
+import com.kotopogoda.uploader.api.infrastructure.ApiClient
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
@@ -59,6 +60,19 @@ object NetworkModule {
         converterFactory = moshiConverterFactory,
         defaultBaseUrl = defaultBaseUrl,
     )
+
+    @Provides
+    @Singleton
+    fun provideApiClient(
+        okHttpClient: OkHttpClient,
+        @DefaultBaseUrl defaultBaseUrl: String,
+    ): ApiClient {
+        val normalizedBasePath = defaultBaseUrl.trimEnd('/')
+        return ApiClient(
+            baseUrl = normalizedBasePath,
+            okHttpClientBuilder = okHttpClient.newBuilder(),
+        )
+    }
 
     @Provides
     @Singleton

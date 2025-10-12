@@ -16,7 +16,7 @@ android {
     val appTag = (project.findProperty("appTag") as? String) ?: "0.0.0"
     val appCode = project.findProperty("appCode")?.toString()?.toIntOrNull() ?: 1
     val contractTag = (project.findProperty("contractTag") as? String) ?: "v1.0.0"
-    val baseUrl = (project.findProperty("baseUrl") as? String) ?: "https://<prod-host>"
+    val prodApiBaseUrl = "https://cat-weather-new.fly.dev/v1"
 
     defaultConfig {
         applicationId = "com.kotopogoda.uploader"
@@ -29,6 +29,8 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "API_BASE_URL", "\"$prodApiBaseUrl\"")
     }
 
     signingConfigs {
@@ -44,6 +46,10 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "API_BASE_URL", "\"$prodApiBaseUrl\"")
+        }
+
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -52,12 +58,13 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+
+            buildConfigField("String", "API_BASE_URL", "\"$prodApiBaseUrl\"")
         }
     }
 
     buildTypes.all {
         buildConfigField("String", "CONTRACT_VERSION", "\"$contractTag\"")
-        buildConfigField("String", "API_BASE_URL", "\"$baseUrl\"")
     }
 
     compileOptions {
