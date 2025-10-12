@@ -16,4 +16,6 @@
     <string name="viewer_snackbar_publish_undone">Публикация отменена</string>
     <string name="viewer_snackbar_undo_failed">Не удалось отменить действие</string>
     <string name="viewer_badge_enqueued">В очереди</string>
+    <string name="viewer_open_queue">Очередь</string>
+    <string name="viewer_back">Назад</string>
 </resources>

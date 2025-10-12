@@ -1,0 +1,15 @@
+<resources>
+    <string name="queue_title">Очередь отправок</string>
+    <string name="queue_empty">Очередь пуста</string>
+    <string name="queue_status_enqueued">В ожидании</string>
+    <string name="queue_status_running">В работе</string>
+    <string name="queue_status_succeeded">Готово</string>
+    <string name="queue_status_failed">Ошибка</string>
+    <string name="queue_status_cancelled">Отменена</string>
+    <string name="queue_status_blocked">Заблокирована</string>
+    <string name="queue_progress_unknown">Прогресс неизвестен</string>
+    <string name="queue_progress_percent">%1$d%%</string>
+    <string name="queue_action_cancel">Отменить</string>
+    <string name="queue_action_retry">Повторить</string>
+    <string name="queue_back">Назад</string>
+</resources>
