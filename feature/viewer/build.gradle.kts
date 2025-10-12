@@ -47,6 +47,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.navigation)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.dagger.hilt.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
