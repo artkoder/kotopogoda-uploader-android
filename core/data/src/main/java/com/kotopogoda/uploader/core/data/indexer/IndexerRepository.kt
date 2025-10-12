@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.data.indexer
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.exifinterface.media.ExifInterface
@@ -95,7 +96,7 @@ class IndexerRepository @Inject constructor(
             return ScanOutcome.SKIPPED
         }
 
-        val exifDate = readExifDate(uri, lastModified)
+        val takenAt = readTakenAtTimestamp(uri, lastModified)
         val existing = runCatching { photoDao.getById(id) }.getOrElse { error ->
             Log.w(TAG, "Failed to load existing record for $id", error)
             return ScanOutcome.SKIPPED
@@ -115,7 +116,7 @@ class IndexerRepository @Inject constructor(
             uri = id,
             relPath = relPath,
             sha256 = sha256,
-            exifDate = exifDate,
+            takenAt = takenAt,
             size = size,
             mime = mime,
             status = existing?.status ?: PhotoStatus.NEW.value,
@@ -134,7 +135,7 @@ class IndexerRepository @Inject constructor(
 
         if (existing.relPath == entity.relPath &&
             existing.sha256 == entity.sha256 &&
-            existing.exifDate == entity.exifDate &&
+            existing.takenAt == entity.takenAt &&
             existing.size == entity.size &&
             existing.mime == entity.mime
         ) {
@@ -150,7 +151,7 @@ class IndexerRepository @Inject constructor(
         }
     }
 
-    private fun readExifDate(uri: Uri, lastModified: Long): Long {
+    private fun readTakenAtTimestamp(uri: Uri, lastModified: Long): Long? {
         val resolver = context.contentResolver
         val exifTimestamp = try {
             resolver.openInputStream(uri)?.use { inputStream ->
@@ -161,8 +162,25 @@ class IndexerRepository @Inject constructor(
             Log.w(TAG, "Failed to read EXIF for $uri", error)
             null
         }
+        if (exifTimestamp != null) {
+            return exifTimestamp
+        }
 
-        return exifTimestamp ?: lastModified
+        if (lastModified > 0) {
+            return lastModified
+        }
+
+        return resolver.query(uri, arrayOf(OpenableColumns.DATE_MODIFIED), null, null, null)
+            ?.use { cursor ->
+                if (!cursor.moveToFirst()) {
+                    return@use null
+                }
+                if (cursor.isNull(0)) {
+                    return@use null
+                }
+                val value = cursor.getLong(0)
+                if (value > 0) value else null
+            }
     }
 
     private fun resolveRelativePath(uri: Uri): String? {

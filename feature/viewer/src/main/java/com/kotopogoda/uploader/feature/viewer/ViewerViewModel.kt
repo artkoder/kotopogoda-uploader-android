@@ -13,11 +13,14 @@ import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.settings.ReviewProgressStore
+import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.Serializable
 import java.security.MessageDigest
 import java.util.ArrayList
+import java.time.Instant
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -36,10 +40,11 @@ import kotlin.text.Charsets
 
 @HiltViewModel
 class ViewerViewModel @Inject constructor(
-    photoRepository: PhotoRepository,
+    private val photoRepository: PhotoRepository,
     private val folderRepository: FolderRepository,
     private val saFileRepository: SaFileRepository,
     private val uploadEnqueuer: UploadEnqueuer,
+    private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -61,6 +66,9 @@ class ViewerViewModel @Inject constructor(
     private val _currentIndex: MutableStateFlow<Int> =
         MutableStateFlow(savedStateHandle.get<Int>(currentIndexKey) ?: startIndexArgument)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+
+    private val folderId = MutableStateFlow<String?>(null)
+    private val anchorDate = MutableStateFlow<Instant?>(null)
 
     private val undoStack = ArrayDeque<UserAction>()
     private val undoStackKey = "viewer_undo_stack"
@@ -96,6 +104,29 @@ class ViewerViewModel @Inject constructor(
                     }
                 }
         }
+
+        viewModelScope.launch {
+            val folder = folderRepository.getFolder()
+            if (folder != null) {
+                val id = reviewProgressFolderId(folder.treeUri)
+                folderId.value = id
+                val stored = reviewProgressStore.loadPosition(id)
+                val initialAnchor = stored?.anchorDate
+                    ?: photos.value.getOrNull(_currentIndex.value)?.takenAt
+                anchorDate.value = stored?.anchorDate ?: initialAnchor
+                persistProgress(_currentIndex.value, anchorDate.value)
+            }
+        }
+
+        viewModelScope.launch {
+            combine(currentIndex, photos) { index, items ->
+                index to items.getOrNull(index)?.takenAt
+            }
+                .debounce(300)
+                .collect { (index, takenAt) ->
+                    persistProgress(index, takenAt)
+                }
+        }
     }
 
     fun setPagerScrollEnabled(isEnabled: Boolean) {
@@ -109,6 +140,13 @@ class ViewerViewModel @Inject constructor(
         }
         _currentIndex.value = normalized
         savedStateHandle[currentIndexKey] = normalized
+    }
+
+    fun jumpToDate(target: Instant) {
+        viewModelScope.launch {
+            val index = photoRepository.findIndexAtOrAfter(target)
+            setCurrentIndex(index)
+        }
     }
 
     fun onSkip() {
@@ -162,6 +200,7 @@ class ViewerViewModel @Inject constructor(
                 if (toIndex != fromIndex) {
                     setCurrentIndex(toIndex)
                 }
+                persistProgress(toIndex, photo.takenAt)
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_processing_success,
@@ -209,6 +248,7 @@ class ViewerViewModel @Inject constructor(
                 if (toIndex != fromIndex) {
                     setCurrentIndex(toIndex)
                 }
+                persistProgress(toIndex, photo.takenAt)
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_publish_success,
@@ -352,6 +392,13 @@ class ViewerViewModel @Inject constructor(
                 lastModified = lastModified
             )
         }
+    }
+
+    private suspend fun persistProgress(index: Int, anchor: Instant?) {
+        val folderId = folderId.value ?: return
+        val normalizedIndex = index.coerceAtLeast(0)
+        anchorDate.value = anchor
+        reviewProgressStore.savePosition(folderId, normalizedIndex, anchor)
     }
 
     private fun computeNextIndex(current: Int, snapshot: List<PhotoItem>): Int {

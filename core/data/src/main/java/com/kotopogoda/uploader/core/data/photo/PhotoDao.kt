@@ -17,22 +17,28 @@ interface PhotoDao {
     suspend fun getById(id: String): PhotoEntity?
 
     @Query(
-        "SELECT * FROM photos WHERE mime IN ('image/jpeg', 'image/jpg') ORDER BY exif_date DESC, id DESC"
+        "SELECT * FROM photos WHERE mime IN ('image/jpeg', 'image/jpg') ORDER BY exif_date IS NULL, exif_date ASC, id ASC"
     )
     fun observeAllJpeg(): Flow<List<PhotoEntity>>
 
     @Query("SELECT * FROM photos WHERE sha256 = :sha LIMIT 1")
     suspend fun getBySha256(sha: String): PhotoEntity?
 
+    @Query("SELECT COUNT(*) FROM photos")
+    suspend fun countAll(): Int
+
+    @Query("SELECT COUNT(*) FROM photos WHERE exif_date IS NOT NULL AND exif_date < :target")
+    suspend fun countBefore(target: Long): Int
+
     @Query(
         "SELECT (strftime('%s', datetime(exif_date / 1000, 'unixepoch'), 'start of month') * 1000) AS monthStartEpochMillis, " +
-            "COUNT(*) AS count FROM photos GROUP BY monthStartEpochMillis ORDER BY monthStartEpochMillis DESC"
+            "COUNT(*) AS count FROM photos WHERE exif_date IS NOT NULL GROUP BY monthStartEpochMillis ORDER BY monthStartEpochMillis DESC"
     )
     fun observeMonthlyCounts(): Flow<List<PhotoCountByMonth>>
 
     @Query(
         "SELECT (strftime('%s', datetime(exif_date / 1000, 'unixepoch'), 'start of day') * 1000) AS dayStartEpochMillis, " +
-            "COUNT(*) AS count FROM photos GROUP BY dayStartEpochMillis ORDER BY dayStartEpochMillis DESC"
+            "COUNT(*) AS count FROM photos WHERE exif_date IS NOT NULL GROUP BY dayStartEpochMillis ORDER BY dayStartEpochMillis DESC"
     )
     fun observeDailyCounts(): Flow<List<PhotoCountByDay>>
 }

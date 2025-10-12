@@ -19,6 +19,14 @@
     <string name="viewer_open_queue">Очередь</string>
     <string name="viewer_back">Назад</string>
     <string name="viewer_open_settings">Настройки</string>
+    <string name="viewer_open_calendar">К дате</string>
+    <string name="viewer_jump_title">Перейти к дате</string>
+    <string name="viewer_jump_mode_date">По дате</string>
+    <string name="viewer_jump_mode_month">По месяцу</string>
+    <string name="viewer_jump_today">Сегодня</string>
+    <string name="viewer_jump_minus_week">-1 неделя</string>
+    <string name="viewer_jump_minus_month">-1 месяц</string>
+    <string name="viewer_jump_confirm">Перейти</string>
     <string name="viewer_health_online">Онлайн</string>
     <string name="viewer_health_degraded">Проблемы</string>
     <string name="viewer_health_offline">Оффлайн</string>

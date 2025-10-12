@@ -11,7 +11,7 @@ import com.kotopogoda.uploader.core.data.photo.PhotoEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -35,6 +35,33 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                         "`last_action_at` INTEGER, " +
                         "PRIMARY KEY(`id`))"
                 )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_photos_sha256` ON `photos` (`sha256`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_photos_rel_path` ON `photos` (`rel_path`)")
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `photos_new` (" +
+                        "`id` TEXT NOT NULL, " +
+                        "`uri` TEXT NOT NULL, " +
+                        "`rel_path` TEXT, " +
+                        "`sha256` TEXT NOT NULL, " +
+                        "`exif_date` INTEGER, " +
+                        "`size` INTEGER NOT NULL, " +
+                        "`mime` TEXT NOT NULL DEFAULT 'image/jpeg', " +
+                        "`status` TEXT NOT NULL DEFAULT 'new', " +
+                        "`last_action_at` INTEGER, " +
+                        "PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "INSERT INTO `photos_new`(" +
+                        "`id`, `uri`, `rel_path`, `sha256`, `exif_date`, `size`, `mime`, `status`, `last_action_at`" +
+                        ") SELECT `id`, `uri`, `rel_path`, `sha256`, `exif_date`, `size`, `mime`, `status`, `last_action_at` FROM `photos`"
+                )
+                db.execSQL("DROP TABLE `photos`")
+                db.execSQL("ALTER TABLE `photos_new` RENAME TO `photos`")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_photos_sha256` ON `photos` (`sha256`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_photos_rel_path` ON `photos` (`rel_path`)")
             }

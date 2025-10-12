@@ -5,5 +5,19 @@
     <string name="onboarding_selected_folder_title">Папка выбрана</string>
     <string name="onboarding_selected_folder_body">Текущая папка: %1$s</string>
     <string name="onboarding_change_folder">Сменить папку</string>
-    <string name="onboarding_continue">Продолжить</string>
+    <string name="onboarding_start_title">Старт просмотра</string>
+    <string name="onboarding_start_photos_count">Всего фото: %1$d</string>
+    <string name="onboarding_start_option_continue">Продолжить</string>
+    <string name="onboarding_start_option_continue_hint">Остановились на кадре №%1$d</string>
+    <string name="onboarding_start_option_continue_hint_first">Начать с первого кадра</string>
+    <string name="onboarding_start_option_continue_no_photos">В каталоге ещё нет фотографий</string>
+    <string name="onboarding_start_option_new">С новых</string>
+    <string name="onboarding_start_option_new_with_anchor">После %1$s</string>
+    <string name="onboarding_start_option_new_without_anchor">Якорь новых ещё не задан</string>
+    <string name="onboarding_start_option_date">С даты…</string>
+    <string name="onboarding_start_option_date_hint">Дата не выбрана</string>
+    <string name="onboarding_start_pick_date">Выбрать дату</string>
+    <string name="onboarding_start_button">Начать просмотр</string>
+    <string name="onboarding_reset_progress">Сбросить прогресс</string>
+    <string name="onboarding_reset_anchor">Сбросить якорь новых</string>
 </resources>
