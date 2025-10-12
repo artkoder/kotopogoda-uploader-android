@@ -13,6 +13,8 @@ import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadTags
+import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,6 +22,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.Serializable
 import java.security.MessageDigest
 import java.util.ArrayList
+import java.util.UUID
 import java.time.Instant
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +40,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.text.Charsets
+import androidx.work.WorkInfo
 
 @HiltViewModel
 class ViewerViewModel @Inject constructor(
@@ -72,6 +76,7 @@ class ViewerViewModel @Inject constructor(
 
     private val undoStack = ArrayDeque<UserAction>()
     private val undoStackKey = "viewer_undo_stack"
+    private val handledDeletionWarnings = mutableSetOf<UUID>()
 
     private val _undoCount = MutableStateFlow(0)
     val undoCount: StateFlow<Int> = _undoCount.asStateFlow()
@@ -126,6 +131,26 @@ class ViewerViewModel @Inject constructor(
                 .collect { (index, takenAt) ->
                     persistProgress(index, takenAt)
                 }
+        }
+
+        viewModelScope.launch {
+            uploadEnqueuer.getAllUploadsFlow().collect { infos ->
+                infos.forEach { info ->
+                    if (info.state == WorkInfo.State.SUCCEEDED) {
+                        val metadata = UploadTags.metadataFrom(info)
+                        if (metadata.kind == UploadWorkKind.POLL) {
+                            val deleted = info.outputData.keyValueMap[UploadEnqueuer.KEY_DELETED] as? Boolean
+                            if (deleted == false && handledDeletionWarnings.add(info.id)) {
+                                _events.emit(
+                                    ViewerEvent.ShowSnackbar(
+                                        messageRes = R.string.viewer_snackbar_delete_failed
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

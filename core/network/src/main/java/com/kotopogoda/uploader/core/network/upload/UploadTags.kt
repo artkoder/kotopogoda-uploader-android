@@ -7,15 +7,18 @@ import java.nio.charset.StandardCharsets
 
 object UploadTags {
     const val TAG_UPLOAD: String = "upload"
+    const val TAG_POLL: String = "poll"
     private const val PREFIX_UNIQUE = "unique:"
     private const val PREFIX_URI = "uri:"
     private const val PREFIX_DISPLAY_NAME = "display:"
     private const val PREFIX_KEY = "key:"
+    private const val PREFIX_KIND = "kind:"
 
     fun uniqueTag(value: String): String = PREFIX_UNIQUE + encode(value)
     fun uriTag(value: String): String = PREFIX_URI + encode(value)
     fun displayNameTag(value: String): String = PREFIX_DISPLAY_NAME + encode(value)
     fun keyTag(value: String): String = PREFIX_KEY + encode(value)
+    fun kindTag(kind: UploadWorkKind): String = PREFIX_KIND + encode(kind.rawValue)
 
     fun metadataFrom(workInfo: WorkInfo): UploadWorkMetadata {
         val tags = workInfo.tags
@@ -23,7 +26,15 @@ object UploadTags {
         val uri = decodeWithPrefix(tags, PREFIX_URI)?.let { runCatching { Uri.parse(it) }.getOrNull() }
         val displayName = decodeWithPrefix(tags, PREFIX_DISPLAY_NAME)
         val key = decodeWithPrefix(tags, PREFIX_KEY)
-        return UploadWorkMetadata(uniqueName = unique, uri = uri, displayName = displayName, idempotencyKey = key)
+        val kind = decodeWithPrefix(tags, PREFIX_KIND)?.let(UploadWorkKind::fromRawValue)
+            ?: UploadWorkKind.UPLOAD
+        return UploadWorkMetadata(
+            uniqueName = unique,
+            uri = uri,
+            displayName = displayName,
+            idempotencyKey = key,
+            kind = kind
+        )
     }
 
     private fun decodeWithPrefix(tags: Set<String>, prefix: String): String? {
@@ -47,5 +58,17 @@ data class UploadWorkMetadata(
     val uniqueName: String?,
     val uri: Uri?,
     val displayName: String?,
-    val idempotencyKey: String?
+    val idempotencyKey: String?,
+    val kind: UploadWorkKind
 )
+
+enum class UploadWorkKind(val rawValue: String) {
+    UPLOAD("upload"),
+    POLL("poll");
+
+    companion object {
+        fun fromRawValue(raw: String): UploadWorkKind? {
+            return entries.firstOrNull { it.rawValue == raw }
+        }
+    }
+}

@@ -7,6 +7,10 @@
     <string name="queue_status_failed">Ошибка</string>
     <string name="queue_status_cancelled">Отменена</string>
     <string name="queue_status_blocked">Заблокирована</string>
+    <string name="queue_status_poll_waiting">Ожидаем обработку…</string>
+    <string name="queue_status_poll_succeeded">Готово. Файл удалён</string>
+    <string name="queue_status_poll_manual_delete">Требуется ручное удаление</string>
+    <string name="queue_status_poll_failed">Ошибка обработки</string>
     <string name="queue_progress_unknown">Прогресс неизвестен</string>
     <string name="queue_progress_percent">%1$d%%</string>
     <string name="queue_action_cancel">Отменить</string>
