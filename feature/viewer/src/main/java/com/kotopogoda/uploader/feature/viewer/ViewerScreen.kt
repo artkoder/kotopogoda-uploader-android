@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.AssistChip
@@ -77,6 +78,7 @@ import java.time.ZoneId
 fun ViewerRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     viewModel: ViewerViewModel = hiltViewModel()
@@ -99,6 +101,7 @@ fun ViewerRoute(
         observeUploadEnqueued = viewModel::observeUploadEnqueued,
         onBack = onBack,
         onOpenQueue = onOpenQueue,
+        onOpenStatus = onOpenStatus,
         onOpenSettings = onOpenSettings,
         healthState = healthState,
         onPageChanged = viewModel::setCurrentIndex,
@@ -123,6 +126,7 @@ private fun ViewerScreen(
     observeUploadEnqueued: (Uri) -> Flow<Boolean>,
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     onPageChanged: (Int) -> Unit,
@@ -225,6 +229,7 @@ private fun ViewerScreen(
             ViewerTopBar(
                 onBack = onBack,
                 onOpenQueue = onOpenQueue,
+                onOpenStatus = onOpenStatus,
                 onOpenSettings = onOpenSettings,
                 onOpenJumpToDate = { showJumpSheet = true },
                 healthState = healthState,
@@ -281,6 +286,7 @@ private fun ViewerScreen(
 private fun ViewerTopBar(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenStatus: () -> Unit,
     onOpenJumpToDate: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
@@ -302,6 +308,12 @@ private fun ViewerTopBar(
                 Icon(
                     imageVector = Icons.Rounded.CalendarMonth,
                     contentDescription = stringResource(id = R.string.viewer_open_calendar)
+                )
+            }
+            IconButton(onClick = onOpenStatus) {
+                Icon(
+                    imageVector = Icons.Rounded.Info,
+                    contentDescription = stringResource(id = R.string.viewer_open_status)
                 )
             }
             IconButton(onClick = onOpenQueue) {

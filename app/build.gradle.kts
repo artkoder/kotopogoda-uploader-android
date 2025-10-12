@@ -71,6 +71,7 @@ dependencies {
     implementation(project(":feature:pairing"))
     implementation(project(":feature:viewer"))
     implementation(project(":feature:queue"))
+    implementation(project(":feature:status"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

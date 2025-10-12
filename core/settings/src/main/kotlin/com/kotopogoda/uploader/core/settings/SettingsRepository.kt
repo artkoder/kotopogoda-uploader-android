@@ -7,4 +7,5 @@ interface SettingsRepository {
     suspend fun setBaseUrl(url: String)
     suspend fun setAppLogging(enabled: Boolean)
     suspend fun setHttpLogging(enabled: Boolean)
+    suspend fun setPersistentQueueNotification(enabled: Boolean)
 }

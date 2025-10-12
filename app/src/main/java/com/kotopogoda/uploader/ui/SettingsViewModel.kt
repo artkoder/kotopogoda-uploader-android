@@ -37,6 +37,7 @@ class SettingsViewModel @Inject constructor(
             appVersion = BuildConfig.VERSION_NAME,
             contractVersion = BuildConfig.CONTRACT_VERSION,
             docsUrl = docsUrl,
+            queueNotificationPersistent = true,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -52,6 +53,7 @@ class SettingsViewModel @Inject constructor(
                         baseUrlInput = settings.baseUrl,
                         appLoggingEnabled = settings.appLogging,
                         httpLoggingEnabled = settings.httpLogging,
+                        queueNotificationPersistent = settings.persistentQueueNotification,
                         isBaseUrlValid = true,
                         isBaseUrlDirty = false,
                     )
@@ -105,6 +107,21 @@ class SettingsViewModel @Inject constructor(
             updateState = { value -> _uiState.update { it.copy(httpLoggingEnabled = value) } },
             block = { settingsRepository.setHttpLogging(enabled) }
         )
+    }
+
+    fun onQueueNotificationChanged(enabled: Boolean) {
+        val current = uiState.value.queueNotificationPersistent
+        if (enabled == current) {
+            return
+        }
+        _uiState.update { it.copy(queueNotificationPersistent = enabled) }
+        viewModelScope.launch {
+            runCatching { settingsRepository.setPersistentQueueNotification(enabled) }
+                .onFailure {
+                    _uiState.update { it.copy(queueNotificationPersistent = current) }
+                    sendEvent(SettingsEvent.ShowMessageRes(R.string.settings_snackbar_action_failed))
+                }
+        }
     }
 
     private fun toggleLogging(
@@ -190,6 +207,7 @@ data class SettingsUiState(
     val isBaseUrlDirty: Boolean = false,
     val appLoggingEnabled: Boolean = false,
     val httpLoggingEnabled: Boolean = false,
+    val queueNotificationPersistent: Boolean = true,
     val isExporting: Boolean = false,
     val appVersion: String,
     val contractVersion: String,
