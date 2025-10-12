@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     val contractTag = (project.findProperty("contractTag") as? String) ?: "v1.0.0"
-    val apiBaseUrl = (project.findProperty("apiBaseUrl") as? String) ?: "https://api.kotopogoda.local"
+    val baseUrl = (project.findProperty("baseUrl") as? String) ?: "https://<prod-host>"
 
     defaultConfig {
         applicationId = "com.kotopogoda.uploader"
@@ -23,17 +23,44 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        buildConfigField("String", "CONTRACT_VERSION", "\"$contractTag\"")
-        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("ANDROID_KEYSTORE_FILE").orEmpty()
+            if (keystorePath.isNotEmpty()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = false
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    buildTypes.all {
+        buildConfigField("String", "CONTRACT_VERSION", "\"$contractTag\"")
+        buildConfigField("String", "API_BASE_URL", "\"$baseUrl\"")
+    }
+
+    @Suppress("UnstableApiUsage")
+    applicationVariants.all {
+        val tag = project.findProperty("appTag") as String? ?: "0.0.0"
+        val code = project.findProperty("appCode")?.toString()?.toIntOrNull() ?: 1
+        outputs.forEach { output ->
+            output.versionName = tag
+            output.versionCode = code
         }
     }
 
