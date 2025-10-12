@@ -6,18 +6,17 @@ import androidx.documentfile.provider.DocumentFile
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Singleton
 class ProcessingFolderProvider @Inject constructor(
-    private val context: Context,
-    private val folderRepository: FolderRepository,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    @ApplicationContext private val context: Context,
+    private val folderRepository: FolderRepository
 ) {
 
-    suspend fun ensure(): DocumentFile = withContext(ioDispatcher) {
+    suspend fun ensure(): DocumentFile = withContext(Dispatchers.IO) {
         val folder = folderRepository.getFolder()
             ?: throw IllegalStateException("Root folder is not selected")
         val treeUri = Uri.parse(folder.treeUri)

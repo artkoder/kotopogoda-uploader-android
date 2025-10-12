@@ -6,18 +6,17 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Singleton
 class SaFileRepository @Inject constructor(
-    private val context: Context,
-    private val processingFolderProvider: ProcessingFolderProvider,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    @ApplicationContext private val context: Context,
+    private val processingFolderProvider: ProcessingFolderProvider
 ) {
 
-    suspend fun moveToProcessing(src: Uri): Uri = withContext(ioDispatcher) {
+    suspend fun moveToProcessing(src: Uri): Uri = withContext(Dispatchers.IO) {
         val source = DocumentFile.fromSingleUri(context, src)
             ?: throw IllegalStateException("Source document not found for $src")
 
@@ -38,7 +37,7 @@ class SaFileRepository @Inject constructor(
     }
 
     suspend fun moveBack(srcInProcessing: Uri, originalParent: Uri, displayName: String): Uri =
-        withContext(ioDispatcher) {
+        withContext(Dispatchers.IO) {
             val source = DocumentFile.fromSingleUri(context, srcInProcessing)
                 ?: throw IllegalStateException("Source document not found for $srcInProcessing")
             val parent = DocumentFile.fromTreeUri(context, originalParent)

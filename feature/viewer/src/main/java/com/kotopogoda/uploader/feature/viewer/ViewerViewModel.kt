@@ -19,7 +19,6 @@ import java.io.Serializable
 import java.security.MessageDigest
 import java.util.ArrayList
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,8 +41,7 @@ class ViewerViewModel @Inject constructor(
     private val saFileRepository: SaFileRepository,
     private val uploadEnqueuer: UploadEnqueuer,
     @ApplicationContext private val context: Context,
-    private val savedStateHandle: SavedStateHandle,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     val photos: StateFlow<List<PhotoItem>> = photoRepository.observePhotos()
@@ -298,7 +296,7 @@ class ViewerViewModel @Inject constructor(
 
     fun observeUploadEnqueued(uri: Uri) = uploadEnqueuer.isEnqueued(uri)
 
-    private suspend fun loadDocumentInfo(uri: Uri): DocumentInfo = withContext(ioDispatcher) {
+    private suspend fun loadDocumentInfo(uri: Uri): DocumentInfo = withContext(Dispatchers.IO) {
         val folder = folderRepository.getFolder()
             ?: throw IllegalStateException("Root folder is not selected")
         val treeUri = Uri.parse(folder.treeUri)
