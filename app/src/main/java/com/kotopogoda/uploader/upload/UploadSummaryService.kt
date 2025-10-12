@@ -13,7 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkQuery
-import androidx.lifecycle.Observer
+import androidx.work.getWorkInfosFlow
 import com.kotopogoda.uploader.MainActivity
 import com.kotopogoda.uploader.R
 import com.kotopogoda.uploader.core.network.upload.UploadTags
@@ -22,9 +22,6 @@ import com.kotopogoda.uploader.notifications.UploadNotif
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -59,7 +56,7 @@ class UploadSummaryService : LifecycleService() {
         val query = WorkQuery.Builder
             .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL))
             .build()
-        val workFlow = workManager.workInfosFlow(query)
+        val workFlow = workManager.getWorkInfosFlow(query)
         combine(settingsRepository.flow, workFlow) { settings, infos ->
             settings to infos
         }.collect { (settings, infos) ->
@@ -172,13 +169,4 @@ class UploadSummaryService : LifecycleService() {
             ContextCompat.startForegroundService(context, intent)
         }
     }
-}
-
-private fun WorkManager.workInfosFlow(query: WorkQuery): Flow<List<WorkInfo>> = callbackFlow {
-    val liveData = this.getWorkInfosLiveData(query)
-    val observer = Observer<List<WorkInfo>> { infos ->
-        trySend(infos).isSuccess
-    }
-    liveData.observeForever(observer)
-    awaitClose { liveData.removeObserver(observer) }
 }
