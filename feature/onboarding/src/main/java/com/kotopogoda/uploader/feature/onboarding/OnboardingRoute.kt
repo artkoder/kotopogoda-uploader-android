@@ -16,8 +16,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -38,6 +38,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberDatePickerState
+import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.feature.onboarding.R
 import java.time.Instant
 import java.time.ZoneId
@@ -247,9 +248,11 @@ private fun ReviewStartSection(
         )
         else -> stringResource(id = R.string.onboarding_start_option_continue_hint_first)
     }
-    val newHint = anchorText?.let {
-        stringResource(id = R.string.onboarding_start_option_new_with_anchor, it)
-    } ?: stringResource(id = R.string.onboarding_start_option_new_without_anchor)
+    val newHint = if (anchorText != null) {
+        stringResource(id = R.string.onboarding_start_option_new_with_anchor, anchorText)
+    } else {
+        stringResource(id = R.string.onboarding_start_option_new_without_anchor)
+    }
 
     var selectedOption by rememberSaveable { mutableStateOf(ReviewStartOption.CONTINUE) }
     var selectedDateMillis by rememberSaveable { mutableStateOf<Long?>(null) }
