@@ -20,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.kotopogoda.uploader"
-        minSdk = 35
+        minSdk = 26
         targetSdk = 35
         versionCode = appCode
         versionName = appTag

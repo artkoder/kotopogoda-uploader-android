@@ -11,7 +11,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 35
+        minSdk = 26
     }
 
     // IMPORTANT: wire generated sources via Android DSL (not global sourceSets)

@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.core.network.client
 
 import com.kotopogoda.uploader.core.network.api.AttachDeviceRequest
 import com.kotopogoda.uploader.core.network.api.PairingApi
+import com.kotopogoda.uploader.core.network.api.toDomain
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlin.test.assertEquals
@@ -25,7 +26,7 @@ class NetworkClientProviderTest {
                 MockResponse()
                     .setResponseCode(200)
                     .setHeader("Content-Type", "application/json")
-                    .setBody("""{"deviceId":"device-123","hmacKey":"secret"}""")
+                    .setBody("""{"device_id":"device-123","device_secret":"secret"}""")
             )
             server.start()
 
@@ -38,7 +39,7 @@ class NetworkClientProviderTest {
             val pairingApi = provider.create(PairingApi::class.java)
 
             val response = runBlocking {
-                pairingApi.attach(AttachDeviceRequest(token = "token"))
+                pairingApi.attach(AttachDeviceRequest(token = "token")).toDomain()
             }
 
             assertEquals("device-123", response.deviceId)

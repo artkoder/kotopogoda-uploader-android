@@ -21,6 +21,27 @@ class ParsePairingTokenTest {
     }
 
     @Test
+    fun `extracts token from catweather scheme`() {
+        val token = parsePairingToken("catweather://pair?token=pairing-token")
+
+        assertEquals("pairing-token", token)
+    }
+
+    @Test
+    fun `extracts token from code parameter`() {
+        val token = parsePairingToken("https://example.com/pair?code=pairing-token")
+
+        assertEquals("pairing-token", token)
+    }
+
+    @Test
+    fun `extracts token from PAIR prefix`() {
+        val token = parsePairingToken("PAIR: pairing-token")
+
+        assertEquals("pairing-token", token)
+    }
+
+    @Test
     fun `extracts token from url path`() {
         val token = parsePairingToken("https://example.com/pairing/pairing-token")
 
@@ -30,6 +51,13 @@ class ParsePairingTokenTest {
     @Test
     fun `returns null for invalid input`() {
         val token = parsePairingToken("https://example.com/?foo=bar")
+
+        assertNull(token)
+    }
+
+    @Test
+    fun `returns null when parameter is invalid`() {
+        val token = parsePairingToken("https://example.com/pair?token=invalid!*")
 
         assertNull(token)
     }
