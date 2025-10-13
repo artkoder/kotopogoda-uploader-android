@@ -29,8 +29,8 @@ import kotlinx.coroutines.withContext
 class PairingLogger @Inject constructor(
     @ApplicationContext private val context: Context,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val clock: Clock = Clock.systemDefaultZone(),
 ) {
+    private val clock: Clock = Clock.systemDefaultZone()
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val writeMutex = Mutex()
     private val timestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
