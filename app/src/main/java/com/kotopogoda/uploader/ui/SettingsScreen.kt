@@ -1,7 +1,11 @@
 package com.kotopogoda.uploader.ui
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,6 +34,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,8 +51,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kotopogoda.uploader.R
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTopAppBarState
 import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,6 +64,11 @@ fun SettingsRoute(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        viewModel.onNotificationPermissionResult(granted)
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collectLatest { event ->
@@ -79,6 +88,13 @@ fun SettingsRoute(
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(event.url))
                     context.startActivity(intent)
                 }
+                SettingsEvent.RequestNotificationPermission -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        viewModel.onNotificationPermissionResult(true)
+                    }
+                }
             }
         }
     }
@@ -92,6 +108,7 @@ fun SettingsRoute(
         onAppLoggingChanged = viewModel::onAppLoggingChanged,
         onHttpLoggingChanged = viewModel::onHttpLoggingChanged,
         onQueueNotificationChanged = viewModel::onQueueNotificationChanged,
+        onRequestQueueNotificationPermission = viewModel::onRequestQueueNotificationPermission,
         onExportLogs = viewModel::onExportLogs,
         onClearQueue = viewModel::onClearQueue,
         onResetPairing = viewModel::onResetPairingConfirmed,
@@ -111,6 +128,7 @@ fun SettingsScreen(
     onAppLoggingChanged: (Boolean) -> Unit,
     onHttpLoggingChanged: (Boolean) -> Unit,
     onQueueNotificationChanged: (Boolean) -> Unit,
+    onRequestQueueNotificationPermission: () -> Unit,
     onExportLogs: () -> Unit,
     onClearQueue: () -> Unit,
     onResetPairing: () -> Unit,
@@ -224,7 +242,21 @@ fun SettingsScreen(
                         description = stringResource(id = R.string.settings_queue_notification_desc),
                         checked = uiState.queueNotificationPersistent,
                         onCheckedChange = onQueueNotificationChanged,
+                        enabled = uiState.isQueueNotificationToggleEnabled,
                     )
+                    if (!uiState.queueNotificationPermissionGranted) {
+                        Text(
+                            text = stringResource(id = R.string.settings_queue_notification_permission_rationale),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(
+                            onClick = onRequestQueueNotificationPermission,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(text = stringResource(id = R.string.settings_queue_notification_permission_button))
+                        }
+                    }
                     Button(
                         onClick = onExportLogs,
                         enabled = !uiState.isExporting,
@@ -304,6 +336,7 @@ private fun SettingsSwitchRow(
     description: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -318,7 +351,11 @@ private fun SettingsSwitchRow(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled,
+            )
         }
         Text(
             text = description,

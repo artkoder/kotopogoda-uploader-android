@@ -1,10 +1,13 @@
 package com.kotopogoda.uploader.upload
 
+import android.Manifest
 import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -177,6 +180,15 @@ class UploadSummaryService : LifecycleService() {
         private const val ACTION_CANCEL_ALL = "com.kotopogoda.uploader.upload.CANCEL_ALL"
 
         fun ensureRunningIfNeeded(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val hasPermission = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+                if (!hasPermission) {
+                    return
+                }
+            }
             val intent = Intent(context, UploadSummaryService::class.java)
             ContextCompat.startForegroundService(context, intent)
         }

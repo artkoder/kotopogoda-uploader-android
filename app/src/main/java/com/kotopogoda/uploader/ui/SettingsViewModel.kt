@@ -11,6 +11,7 @@ import com.kotopogoda.uploader.core.logging.LogsSharer
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.AppSettingsModule
+import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import javax.inject.Named
@@ -18,6 +19,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -28,6 +30,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val logsSharer: LogsSharer,
     private val uploadEnqueuer: UploadEnqueuer,
+    private val notificationPermissionChecker: NotificationPermissionChecker,
     @Named(AppSettingsModule.DOCS_URL) private val docsUrl: String,
 ) : ViewModel() {
 
@@ -37,7 +40,9 @@ class SettingsViewModel @Inject constructor(
             appVersion = BuildConfig.VERSION_NAME,
             contractVersion = BuildConfig.CONTRACT_VERSION,
             docsUrl = docsUrl,
-            queueNotificationPersistent = true,
+            queueNotificationPersistent = false,
+            queueNotificationPermissionGranted = notificationPermissionChecker.canPostNotifications(),
+            isQueueNotificationToggleEnabled = notificationPermissionChecker.canPostNotifications(),
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -56,6 +61,22 @@ class SettingsViewModel @Inject constructor(
                         queueNotificationPersistent = settings.persistentQueueNotification,
                         isBaseUrlValid = true,
                         isBaseUrlDirty = false,
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            notificationPermissionChecker.permissionFlow().collect { granted ->
+                _uiState.update { state ->
+                    val currentPersistent = if (granted) {
+                        state.queueNotificationPersistent
+                    } else {
+                        false
+                    }
+                    state.copy(
+                        queueNotificationPermissionGranted = granted,
+                        isQueueNotificationToggleEnabled = granted,
+                        queueNotificationPersistent = currentPersistent,
                     )
                 }
             }
@@ -114,6 +135,16 @@ class SettingsViewModel @Inject constructor(
         if (enabled == current) {
             return
         }
+        if (!notificationPermissionChecker.canPostNotifications()) {
+            if (enabled) {
+                sendEvent(SettingsEvent.RequestNotificationPermission)
+            }
+            _uiState.update { it.copy(queueNotificationPersistent = false) }
+            viewModelScope.launch {
+                runCatching { settingsRepository.setPersistentQueueNotification(false) }
+            }
+            return
+        }
         _uiState.update { it.copy(queueNotificationPersistent = enabled) }
         viewModelScope.launch {
             runCatching { settingsRepository.setPersistentQueueNotification(enabled) }
@@ -140,6 +171,24 @@ class SettingsViewModel @Inject constructor(
                     updateState(currentValue)
                     sendEvent(SettingsEvent.ShowMessageRes(R.string.settings_snackbar_action_failed))
                 }
+        }
+    }
+
+    fun onRequestQueueNotificationPermission() {
+        if (notificationPermissionChecker.canPostNotifications()) {
+            notificationPermissionChecker.refresh()
+            return
+        }
+        sendEvent(SettingsEvent.RequestNotificationPermission)
+    }
+
+    fun onNotificationPermissionResult(granted: Boolean) {
+        notificationPermissionChecker.refresh()
+        if (!granted) {
+            viewModelScope.launch {
+                runCatching { settingsRepository.setPersistentQueueNotification(false) }
+            }
+            sendEvent(SettingsEvent.ShowMessageRes(R.string.settings_queue_notification_permission_denied))
         }
     }
 
@@ -207,7 +256,9 @@ data class SettingsUiState(
     val isBaseUrlDirty: Boolean = false,
     val appLoggingEnabled: Boolean = false,
     val httpLoggingEnabled: Boolean = false,
-    val queueNotificationPersistent: Boolean = true,
+    val queueNotificationPersistent: Boolean = false,
+    val queueNotificationPermissionGranted: Boolean = true,
+    val isQueueNotificationToggleEnabled: Boolean = true,
     val isExporting: Boolean = false,
     val appVersion: String,
     val contractVersion: String,
@@ -219,4 +270,5 @@ sealed interface SettingsEvent {
     data class ShareLogs(val intent: Intent) : SettingsEvent
     data object ResetPairing : SettingsEvent
     data class OpenDocs(val url: String) : SettingsEvent
+    data object RequestNotificationPermission : SettingsEvent
 }
