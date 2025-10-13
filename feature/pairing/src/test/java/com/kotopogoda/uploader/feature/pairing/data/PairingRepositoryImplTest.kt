@@ -15,10 +15,6 @@ class PairingRepositoryImplTest {
 
     @Test
     fun attach_parsesSnakeCaseResponse() {
-        val moshi = Moshi.Builder()
-            .add(KotlinJsonAdapterFactory())
-            .build()
-
         MockWebServer().use { server ->
             server.enqueue(
                 MockResponse()
@@ -28,12 +24,15 @@ class PairingRepositoryImplTest {
             )
             server.start()
 
+            val moshi = Moshi.Builder()
+                .add(KotlinJsonAdapterFactory())
+                .build()
             val provider = NetworkClientProvider(
                 okHttpClient = OkHttpClient.Builder().build(),
                 converterFactory = MoshiConverterFactory.create(moshi),
                 defaultBaseUrl = server.url("/").toString(),
             )
-            val repository = PairingRepositoryImpl(provider)
+            val repository = PairingRepositoryImpl(provider, moshi)
 
             val response = runBlocking {
                 repository.attach("token")
@@ -41,6 +40,68 @@ class PairingRepositoryImplTest {
 
             assertEquals("device-123", response.deviceId)
             assertEquals("secret-456", response.hmacKey)
+        }
+    }
+
+    @Test
+    fun attach_parsesDeprecatedResponse() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"id":"legacy-123","secret":"legacy-456"}""")
+            )
+            server.start()
+
+            val moshi = Moshi.Builder()
+                .add(KotlinJsonAdapterFactory())
+                .build()
+            val provider = NetworkClientProvider(
+                okHttpClient = OkHttpClient.Builder().build(),
+                converterFactory = MoshiConverterFactory.create(moshi),
+                defaultBaseUrl = server.url("/").toString(),
+            )
+            val repository = PairingRepositoryImpl(provider, moshi)
+
+            val response = runBlocking {
+                repository.attach("token")
+            }
+
+            assertEquals("legacy-123", response.deviceId)
+            assertEquals("legacy-456", response.hmacKey)
+        }
+    }
+
+    @Test(expected = PairingException::class)
+    fun attach_throwsPairingExceptionOnHttp400() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":"token expired"}""")
+            )
+            server.start()
+
+            val moshi = Moshi.Builder()
+                .add(KotlinJsonAdapterFactory())
+                .build()
+            val provider = NetworkClientProvider(
+                okHttpClient = OkHttpClient.Builder().build(),
+                converterFactory = MoshiConverterFactory.create(moshi),
+                defaultBaseUrl = server.url("/").toString(),
+            )
+            val repository = PairingRepositoryImpl(provider, moshi)
+
+            runBlocking {
+                try {
+                    repository.attach("token")
+                } catch (error: PairingException) {
+                    assertEquals("token expired", error.message)
+                    throw error
+                }
+            }
         }
     }
 }

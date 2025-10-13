@@ -7,6 +7,7 @@ import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,11 +31,20 @@ internal fun parsePairingToken(rawValue: String?): String? {
         return value
     }
 
+    val prefixToken = value.substringAfter(':', missingDelimiterValue = "").takeIf {
+        value.startsWith("PAIR:", ignoreCase = true)
+    }?.trim()
+    if (!prefixToken.isNullOrBlank() && pairingTokenRegex.matches(prefixToken)) {
+        return prefixToken
+    }
+
     val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
 
-    val queryToken = uri.getQueryParameter("token")
-    if (!queryToken.isNullOrBlank()) {
-        return queryToken
+    listOf("token", "code").forEach { parameter ->
+        val queryToken = uri.getQueryParameter(parameter)
+        if (!queryToken.isNullOrBlank() && pairingTokenRegex.matches(queryToken)) {
+            return queryToken
+        }
     }
 
     val lastSegment = uri.lastPathSegment
@@ -46,6 +56,7 @@ internal fun parsePairingToken(rawValue: String?): String? {
 fun QrScanner(
     modifier: Modifier = Modifier,
     onTokenDetected: (String) -> Unit,
+    onParsingError: (String?) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -61,6 +72,7 @@ fun QrScanner(
             .build()
     }
     val scanner = remember { BarcodeScanning.getClient(options) }
+    val lastRejectedRawValue = remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(lifecycleOwner, scanner) {
         cameraController.setEnabledUseCases(LifecycleCameraController.IMAGE_ANALYSIS)
@@ -75,9 +87,16 @@ fun QrScanner(
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
             scanner.process(image)
                 .addOnSuccessListener { barcodes ->
-                    val token = barcodes.firstOrNull()?.rawValue?.let(::parsePairingToken)
-                    if (!token.isNullOrEmpty()) {
-                        onTokenDetected(token)
+                    val rawValue = barcodes.firstOrNull()?.rawValue
+                    if (!rawValue.isNullOrBlank()) {
+                        val token = parsePairingToken(rawValue)
+                        if (!token.isNullOrEmpty()) {
+                            lastRejectedRawValue.value = null
+                            onTokenDetected(token)
+                        } else if (lastRejectedRawValue.value != rawValue) {
+                            lastRejectedRawValue.value = rawValue
+                            onParsingError(rawValue)
+                        }
                     }
                 }
                 .addOnCompleteListener { imageProxy.close() }

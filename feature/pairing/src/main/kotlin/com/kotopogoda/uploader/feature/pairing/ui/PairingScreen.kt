@@ -2,6 +2,8 @@ package com.kotopogoda.uploader.feature.pairing.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +56,18 @@ fun PairingRoute(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.exportLogs()
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Нет доступа к памяти — экспорт невозможен")
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -61,7 +76,26 @@ fun PairingRoute(
                 is PairingEvent.Error -> coroutineScope.launch {
                     snackbarHostState.showSnackbar(event.message)
                 }
+                is PairingEvent.Info -> coroutineScope.launch {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+                is PairingEvent.LogsExported -> {
+                    Toast.makeText(context, event.message, Toast.LENGTH_LONG).show()
+                }
             }
+        }
+    }
+
+    val onExportLogs = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            viewModel.exportLogs()
+        } else {
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
     }
 
@@ -71,6 +105,8 @@ fun PairingRoute(
         onTokenChanged = viewModel::onTokenInputChanged,
         onAttachClick = viewModel::attachWithCurrentInput,
         onTokenDetected = viewModel::attach,
+        onParsingError = viewModel::onParsingError,
+        onExportLogs = onExportLogs,
         modifier = modifier,
     )
 }
@@ -83,6 +119,8 @@ fun PairingScreen(
     onTokenChanged: (String) -> Unit,
     onAttachClick: () -> Unit,
     onTokenDetected: (String) -> Unit,
+    onParsingError: (String?) -> Unit,
+    onExportLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val (selectedTab, onTabSelected) = rememberSaveable { mutableStateOf(PairingTab.Scanner) }
@@ -113,12 +151,30 @@ fun PairingScreen(
                 PairingTab.Scanner -> ScannerTabContent(
                     isLoading = uiState.isLoading,
                     onTokenDetected = onTokenDetected,
+                    onParsingError = onParsingError,
                 )
                 PairingTab.Manual -> ManualTabContent(
                     uiState = uiState,
                     onTokenChanged = onTokenChanged,
                     onAttachClick = onAttachClick,
                 )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onExportLogs,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !uiState.isExportingLogs,
+            ) {
+                if (uiState.isExportingLogs) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Сохранение...")
+                } else {
+                    Text(text = "Экспорт логов")
+                }
             }
         }
     }
@@ -128,6 +184,7 @@ fun PairingScreen(
 private fun ScannerTabContent(
     isLoading: Boolean,
     onTokenDetected: (String) -> Unit,
+    onParsingError: (String?) -> Unit,
 ) {
     val hasCameraPermission = rememberCameraPermission()
 
@@ -144,6 +201,7 @@ private fun ScannerTabContent(
                     .fillMaxWidth()
                     .weight(1f, fill = true),
                 onTokenDetected = onTokenDetected,
+                onParsingError = onParsingError,
             )
         }
         if (isLoading) {
