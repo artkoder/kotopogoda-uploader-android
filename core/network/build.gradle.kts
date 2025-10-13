@@ -1,3 +1,6 @@
+import org.gradle.api.GradleException
+import org.openapitools.generator.gradle.plugin.tasks.GenerateTask
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -31,11 +34,37 @@ android {
     }
 }
 
-openApiGenerate {
+val contractSpec = rootProject.layout.projectDirectory.file("api/contract/openapi/openapi.yaml")
+
+val ensureOpenApiSpec = tasks.register("ensureOpenApiSpec") {
+    doLast {
+        if (!contractSpec.asFile.exists()) {
+            logger.lifecycle("OpenAPI contract not found. Initialising git submodule api/contract…")
+            val process = ProcessBuilder("git", "submodule", "update", "--init", "api/contract")
+                .directory(rootDir)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+            val exitCode = process.waitFor()
+            if (output.isNotEmpty()) {
+                logger.lifecycle(output)
+            }
+            if (exitCode != 0) {
+                throw GradleException("Failed to initialise api/contract submodule (exit code $exitCode).")
+            }
+        }
+
+        if (!contractSpec.asFile.exists()) {
+            throw GradleException("Missing OpenAPI contract at ${contractSpec.asFile}. Run `git submodule update --init`.")
+        }
+    }
+}
+
+tasks.named<GenerateTask>("openApiGenerate") {
+    dependsOn(ensureOpenApiSpec)
     generatorName.set("kotlin")
     library.set("jvm-retrofit2")
-    // OpenAPI spec comes from the contract submodule
-    inputSpec.set("${rootDir}/api/contract/openapi/openapi.yaml")
+    inputSpec.set(contractSpec.asFile.absolutePath)
     outputDir.set("${buildDir}/generated/openapi")
     packageName.set("com.kotopogoda.uploader.api")
     additionalProperties.set(
