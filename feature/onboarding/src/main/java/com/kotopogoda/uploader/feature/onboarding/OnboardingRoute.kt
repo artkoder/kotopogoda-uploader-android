@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -149,6 +150,7 @@ private fun OnboardingScreen(
                 folderUri = uiState.treeUri,
                 progress = uiState.progress,
                 photoCount = uiState.photoCount,
+                scanState = uiState.scanState,
                 onChangeFolder = onSelectFolder,
                 onStartReview = onStartReview,
                 onResetProgress = onResetProgress,
@@ -193,6 +195,7 @@ private fun FolderSelectedContent(
     folderUri: String,
     progress: ReviewPosition?,
     photoCount: Int,
+    scanState: OnboardingScanState,
     onChangeFolder: () -> Unit,
     onStartReview: (ReviewStartOption, Instant?) -> Unit,
     onResetProgress: () -> Unit,
@@ -218,6 +221,7 @@ private fun FolderSelectedContent(
         OutlinedButton(onClick = onChangeFolder) {
             Text(text = stringResource(id = R.string.onboarding_change_folder))
         }
+        ScanStatusIndicator(scanState = scanState)
         Spacer(modifier = Modifier.weight(1f))
         ReviewStartSection(
             progress = progress,
@@ -226,6 +230,64 @@ private fun FolderSelectedContent(
             onResetProgress = onResetProgress,
             onResetAnchor = onResetAnchor
         )
+    }
+}
+
+@Composable
+private fun ScanStatusIndicator(scanState: OnboardingScanState) {
+    when (scanState) {
+        OnboardingScanState.Idle -> Unit
+        is OnboardingScanState.InProgress -> {
+            val message = scanState.progress?.let { progress ->
+                stringResource(
+                    id = R.string.onboarding_scan_in_progress_detailed,
+                    progress.scanned,
+                    progress.inserted,
+                    progress.updated,
+                    progress.skipped
+                )
+            } ?: stringResource(id = R.string.onboarding_scan_in_progress_waiting)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 3.dp)
+                Text(text = message, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        is OnboardingScanState.Completed -> {
+            val progress = scanState.progress
+            val text = progress?.let {
+                stringResource(
+                    id = R.string.onboarding_scan_completed,
+                    it.inserted,
+                    it.updated,
+                    it.skipped
+                )
+            } ?: stringResource(id = R.string.onboarding_scan_completed_empty)
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start
+            )
+        }
+
+        is OnboardingScanState.Failed -> {
+            Text(
+                text = stringResource(
+                    id = R.string.onboarding_scan_failed,
+                    scanState.message
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start
+            )
+        }
     }
 }
 
