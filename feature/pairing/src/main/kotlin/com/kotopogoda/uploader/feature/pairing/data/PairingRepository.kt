@@ -5,7 +5,6 @@ import com.kotopogoda.uploader.core.network.api.AttachDeviceResponse
 import com.kotopogoda.uploader.core.network.api.PairingApi
 import com.kotopogoda.uploader.core.network.api.toDomain
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
-import com.squareup.moshi.Json
 import com.squareup.moshi.Moshi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -55,7 +54,7 @@ class PairingRepositoryImpl @Inject constructor(
 }
 
 data class ErrorResponse(
-    @Json(name = "error") val error: String? = null,
+    val error: String? = null,
 )
 
 class PairingException(message: String, cause: Throwable? = null) : Exception(message, cause)
