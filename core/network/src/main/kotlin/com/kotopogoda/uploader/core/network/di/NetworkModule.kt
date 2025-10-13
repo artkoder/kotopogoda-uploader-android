@@ -8,6 +8,8 @@ import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.settings.DefaultBaseUrl
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -47,7 +49,13 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideMoshiConverterFactory(): MoshiConverterFactory = MoshiConverterFactory.create()
+    fun provideMoshi(): Moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
+
+    @Provides
+    @Singleton
+    fun provideMoshiConverterFactory(moshi: Moshi): MoshiConverterFactory = MoshiConverterFactory.create(moshi)
 
     @Provides
     @Singleton
