@@ -47,4 +47,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     kapt(libs.dagger.hilt.compiler)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
 }

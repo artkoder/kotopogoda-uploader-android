@@ -20,4 +20,9 @@
     <string name="onboarding_start_button">Начать просмотр</string>
     <string name="onboarding_reset_progress">Сбросить прогресс</string>
     <string name="onboarding_reset_anchor">Сбросить якорь новых</string>
+    <string name="onboarding_scan_in_progress_waiting">Подготавливаем сканирование…</string>
+    <string name="onboarding_scan_in_progress_detailed">Сканирование: обработано %1$d, добавлено %2$d, обновлено %3$d, пропущено %4$d</string>
+    <string name="onboarding_scan_completed">Сканирование завершено: добавлено %1$d, обновлено %2$d, пропущено %3$d</string>
+    <string name="onboarding_scan_completed_empty">Сканирование завершено</string>
+    <string name="onboarding_scan_failed">Не удалось просканировать папку: %1$s</string>
 </resources>

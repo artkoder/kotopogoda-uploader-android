@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.feature.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
+import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
@@ -10,6 +11,8 @@ import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -22,7 +25,8 @@ import kotlinx.coroutines.launch
 class OnboardingViewModel @Inject constructor(
     private val folderRepository: FolderRepository,
     private val photoRepository: PhotoRepository,
-    private val reviewProgressStore: ReviewProgressStore
+    private val reviewProgressStore: ReviewProgressStore,
+    private val indexerRepository: IndexerRepository
 ) : ViewModel() {
 
     private val _uiState: MutableStateFlow<OnboardingUiState> =
@@ -33,23 +37,39 @@ class OnboardingViewModel @Inject constructor(
     val events: SharedFlow<OnboardingEvent> = _events.asSharedFlow()
 
     private var currentFolderId: String? = null
+    private var currentFolderRecordId: Int? = null
+    private var scanJob: Job? = null
 
     init {
         viewModelScope.launch {
             folderRepository.observeFolder().collect { folder ->
                 if (folder == null) {
                     currentFolderId = null
+                    currentFolderRecordId = null
+                    scanJob?.cancel()
                     _uiState.value = OnboardingUiState.FolderNotSelected
                 } else {
                     val folderId = reviewProgressFolderId(folder.treeUri)
+                    val previousState = _uiState.value as? OnboardingUiState.FolderSelected
+                    val isFolderChanged = currentFolderId != folderId || currentFolderRecordId != folder.id
                     currentFolderId = folderId
+                    currentFolderRecordId = folder.id
                     val progress = reviewProgressStore.loadPosition(folderId)
                     val photoCount = photoRepository.countAll()
+                    val scanState = if (isFolderChanged) {
+                        OnboardingScanState.Idle
+                    } else {
+                        previousState?.scanState ?: OnboardingScanState.Idle
+                    }
                     _uiState.value = OnboardingUiState.FolderSelected(
                         treeUri = folder.treeUri,
                         photoCount = photoCount,
-                        progress = progress
+                        progress = progress,
+                        scanState = scanState
                     )
+                    if (isFolderChanged || previousState == null) {
+                        startScan()
+                    }
                 }
             }
         }
@@ -117,6 +137,37 @@ class OnboardingViewModel @Inject constructor(
         val photoCount = photoRepository.countAll()
         _uiState.value = state.copy(photoCount = photoCount, progress = progress)
     }
+
+    private fun startScan() {
+        scanJob?.cancel()
+        val folderId = currentFolderId ?: return
+        scanJob = viewModelScope.launch {
+            var lastProgress: IndexerRepository.ScanProgress? = null
+            try {
+                updateScanState(OnboardingScanState.InProgress(progress = null))
+                indexerRepository.scanAll().collect { progress ->
+                    lastProgress = progress
+                    updateScanState(OnboardingScanState.InProgress(progress))
+                }
+                refreshFolderState()
+                updateScanState(OnboardingScanState.Completed(lastProgress))
+            } catch (error: Throwable) {
+                if (error is CancellationException) {
+                    throw error
+                }
+                updateScanState(
+                    OnboardingScanState.Failed(
+                        error.message ?: error::class.java.simpleName
+                    )
+                )
+            }
+        }
+    }
+
+    private fun updateScanState(scanState: OnboardingScanState) {
+        val state = _uiState.value as? OnboardingUiState.FolderSelected ?: return
+        _uiState.value = state.copy(scanState = scanState)
+    }
 }
 
 sealed interface OnboardingUiState {
@@ -125,8 +176,16 @@ sealed interface OnboardingUiState {
     data class FolderSelected(
         val treeUri: String,
         val photoCount: Int,
-        val progress: ReviewPosition?
+        val progress: ReviewPosition?,
+        val scanState: OnboardingScanState
     ) : OnboardingUiState
+}
+
+sealed interface OnboardingScanState {
+    data object Idle : OnboardingScanState
+    data class InProgress(val progress: IndexerRepository.ScanProgress?) : OnboardingScanState
+    data class Completed(val progress: IndexerRepository.ScanProgress?) : OnboardingScanState
+    data class Failed(val message: String) : OnboardingScanState
 }
 
 enum class ReviewStartOption {
