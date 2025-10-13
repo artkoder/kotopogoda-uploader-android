@@ -30,4 +30,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.dagger.hilt.android)
     kapt(libs.dagger.hilt.compiler)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

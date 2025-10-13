@@ -23,6 +23,8 @@
     <string name="settings_http_logging_desc">Вести подробный журнал запросов и ответов OkHttp.</string>
     <string name="settings_queue_notification">Постоянное уведомление очереди</string>
     <string name="settings_queue_notification_desc">Показывать уведомление даже без активных загрузок.</string>
+    <string name="settings_queue_notification_permission_rationale">Для постоянного уведомления нужно разрешение на показ уведомлений.</string>
+    <string name="settings_queue_notification_permission_button">Разрешить уведомления</string>
     <string name="settings_export_logs">Экспортировать логи</string>
     <string name="settings_section_actions">Действия</string>
     <string name="settings_clear_queue">Очистить очередь отправок</string>
@@ -38,6 +40,7 @@
     <string name="settings_snackbar_logs_export_failed">Не удалось подготовить архив логов</string>
     <string name="settings_snackbar_queue_cleared">Очередь загрузок очищена</string>
     <string name="settings_snackbar_reset_done">Привязка устройства сброшена</string>
+    <string name="settings_queue_notification_permission_denied">Разрешение на уведомления не предоставлено</string>
     <string name="upload_summary_notification_title">Очередь загрузок</string>
     <string name="upload_summary_notification_content">Загружается %1$d из %2$d (ожидают: %3$d)</string>
     <string name="upload_summary_notification_empty">Очередь: 0</string>

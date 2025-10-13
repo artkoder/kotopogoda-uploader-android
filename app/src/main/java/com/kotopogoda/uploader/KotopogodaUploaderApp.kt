@@ -7,6 +7,7 @@ import com.kotopogoda.uploader.core.network.connectivity.ConnectivityObserver
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.settings.SettingsRepository
+import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadSummaryService
 import dagger.hilt.android.HiltAndroidApp
@@ -38,6 +39,9 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     @Inject
     lateinit var connectivityObserver: ConnectivityObserver
 
+    @Inject
+    lateinit var notificationPermissionChecker: NotificationPermissionChecker
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
@@ -49,7 +53,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
                 appLogger.setEnabled(settings.appLogging)
                 httpLoggingController.setEnabled(settings.httpLogging)
                 networkClientProvider.updateBaseUrl(settings.baseUrl)
-                if (settings.persistentQueueNotification) {
+                if (settings.persistentQueueNotification && notificationPermissionChecker.canPostNotifications()) {
                     UploadSummaryService.ensureRunningIfNeeded(this@KotopogodaUploaderApp)
                 }
             }

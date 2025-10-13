@@ -13,18 +13,19 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 @Singleton
 class SettingsRepositoryImpl @Inject constructor(
     @SettingsPreferencesStore private val dataStore: DataStore<Preferences>,
     @DefaultBaseUrl private val defaultBaseUrl: String,
+    private val notificationPermissionProvider: NotificationPermissionProvider,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : SettingsRepository {
 
-    override val flow: Flow<AppSettings> = dataStore.data
+    private val preferencesFlow = dataStore.data
         .catch { throwable ->
             if (throwable is IOException) {
                 emit(emptyPreferences())
@@ -32,13 +33,17 @@ class SettingsRepositoryImpl @Inject constructor(
                 throw throwable
             }
         }
-        .map { preferences ->
+
+    override val flow: Flow<AppSettings> = preferencesFlow
+        .combine(notificationPermissionProvider.permissionFlow()) { preferences, permissionGranted ->
             val storedBaseUrl = preferences[BASE_URL_KEY]?.takeIf { it.isNotBlank() }
+            val persistentPreference = preferences[PERSISTENT_QUEUE_NOTIFICATION_KEY]
+            val persistentValue = (persistentPreference ?: permissionGranted) && permissionGranted
             AppSettings(
                 baseUrl = storedBaseUrl ?: defaultBaseUrl,
                 appLogging = preferences[APP_LOGGING_KEY] ?: false,
                 httpLogging = preferences[HTTP_LOGGING_KEY] ?: false,
-                persistentQueueNotification = preferences[PERSISTENT_QUEUE_NOTIFICATION_KEY] ?: true,
+                persistentQueueNotification = persistentValue,
             )
         }
         .distinctUntilChanged()
