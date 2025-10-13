@@ -55,4 +55,11 @@ dependencies {
     implementation(libs.com.google.mlkit.barcode.scanning)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.com.squareup.okhttp3.okhttp)
+    testImplementation("com.squareup.okhttp3:mockwebserver:${libs.versions.okhttp.get()}")
+    testImplementation(libs.com.squareup.retrofit2.converter.moshi)
+    testImplementation(libs.com.squareup.moshi.moshi)
+    testImplementation(libs.com.squareup.moshi.kotlin)
 }

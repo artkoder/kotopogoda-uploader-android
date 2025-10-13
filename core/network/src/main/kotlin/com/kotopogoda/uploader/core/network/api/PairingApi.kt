@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.network.api
 
+import com.squareup.moshi.Json
 import retrofit2.http.Body
 import retrofit2.http.POST
 
@@ -8,8 +9,8 @@ data class AttachDeviceRequest(
 )
 
 data class AttachDeviceResponse(
-    val deviceId: String,
-    val hmacKey: String,
+    @Json(name = "device_id") val deviceId: String,
+    @Json(name = "device_secret") val hmacKey: String,
 )
 
 interface PairingApi {
