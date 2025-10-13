@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.feature.pairing.ui
 
 import android.annotation.SuppressLint
+import android.net.Uri
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
@@ -16,6 +17,29 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+
+private val pairingTokenRegex = Regex("^[A-Za-z0-9_-]+$")
+
+internal fun parsePairingToken(rawValue: String?): String? {
+    val value = rawValue?.trim().orEmpty()
+    if (value.isEmpty()) {
+        return null
+    }
+
+    if (pairingTokenRegex.matches(value)) {
+        return value
+    }
+
+    val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
+
+    val queryToken = uri.getQueryParameter("token")
+    if (!queryToken.isNullOrBlank()) {
+        return queryToken
+    }
+
+    val lastSegment = uri.lastPathSegment
+    return lastSegment?.takeIf { pairingTokenRegex.matches(it) }
+}
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -51,8 +75,8 @@ fun QrScanner(
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
             scanner.process(image)
                 .addOnSuccessListener { barcodes ->
-                    val token = barcodes.firstOrNull()?.rawValue
-                    if (!token.isNullOrBlank()) {
+                    val token = barcodes.firstOrNull()?.rawValue?.let(::parsePairingToken)
+                    if (!token.isNullOrEmpty()) {
                         onTokenDetected(token)
                     }
                 }
