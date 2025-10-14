@@ -15,7 +15,7 @@ android {
 
     val appTag = (project.findProperty("appTag") as? String) ?: "0.0.0"
     val appCode = project.findProperty("appCode")?.toString()?.toIntOrNull() ?: 1
-    val contractTag = (project.findProperty("contractTag") as? String) ?: "v1.0.0"
+    val contractTag = (project.findProperty("contractTag") as? String) ?: "v1.4.1"
     val prodApiBaseUrl = "https://cat-weather-new.fly.dev/v1"
 
     defaultConfig {
