@@ -47,12 +47,11 @@ openApiGenerate {
     )
 }
 
-// Ensure generation runs before any build of this module
-tasks.named("preBuild").configure {
+val rewriteEmptyOpenApiModels by tasks.registering {
     dependsOn("openApiGenerate")
-}
+    // This task only mutates generated sources, so always rerun when requested.
+    outputs.upToDateWhen { false }
 
-tasks.named("openApiGenerate").configure {
     doLast {
         val modelsDir = file("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
         if (!modelsDir.exists()) {
@@ -74,6 +73,11 @@ tasks.named("openApiGenerate").configure {
                 }
             }
     }
+}
+
+// Ensure generation (and subsequent cleanup) runs before any build of this module
+tasks.named("preBuild").configure {
+    dependsOn(rewriteEmptyOpenApiModels)
 }
 
 dependencies {
