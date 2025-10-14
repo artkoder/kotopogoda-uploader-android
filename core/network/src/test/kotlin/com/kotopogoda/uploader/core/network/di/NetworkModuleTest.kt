@@ -10,7 +10,7 @@ class NetworkModuleTest {
     @Test
     fun `provideApiClient uses prod base url`() {
         val okHttpClient = OkHttpClient.Builder().build()
-        val prodBaseUrl = "https://cat-weather-new.fly.dev/v1"
+        val prodBaseUrl = "https://cat-weather-new.fly.dev"
 
         val apiClient = NetworkModule.provideApiClient(okHttpClient, prodBaseUrl)
 
