@@ -1,2 +1,2 @@
 # Skip Kotlin model stubs that conflict with handwritten equivalents
-src/main/kotlin/com/kotopogoda/uploader/api/models/*
+/src/main/kotlin/com/kotopogoda/uploader/api/models/*
