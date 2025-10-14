@@ -24,7 +24,11 @@ jobs:
           set -euo pipefail
           git -C api/contract fetch origin --tags --force
           TAG_EXPECTED="v1.4.1"
-          TAG_ACTUAL=$(git -C api/contract describe --tags --exact-match 2>/dev/null || git -C api/contract describe --tags --abbrev=0)
+          TAG_ACTUAL=$(git -C api/contract describe --tags --exact-match 2>/dev/null || true)
+          if [ -z "$TAG_ACTUAL" ]; then
+            echo "::error::Contract tag missing. Expected $TAG_EXPECTED but contract HEAD is not tagged" >&2
+            exit 1
+          fi
           echo "Contract tag (actual): $TAG_ACTUAL"
           if [ "$TAG_ACTUAL" != "$TAG_EXPECTED" ]; then
             echo "::error::Contract tag mismatch. Expected $TAG_EXPECTED but found $TAG_ACTUAL" >&2
