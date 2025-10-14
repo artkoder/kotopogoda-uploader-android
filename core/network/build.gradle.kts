@@ -39,56 +39,13 @@ openApiGenerate {
     outputDir.set("${buildDir}/generated/openapi")
     packageName.set("com.kotopogoda.uploader.api")
     ignoreFileOverride.set(layout.projectDirectory.file(".openapi-generator-ignore").asFile.absolutePath)
+    templateDir.set(layout.projectDirectory.dir("openapi-templates").asFile.absolutePath)
     additionalProperties.set(
         mapOf(
             "dateLibrary" to "java8",
             "useCoroutines" to "true"
         )
     )
-}
-
-val rewriteEmptyOpenApiModels by tasks.registering {
-    dependsOn("openApiGenerate")
-    // This task only mutates generated sources, so always rerun when requested.
-    outputs.upToDateWhen { false }
-
-    doLast {
-        val modelsDir = file("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
-        if (!modelsDir.exists()) {
-            return@doLast
-        }
-
-        val emptyDataClassPattern = Regex(
-            pattern = """data class (\\w+)\\s*\\((.*?)\\)""",
-            options = setOf(RegexOption.DOT_MATCHES_ALL)
-        )
-        val commentPattern = Regex("""(/\\*.*?\\*/|//.*?$)""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE))
-
-        modelsDir.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .forEach { file ->
-                val original = file.readText()
-                val rewritten = emptyDataClassPattern.replace(original) { match ->
-                    val constructorContents = match.groupValues[2]
-                    val sanitized = commentPattern.replace(constructorContents, "").trim()
-
-                    if (sanitized.isEmpty()) {
-                        "class ${match.groupValues[1]}"
-                    } else {
-                        match.value
-                    }
-                }
-
-                if (rewritten != original) {
-                    file.writeText(rewritten)
-                }
-            }
-    }
-}
-
-// Ensure generation (and subsequent cleanup) runs before any build of this module
-tasks.named("preBuild").configure {
-    dependsOn(rewriteEmptyOpenApiModels)
 }
 
 dependencies {
