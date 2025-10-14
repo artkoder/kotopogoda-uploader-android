@@ -19,6 +19,18 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Guard contract tag
+        run: |
+          set -euo pipefail
+          git -C api/contract fetch origin --tags --force
+          TAG_EXPECTED="v1.4.1"
+          TAG_ACTUAL=$(git -C api/contract describe --tags --exact-match 2>/dev/null || git -C api/contract describe --tags --abbrev=0)
+          echo "Contract tag (actual): $TAG_ACTUAL"
+          if [ "$TAG_ACTUAL" != "$TAG_EXPECTED" ]; then
+            echo "::error::Contract tag mismatch. Expected $TAG_EXPECTED but found $TAG_ACTUAL" >&2
+            exit 1
+          fi
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
