@@ -38,7 +38,7 @@ openApiGenerate {
     inputSpec.set("${rootDir}/api/contract/openapi/openapi.yaml")
     outputDir.set("${buildDir}/generated/openapi")
     packageName.set("com.kotopogoda.uploader.api")
-    ignoreFileOverride.set("${projectDir}/.openapi-generator-ignore")
+    ignoreFileOverride.set(layout.projectDirectory.file(".openapi-generator-ignore").asFile.absolutePath)
     additionalProperties.set(
         mapOf(
             "dateLibrary" to "java8",
@@ -50,6 +50,12 @@ openApiGenerate {
 // Ensure generation runs before any build of this module
 tasks.named("preBuild").configure {
     dependsOn("openApiGenerate")
+}
+
+tasks.named("openApiGenerate").configure {
+    doFirst {
+        project.delete("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
+    }
 }
 
 dependencies {
