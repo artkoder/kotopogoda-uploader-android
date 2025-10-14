@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.internal.KaptGenerateStubsTask
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -38,6 +40,7 @@ openApiGenerate {
     inputSpec.set("${rootDir}/api/contract/openapi/openapi.yaml")
     outputDir.set("${buildDir}/generated/openapi")
     packageName.set("com.kotopogoda.uploader.api")
+    ignoreFileOverride.set(layout.projectDirectory.file(".openapi-generator-ignore").asFile.absolutePath)
     additionalProperties.set(
         mapOf(
             "dateLibrary" to "java8",
@@ -46,9 +49,58 @@ openApiGenerate {
     )
 }
 
-// Ensure generation runs before any build of this module
-tasks.named("preBuild").configure {
-    dependsOn("openApiGenerate")
+val rewriteEmptyOpenApiModels by tasks.registering {
+    group = "code generation"
+    description = "Rewrites generated Kotlin models so empty schemas are emitted as regular classes."
+    dependsOn(tasks.named("openApiGenerate"))
+
+    val modelsDir = layout.buildDirectory.dir("generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
+    inputs.dir(modelsDir)
+    // Always run after generation to catch newly produced models
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val dir = modelsDir.get().asFile
+        if (!dir.exists()) return@doLast
+
+        val dataClassRegex = Regex(
+            pattern = """data class\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)""",
+            options = setOf(RegexOption.DOT_MATCHES_ALL)
+        )
+        val commentRegex = Regex("//[^\\n]*|/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL)
+
+        dir.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .forEach { file ->
+                val original = file.readText()
+                var rewritten = original
+
+                dataClassRegex.findAll(original).forEach { match ->
+                    val constructorContent = match.groupValues[2]
+                    val sanitized = commentRegex
+                        .replace(constructorContent, "")
+                        .replace("\n", "")
+                        .replace("\r", "")
+                        .trim()
+
+                    if (sanitized.isEmpty()) {
+                        val className = match.groupValues[1]
+                        rewritten = rewritten.replace(match.value, "class $className")
+                    }
+                }
+
+                if (rewritten != original) {
+                    file.writeText(rewritten)
+                }
+            }
+    }
+}
+
+tasks.matching { it.name in listOf("compileDebugKotlin", "compileReleaseKotlin") }
+    .configureEach { dependsOn(rewriteEmptyOpenApiModels) }
+
+tasks.withType<KaptGenerateStubsTask>().configureEach {
+    dependsOn(rewriteEmptyOpenApiModels)
 }
 
 dependencies {
