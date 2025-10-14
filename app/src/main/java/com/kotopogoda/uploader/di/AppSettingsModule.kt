@@ -18,7 +18,7 @@ object AppSettingsModule {
 
     @Provides
     @Named(DOCS_URL)
-    fun provideDocsUrl(): String = "https://kotopogoda.ru/redoc"
+    fun provideDocsUrl(): String = "https://artkoder.github.io/kotopogoda-api-contract/"
 
     const val DOCS_URL: String = "settings_docs_url"
 }
