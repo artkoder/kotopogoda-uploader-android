@@ -38,6 +38,7 @@ openApiGenerate {
     inputSpec.set("${rootDir}/api/contract/openapi/openapi.yaml")
     outputDir.set("${buildDir}/generated/openapi")
     packageName.set("com.kotopogoda.uploader.api")
+    ignoreFileOverride.set("${projectDir}/openapi-generator-ignore")
     additionalProperties.set(
         mapOf(
             "dateLibrary" to "java8",
