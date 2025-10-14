@@ -58,18 +58,29 @@ val rewriteEmptyOpenApiModels by tasks.registering {
             return@doLast
         }
 
-        val emptyCtorRegex = Regex("""data class (\\w+)\\s*\\(\\s*\\)""")
+        val emptyDataClassPattern = Regex(
+            pattern = """data class (\\w+)\\s*\\((.*?)\\)""",
+            options = setOf(RegexOption.DOT_MATCHES_ALL)
+        )
+        val commentPattern = Regex("""(/\\*.*?\\*/|//.*?$)""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE))
 
         modelsDir.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .forEach { file ->
                 val original = file.readText()
-                val replaced = emptyCtorRegex.replace(original) { matchResult ->
-                    "class ${matchResult.groupValues[1]}"
+                val rewritten = emptyDataClassPattern.replace(original) { match ->
+                    val constructorContents = match.groupValues[2]
+                    val sanitized = commentPattern.replace(constructorContents, "").trim()
+
+                    if (sanitized.isEmpty()) {
+                        "class ${match.groupValues[1]}"
+                    } else {
+                        match.value
+                    }
                 }
 
-                if (replaced != original) {
-                    file.writeText(replaced)
+                if (rewritten != original) {
+                    file.writeText(rewritten)
                 }
             }
     }
