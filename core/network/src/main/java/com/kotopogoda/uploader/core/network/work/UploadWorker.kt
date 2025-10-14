@@ -69,7 +69,6 @@ class UploadWorker @AssistedInject constructor(
             )
             val response = uploadApi.upload(
                 idempotencyKey = idempotencyKey,
-                contentSha256 = payload.sha256Hex,
                 file = filePart,
                 contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
                 mime = mimeType.toPlainRequestBody(),

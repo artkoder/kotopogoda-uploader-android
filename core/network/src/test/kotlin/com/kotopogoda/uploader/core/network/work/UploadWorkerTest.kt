@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Data
+import androidx.work.ForegroundUpdater
 import androidx.work.ListenableWorker.Result.Failure
 import androidx.work.ListenableWorker.Result.Retry
 import androidx.work.ListenableWorker.Result.Success
@@ -11,24 +12,30 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.kotopogoda.uploader.core.network.api.UploadApi
+import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.security.DeviceCreds
+import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
 import java.security.MessageDigest
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.text.Charsets
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
-import androidx.work.ForegroundUpdater
-import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class UploadWorkerTest {
@@ -46,8 +53,18 @@ class UploadWorkerTest {
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
+        val okHttpClient = OkHttpClient.Builder()
+            .addInterceptor(
+                HmacInterceptor(
+                    deviceCredsStore = FakeDeviceCredsStore(
+                        DeviceCreds(deviceId = "test-device", hmacKey = "secret-key")
+                    )
+                )
+            )
+            .build()
         uploadApi = Retrofit.Builder()
             .baseUrl(mockWebServer.url("/"))
+            .client(okHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(UploadApi::class.java)
@@ -97,11 +114,13 @@ class UploadWorkerTest {
         val request = mockWebServer.takeRequest()
         assertEquals("/v1/uploads", request.path)
         assertEquals("key-123", request.getHeader("Idempotency-Key"))
-        val expectedSha = file.readBytes().sha256Hex()
-        assertEquals(expectedSha, request.getHeader("X-Content-SHA256"))
-        val body = request.body.readUtf8()
+        val bodyBytes = request.body.readByteArray()
+        val expectedBodySha = bodyBytes.sha256Hex()
+        assertEquals(expectedBodySha, request.getHeader("X-Content-SHA256"))
+        val body = String(bodyBytes, Charsets.UTF_8)
+        val expectedFileSha = file.readBytes().sha256Hex()
         assertTrue(body.contains("name=\"content_sha256\""))
-        assertTrue(body.contains(expectedSha))
+        assertTrue(body.contains(expectedFileSha))
         assertTrue(body.contains("name=\"mime\""))
         assertTrue(body.contains("application/octet-stream"))
         assertTrue(body.contains("name=\"size\""))
@@ -199,6 +218,18 @@ class UploadWorkerTest {
             .putString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY, idempotencyKey)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
             .build()
+    }
+
+    private class FakeDeviceCredsStore(
+        private val creds: DeviceCreds?,
+    ) : DeviceCredsStore {
+        override suspend fun save(deviceId: String, hmacKey: String) = Unit
+
+        override suspend fun get(): DeviceCreds? = creds
+
+        override suspend fun clear() = Unit
+
+        override val credsFlow: Flow<DeviceCreds?> = MutableStateFlow(creds)
     }
 
     private fun createTempFileWithContent(content: String): File {
