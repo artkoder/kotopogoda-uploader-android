@@ -73,4 +73,8 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation("com.squareup.okhttp3:mockwebserver:${libs.versions.okhttp.get()}")
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("androidx.test:core-ktx:1.5.0")
+    testImplementation("androidx.work:work-testing:${libs.versions.work.get()}")
+    testImplementation("org.robolectric:robolectric:4.11.1")
 }
