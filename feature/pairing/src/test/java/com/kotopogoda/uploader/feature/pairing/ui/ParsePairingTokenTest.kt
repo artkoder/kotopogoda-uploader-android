@@ -7,45 +7,45 @@ import org.junit.Test
 class ParsePairingTokenTest {
 
     @Test
-    fun `returns raw value when it is already a token`() {
-        val token = parsePairingToken("abcDEF123_-")
+    fun `returns normalized value when it is already a token`() {
+        val token = parsePairingToken("abc234")
 
-        assertEquals("abcDEF123_-", token)
+        assertEquals("ABC234", token)
     }
 
     @Test
     fun `extracts token from telegram link`() {
-        val token = parsePairingToken("tg://resolve?domain=KotopogodaUploaderBot&token=pairing-token")
+        val token = parsePairingToken("tg://resolve?domain=KotopogodaUploaderBot&token=pair23")
 
-        assertEquals("pairing-token", token)
+        assertEquals("PAIR23", token)
     }
 
     @Test
     fun `extracts token from catweather scheme`() {
-        val token = parsePairingToken("catweather://pair?token=pairing-token")
+        val token = parsePairingToken("catweather://pair?token=weath2")
 
-        assertEquals("pairing-token", token)
+        assertEquals("WEATH2", token)
     }
 
     @Test
     fun `extracts token from code parameter`() {
-        val token = parsePairingToken("https://example.com/pair?code=pairing-token")
+        val token = parsePairingToken("https://example.com/pair?code=code239")
 
-        assertEquals("pairing-token", token)
+        assertEquals("CODE239", token)
     }
 
     @Test
     fun `extracts token from PAIR prefix`() {
-        val token = parsePairingToken("PAIR: pairing-token")
+        val token = parsePairingToken("PAIR: prefix7")
 
-        assertEquals("pairing-token", token)
+        assertEquals("PREFIX7", token)
     }
 
     @Test
     fun `extracts token from url path`() {
-        val token = parsePairingToken("https://example.com/pairing/pairing-token")
+        val token = parsePairingToken("https://example.com/pairing/path88")
 
-        assertEquals("pairing-token", token)
+        assertEquals("PATH88", token)
     }
 
     @Test
@@ -57,7 +57,21 @@ class ParsePairingTokenTest {
 
     @Test
     fun `returns null when parameter is invalid`() {
-        val token = parsePairingToken("https://example.com/pair?token=invalid!*")
+        val token = parsePairingToken("https://example.com/pair?token=invalid1")
+
+        assertNull(token)
+    }
+
+    @Test
+    fun `returns null when token is too short`() {
+        val token = parsePairingToken("https://example.com/pair?token=abc2")
+
+        assertNull(token)
+    }
+
+    @Test
+    fun `returns null when token contains invalid characters`() {
+        val token = parsePairingToken("PAIR: abcd-12")
 
         assertNull(token)
     }

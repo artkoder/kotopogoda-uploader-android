@@ -18,8 +18,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
-
-private val pairingTokenRegex = Regex("^[A-Za-z0-9_-]+$")
+import com.kotopogoda.uploader.feature.pairing.normalizePairingToken
 
 internal fun parsePairingToken(rawValue: String?): String? {
     val value = rawValue?.trim().orEmpty()
@@ -27,28 +26,22 @@ internal fun parsePairingToken(rawValue: String?): String? {
         return null
     }
 
-    if (pairingTokenRegex.matches(value)) {
-        return value
-    }
+    normalizePairingToken(value)?.let { return it }
 
     val prefixToken = value.substringAfter(':', missingDelimiterValue = "").takeIf {
         value.startsWith("PAIR:", ignoreCase = true)
     }?.trim()
-    if (!prefixToken.isNullOrBlank() && pairingTokenRegex.matches(prefixToken)) {
-        return prefixToken
-    }
+    normalizePairingToken(prefixToken)?.let { return it }
 
     val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
 
     listOf("token", "code").forEach { parameter ->
         val queryToken = uri.getQueryParameter(parameter)
-        if (!queryToken.isNullOrBlank() && pairingTokenRegex.matches(queryToken)) {
-            return queryToken
-        }
+        normalizePairingToken(queryToken)?.let { return it }
     }
 
     val lastSegment = uri.lastPathSegment
-    return lastSegment?.takeIf { pairingTokenRegex.matches(it) }
+    return normalizePairingToken(lastSegment)
 }
 
 @SuppressLint("MissingPermission")

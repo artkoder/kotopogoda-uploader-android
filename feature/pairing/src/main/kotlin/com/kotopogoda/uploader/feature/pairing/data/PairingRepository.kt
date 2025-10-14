@@ -5,6 +5,8 @@ import com.kotopogoda.uploader.core.network.api.AttachDeviceResponse
 import com.kotopogoda.uploader.core.network.api.PairingApi
 import com.kotopogoda.uploader.core.network.api.toDomain
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
+import com.kotopogoda.uploader.feature.pairing.PAIRING_TOKEN_FORMAT_ERROR
+import com.kotopogoda.uploader.feature.pairing.normalizePairingToken
 import com.squareup.moshi.Moshi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,9 +25,11 @@ class PairingRepositoryImpl @Inject constructor(
     private val errorAdapter by lazy { moshi.adapter(ErrorResponse::class.java) }
 
     override suspend fun attach(token: String): AttachDeviceResponse {
+        val normalized = normalizePairingToken(token)
+            ?: throw PairingException(PAIRING_TOKEN_FORMAT_ERROR)
         val api = networkClientProvider.create(PairingApi::class.java)
         return runCatching {
-            api.attach(AttachDeviceRequest(token = token)).toDomain()
+            api.attach(AttachDeviceRequest(token = normalized)).toDomain()
         }.getOrElse { throwable ->
             throw mapError(throwable)
         }

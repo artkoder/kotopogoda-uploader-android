@@ -3,8 +3,10 @@ package com.kotopogoda.uploader.feature.pairing.domain
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
+import com.kotopogoda.uploader.feature.pairing.PAIRING_TOKEN_FORMAT_ERROR
 import com.kotopogoda.uploader.feature.pairing.data.PairingException
 import com.kotopogoda.uploader.feature.pairing.data.PairingRepository
+import com.kotopogoda.uploader.feature.pairing.normalizePairingToken
 import com.kotopogoda.uploader.feature.pairing.logging.PairingLogExportResult
 import com.kotopogoda.uploader.feature.pairing.logging.PairingLogger
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,23 +39,35 @@ class PairingViewModel @Inject constructor(
     }
 
     fun attachWithCurrentInput() {
-        val token = _uiState.value.tokenInput.trim()
-        if (token.isEmpty()) {
+        val rawInput = _uiState.value.tokenInput
+        val trimmedInput = rawInput.trim()
+        if (trimmedInput.isEmpty()) {
             viewModelScope.launch {
                 _events.send(PairingEvent.Error("Введите токен"))
             }
             return
         }
-        pairingLogger.log("Manual attach requested fingerprint=${fingerprint(token)}")
-        attach(token)
+        val normalized = normalizePairingToken(rawInput)
+        if (normalized == null) {
+            pairingLogger.log("Manual attach rejected: invalid format fingerprint=${fingerprint(trimmedInput)}")
+            viewModelScope.launch {
+                _uiState.value = _uiState.value.copy(errorMessage = PAIRING_TOKEN_FORMAT_ERROR)
+                _events.send(PairingEvent.Error(PAIRING_TOKEN_FORMAT_ERROR))
+            }
+            return
+        }
+        pairingLogger.log("Manual attach requested fingerprint=${fingerprint(normalized)}")
+        attach(normalized)
     }
 
     fun attach(token: String) {
-        val normalized = token.trim()
-        if (normalized.isEmpty() || normalized == lastProcessedToken) {
-            if (normalized == lastProcessedToken) {
-                pairingLogger.log("Skipping duplicate token fingerprint=${fingerprint(normalized)}")
-            }
+        val normalized = normalizePairingToken(token)
+        if (normalized == null) {
+            pairingLogger.log("Skipping invalid token fingerprint=${fingerprint(token)}")
+            return
+        }
+        if (normalized == lastProcessedToken) {
+            pairingLogger.log("Skipping duplicate token fingerprint=${fingerprint(normalized)}")
             return
         }
         lastProcessedToken = normalized
