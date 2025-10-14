@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.api.infrastructure.ApiClient
+import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
@@ -15,6 +16,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.time.Clock
+import java.util.UUID
 import javax.inject.Singleton
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -71,6 +74,12 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideUploadApi(
+        networkClientProvider: NetworkClientProvider,
+    ): UploadApi = networkClientProvider.create(UploadApi::class.java)
+
+    @Provides
+    @Singleton
     fun provideApiClient(
         okHttpClient: OkHttpClient,
         @DefaultBaseUrl defaultBaseUrl: String,
@@ -87,6 +96,13 @@ object NetworkModule {
     fun provideHttpLoggingController(
         loggingInterceptor: HttpLoggingInterceptor,
     ): HttpLoggingController = HttpLoggingController(loggingInterceptor)
+
+    @Provides
+    @Singleton
+    fun provideClock(): Clock = Clock.systemUTC()
+
+    @Provides
+    fun provideNonceProvider(): () -> String = { UUID.randomUUID().toString() }
 
     @Provides
     fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
