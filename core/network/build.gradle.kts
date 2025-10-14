@@ -56,6 +56,9 @@ tasks.named("openApiGenerate").configure {
     doFirst {
         project.delete("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
     }
+    doLast {
+        project.delete("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
+    }
 }
 
 dependencies {
