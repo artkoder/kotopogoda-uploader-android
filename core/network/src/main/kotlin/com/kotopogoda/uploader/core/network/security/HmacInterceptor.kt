@@ -44,7 +44,7 @@ class HmacInterceptor @Inject constructor(
             .addHeader(HEADER_DEVICE_ID, creds.deviceId)
             .addHeader(HEADER_TIMESTAMP, timestamp)
             .addHeader(HEADER_NONCE, nonce)
-            .addHeader(HEADER_CONTENT_SHA, contentSha)
+            .header(HEADER_CONTENT_SHA, contentSha)
             .addHeader(HEADER_SIGNATURE, signature)
             .build()
 
