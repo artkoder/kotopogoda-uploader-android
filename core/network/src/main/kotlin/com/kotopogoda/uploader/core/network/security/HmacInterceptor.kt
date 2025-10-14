@@ -4,7 +4,8 @@ import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.time.Instant
+import java.time.Clock
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -19,6 +20,8 @@ import okio.Buffer
 @Singleton
 class HmacInterceptor @Inject constructor(
     private val deviceCredsStore: DeviceCredsStore,
+    private val clock: Clock = Clock.systemUTC(),
+    private val nonceProvider: () -> String = { UUID.randomUUID().toString() },
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -30,8 +33,8 @@ class HmacInterceptor @Inject constructor(
         val creds = runBlocking { deviceCredsStore.get() }
             ?: throw DeviceNotPairedException()
 
-        val timestamp = Instant.now().epochSecond.toString()
-        val nonce = UUID.randomUUID().toString()
+        val timestamp = clock.instant().truncatedTo(ChronoUnit.SECONDS).toString()
+        val nonce = nonceProvider()
         val bodyBytes = originalRequest.body?.let { captureBody(it) } ?: EMPTY_BYTE_ARRAY
         val contentSha = sha256Hex(bodyBytes)
         val canonical = buildCanonicalString(originalRequest, timestamp, nonce, contentSha)
