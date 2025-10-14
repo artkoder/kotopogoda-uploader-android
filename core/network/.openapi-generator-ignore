@@ -1,2 +1,1 @@
-# Skip Kotlin model stubs that conflict with handwritten equivalents
-src/main/kotlin/com/kotopogoda/uploader/api/models/**
+# Intentionally left blank so the generator processes all Kotlin models.

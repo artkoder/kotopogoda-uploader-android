@@ -53,11 +53,21 @@ tasks.named("preBuild").configure {
 }
 
 tasks.named("openApiGenerate").configure {
-    doFirst {
-        project.delete("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
-    }
     doLast {
-        project.delete("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
+        val modelsDir = file("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
+        if (modelsDir.exists()) {
+            modelsDir.walkTopDown()
+                .filter { it.isFile && it.extension == "kt" }
+                .forEach { file ->
+                    val content = file.readText()
+                    val patched = content.replace(Regex("data class \\s+(\\w+)\\s*\\(\\s*\\)")) {
+                        "class ${it.groupValues[1]}"
+                    }
+                    if (patched != content) {
+                        file.writeText(patched)
+                    }
+                }
+        }
     }
 }
 
