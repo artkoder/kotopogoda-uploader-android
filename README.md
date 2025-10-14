@@ -19,3 +19,4 @@ gradle assembleDebug
 ## Документация
 - Архитектура (черновик): app + core:data + core:network + feature:viewer + feature:onboarding
 - Безопасность: привязка устройства (QR), HMAC-подпись запросов
+- Контракт API: vendored через подмодуль `api/contract` (версия v1.4.1), официальная документация: https://artkoder.github.io/kotopogoda-api-contract/
