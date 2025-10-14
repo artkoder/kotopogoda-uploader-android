@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.internal.KaptGenerateStubsTask
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -96,6 +98,10 @@ val rewriteEmptyOpenApiModels by tasks.registering {
 
 tasks.matching { it.name in listOf("compileDebugKotlin", "compileReleaseKotlin") }
     .configureEach { dependsOn(rewriteEmptyOpenApiModels) }
+
+tasks.withType<KaptGenerateStubsTask>().configureEach {
+    dependsOn(rewriteEmptyOpenApiModels)
+}
 
 dependencies {
     implementation(project(":core:security"))
