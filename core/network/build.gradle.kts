@@ -42,7 +42,8 @@ openApiGenerate {
     additionalProperties.set(
         mapOf(
             "dateLibrary" to "java8",
-            "useCoroutines" to "true"
+            "useCoroutines" to "true",
+            "useDataClasses" to false
         )
     )
 }
@@ -50,25 +51,6 @@ openApiGenerate {
 // Ensure generation runs before any build of this module
 tasks.named("preBuild").configure {
     dependsOn("openApiGenerate")
-}
-
-tasks.named("openApiGenerate").configure {
-    doLast {
-        val modelsDir = file("$buildDir/generated/openapi/src/main/kotlin/com/kotopogoda/uploader/api/models")
-        if (modelsDir.exists()) {
-            modelsDir.walkTopDown()
-                .filter { it.isFile && it.extension == "kt" }
-                .forEach { file ->
-                    val content = file.readText()
-                    val patched = content.replace(Regex("data class \\s+(\\w+)\\s*\\(\\s*\\)")) {
-                        "class ${it.groupValues[1]}"
-                    }
-                    if (patched != content) {
-                        file.writeText(patched)
-                    }
-                }
-        }
-    }
 }
 
 dependencies {
