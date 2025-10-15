@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,9 +77,37 @@ fun SettingsRoute(
                 is SettingsEvent.ShowMessageRes -> {
                     snackbarHostState.showSnackbar(message = context.getString(event.resId))
                 }
-                is SettingsEvent.ShareLogs -> {
-                    val chooserTitle = context.getString(R.string.settings_share_logs_title)
-                    context.startActivity(Intent.createChooser(event.intent, chooserTitle))
+                is SettingsEvent.ShowLogsExported -> {
+                    val message = context.getString(
+                        R.string.settings_snackbar_logs_exported,
+                        event.path,
+                    )
+                    val actionLabel = context.getString(R.string.settings_logs_open)
+                    val result = snackbarHostState.showSnackbar(
+                        message = message,
+                        actionLabel = actionLabel,
+                        withDismissAction = true,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(event.uri, "application/zip")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        val packageManager = context.packageManager
+                        val canHandle = packageManager?.let { intent.resolveActivity(it) } != null
+                        if (canHandle) {
+                            runCatching { context.startActivity(intent) }
+                                .onFailure {
+                                    snackbarHostState.showSnackbar(
+                                        context.getString(R.string.settings_snackbar_open_logs_failed)
+                                    )
+                                }
+                        } else {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.settings_snackbar_open_logs_failed)
+                            )
+                        }
+                    }
                 }
                 SettingsEvent.ResetPairing -> {
                     onResetPairing()
@@ -308,6 +337,13 @@ fun SettingsScreen(
                             )
                             Text(
                                 text = stringResource(id = R.string.settings_version_contract, uiState.contractVersion),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = stringResource(
+                                    id = R.string.settings_logs_directory,
+                                    uiState.logsDirectoryPath,
+                                ),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             TextButton(onClick = onOpenDocs) {

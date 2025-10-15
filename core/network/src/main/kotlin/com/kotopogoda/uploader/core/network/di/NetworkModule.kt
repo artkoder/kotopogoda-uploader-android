@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.api.infrastructure.ApiClient
+import com.kotopogoda.uploader.core.logging.HttpFileLogger
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
@@ -28,7 +29,9 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 object NetworkModule {
     @Provides
     @Singleton
-    fun provideLoggingInterceptor(): HttpLoggingInterceptor = HttpLoggingInterceptor().apply {
+    fun provideLoggingInterceptor(
+        httpFileLogger: HttpFileLogger,
+    ): HttpLoggingInterceptor = HttpLoggingInterceptor(httpFileLogger).apply {
         level = HttpLoggingInterceptor.Level.NONE
     }
 

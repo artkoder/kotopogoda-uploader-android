@@ -6,9 +6,7 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import javax.inject.Inject
@@ -23,37 +21,31 @@ class LogManager @Inject constructor(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
-    private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm")
-
     suspend fun listLogFiles(): List<File> = withContext(ioDispatcher) {
         listLogFilesInternal()
     }
 
-    suspend fun createLogsArchive(): File? = withContext(ioDispatcher) {
+    suspend fun writeLogsArchive(outputStream: OutputStream): Boolean = withContext(ioDispatcher) {
         val logs = listLogFilesInternal()
         if (logs.isEmpty()) {
-            return@withContext null
+            return@withContext false
         }
-        val timestamp = LocalDateTime.now().format(timestampFormatter)
-        val archive = File(context.cacheDir, "logs-$timestamp.zip")
-        if (archive.exists()) {
-            archive.delete()
-        }
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(archive))).use { zip ->
+        ZipOutputStream(BufferedOutputStream(outputStream)).use { zip ->
             logs.forEach { file ->
-                ZipEntry(file.name).let { entry ->
-                    zip.putNextEntry(entry)
-                    BufferedInputStream(FileInputStream(file)).use { input ->
-                        input.copyTo(zip)
-                    }
-                    zip.closeEntry()
+                val entry = ZipEntry(file.name)
+                zip.putNextEntry(entry)
+                BufferedInputStream(FileInputStream(file)).use { input ->
+                    input.copyTo(zip)
                 }
+                zip.closeEntry()
             }
         }
-        archive
+        true
     }
 
-    fun logsDirectory(): File = File(context.filesDir, LOGS_DIR_NAME)
+    fun logsDirectory(): File = ensureLogsDirectory(context)
+
+    fun logsDirectoryPath(): String = logsDirectory().absolutePath
 
     private fun listLogFilesInternal(): List<File> {
         val directory = logsDirectory()
@@ -63,9 +55,5 @@ class LogManager @Inject constructor(
         return directory.listFiles { file -> file.isFile && file.extension == "log" }
             ?.sortedByDescending { it.lastModified() }
             ?: emptyList()
-    }
-
-    companion object {
-        private const val LOGS_DIR_NAME = "logs"
     }
 }

@@ -1,13 +1,14 @@
 package com.kotopogoda.uploader.ui
 
-import android.content.Intent
+import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kotopogoda.uploader.BuildConfig
 import com.kotopogoda.uploader.R
-import com.kotopogoda.uploader.core.logging.LogsShareResult
-import com.kotopogoda.uploader.core.logging.LogsSharer
+import com.kotopogoda.uploader.core.logging.LogManager
+import com.kotopogoda.uploader.core.logging.LogsExportResult
+import com.kotopogoda.uploader.core.logging.LogsExporter
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.AppSettingsModule
@@ -28,7 +29,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
-    private val logsSharer: LogsSharer,
+    private val logManager: LogManager,
+    private val logsExporter: LogsExporter,
     private val uploadEnqueuer: UploadEnqueuer,
     private val notificationPermissionChecker: NotificationPermissionChecker,
     @Named(AppSettingsModule.DOCS_URL) private val docsUrl: String,
@@ -43,6 +45,7 @@ class SettingsViewModel @Inject constructor(
             queueNotificationPersistent = false,
             queueNotificationPermissionGranted = notificationPermissionChecker.canPostNotifications(),
             isQueueNotificationToggleEnabled = notificationPermissionChecker.canPostNotifications(),
+            logsDirectoryPath = logManager.logsDirectoryPath(),
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -198,14 +201,14 @@ class SettingsViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isExporting = true) }
         viewModelScope.launch {
-            when (val result = logsSharer.prepareShareIntent()) {
-                is LogsShareResult.Success -> {
-                    sendEvent(SettingsEvent.ShareLogs(result.intent))
+            when (val result = logsExporter.export()) {
+                is LogsExportResult.Success -> {
+                    sendEvent(SettingsEvent.ShowLogsExported(result.displayPath, result.uri))
                 }
-                LogsShareResult.NoLogs -> {
+                LogsExportResult.NoLogs -> {
                     sendEvent(SettingsEvent.ShowMessageRes(R.string.settings_snackbar_logs_empty))
                 }
-                is LogsShareResult.Error -> {
+                is LogsExportResult.Error -> {
                     sendEvent(SettingsEvent.ShowMessageRes(R.string.settings_snackbar_logs_export_failed))
                 }
             }
@@ -263,11 +266,12 @@ data class SettingsUiState(
     val appVersion: String,
     val contractVersion: String,
     val docsUrl: String,
+    val logsDirectoryPath: String,
 )
 
 sealed interface SettingsEvent {
     data class ShowMessageRes(@StringRes val resId: Int) : SettingsEvent
-    data class ShareLogs(val intent: Intent) : SettingsEvent
+    data class ShowLogsExported(val path: String, val uri: Uri) : SettingsEvent
     data object ResetPairing : SettingsEvent
     data class OpenDocs(val url: String) : SettingsEvent
     data object RequestNotificationPermission : SettingsEvent
