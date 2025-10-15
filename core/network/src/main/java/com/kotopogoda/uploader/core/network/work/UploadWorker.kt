@@ -65,7 +65,9 @@ class UploadWorker @AssistedInject constructor(
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
 
             var lastReportedPercent = -1
-            val fileRequestBody = ProgressRequestBody(payload.bytes.toRequestBody(mediaType)) { bytesSent, _ ->
+            val fileRequestBody = ProgressRequestBody(
+                payload.bytes.toRequestBody(mediaType),
+                onProgress = { bytesSent: Long, _: Long ->
                 val percent = if (payload.size > 0) {
                     ((bytesSent * 100) / payload.size).toInt().coerceIn(0, 100)
                 } else {
@@ -77,7 +79,8 @@ class UploadWorker @AssistedInject constructor(
                         updateProgress(displayName, percent)
                     }
                 }
-            }
+                }
+            )
             val filePart = MultipartBody.Part.createFormData(
                 "file",
                 displayName,
