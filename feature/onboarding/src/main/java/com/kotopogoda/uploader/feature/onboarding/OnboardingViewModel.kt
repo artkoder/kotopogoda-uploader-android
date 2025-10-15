@@ -67,7 +67,7 @@ class OnboardingViewModel @Inject constructor(
                         progress = progress,
                         scanState = scanState
                     )
-                    if (isFolderChanged || previousState == null) {
+                    if (indexerRepository.isIndexerEnabled && (isFolderChanged || previousState == null)) {
                         startScan()
                     }
                 }
@@ -87,19 +87,23 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             val targetIndex = when (option) {
                 ReviewStartOption.CONTINUE -> {
-                    val maxIndex = (state.photoCount - 1).coerceAtLeast(0)
-                    state.progress?.index?.coerceIn(0, maxIndex) ?: 0
+                    val anchor = state.progress?.anchorDate
+                    if (anchor != null) {
+                        photoRepository.findIndexAtOrAfter(anchor)
+                    } else {
+                        val stored = state.progress?.index ?: 0
+                        photoRepository.clampIndex(stored)
+                    }
                 }
 
                 ReviewStartOption.NEW -> {
                     val anchor = state.progress?.anchorDate
                     if (anchor != null) {
-                        val target = runCatching { anchor.plusMillis(1) }.getOrDefault(anchor)
-                        photoRepository.findIndexAtOrAfter(target)
+                        val anchorIndex = photoRepository.findIndexAtOrAfter(anchor)
+                        photoRepository.clampIndex(anchorIndex + 1)
                     } else {
                         val raw = (state.progress?.index ?: -1) + 1
-                        val maxIndex = (state.photoCount - 1).coerceAtLeast(0)
-                        raw.coerceIn(0, maxIndex)
+                        photoRepository.clampIndex(raw)
                     }
                 }
 
@@ -139,6 +143,9 @@ class OnboardingViewModel @Inject constructor(
     }
 
     private fun startScan() {
+        if (!indexerRepository.isIndexerEnabled) {
+            return
+        }
         scanJob?.cancel()
         val folderId = currentFolderId ?: return
         scanJob = viewModelScope.launch {

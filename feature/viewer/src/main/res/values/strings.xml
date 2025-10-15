@@ -17,6 +17,8 @@
     <string name="viewer_snackbar_undo_failed">Не удалось отменить действие</string>
     <string name="viewer_snackbar_delete_failed">Не удалось удалить файл — проверьте доступ к папке</string>
     <string name="viewer_badge_enqueued">В очереди</string>
+    <string name="viewer_error_title">Не удалось загрузить фотографии</string>
+    <string name="viewer_error_body">Попробуйте обновить экран или проверить доступ к медиа.</string>
     <string name="viewer_open_queue">Очередь</string>
     <string name="viewer_back">Назад</string>
     <string name="viewer_open_status">Статусы</string>

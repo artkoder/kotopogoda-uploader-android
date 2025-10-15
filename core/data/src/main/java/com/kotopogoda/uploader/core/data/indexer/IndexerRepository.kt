@@ -22,6 +22,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
@@ -30,15 +31,24 @@ class IndexerRepository @Inject constructor(
     private val context: Context,
     private val folderRepository: FolderRepository,
     private val photoDao: PhotoDao,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val isEnabled: Boolean = false
 ) {
 
-    fun scanAll(): Flow<ScanProgress> = flow {
-        val folder = folderRepository.getFolder()
-            ?: throw IllegalStateException("Root folder is not selected")
-        val treeUri = Uri.parse(folder.treeUri)
-        val rootDocument = DocumentFile.fromTreeUri(context, treeUri)
-            ?: throw IllegalStateException("Unable to resolve tree URI: ${folder.treeUri}")
+    val isIndexerEnabled: Boolean
+        get() = isEnabled
+
+    fun scanAll(): Flow<ScanProgress> {
+        if (!isEnabled) {
+            return flowOf(ScanProgress())
+        }
+
+        return flow {
+            val folder = folderRepository.getFolder()
+                ?: throw IllegalStateException("Root folder is not selected")
+            val treeUri = Uri.parse(folder.treeUri)
+            val rootDocument = DocumentFile.fromTreeUri(context, treeUri)
+                ?: throw IllegalStateException("Unable to resolve tree URI: ${folder.treeUri}")
 
         var progress = ScanProgress()
         emit(progress)

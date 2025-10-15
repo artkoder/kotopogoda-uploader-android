@@ -10,6 +10,8 @@ import androidx.test.filters.MediumTest
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.feature.viewer.R
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Rule
@@ -32,8 +34,9 @@ class ViewerScreenTest {
         )
 
         composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
             ViewerScreen(
-                photos = listOf(photo),
+                photos = pagingItems,
                 currentIndex = 0,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
@@ -47,10 +50,11 @@ class ViewerScreenTest {
                 onOpenSettings = {},
                 healthState = HealthState.Unknown,
                 onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
-                onSkip = {},
-                onMoveToProcessing = {},
-                onEnqueueUpload = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onEnqueueUpload = { _ -> },
                 onUndo = {},
                 onJumpToDate = {}
             )
