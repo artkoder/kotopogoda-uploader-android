@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.work.Data
 import androidx.work.WorkManager
+import androidx.work.setProgressAsync
 import java.util.UUID
 
 internal class DeleteRequestHelperActivity : Activity() {
