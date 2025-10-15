@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.network.work
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Data
 import androidx.work.ListenableWorker.Result.Failure
@@ -11,6 +12,7 @@ import androidx.work.ListenableWorker.Result.Success
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.squareup.moshi.Moshi
@@ -30,6 +32,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import androidx.work.ForegroundUpdater
 import org.robolectric.RobolectricTestRunner
+import androidx.work.Configuration
 
 @RunWith(RobolectricTestRunner::class)
 class PollStatusWorkerTest {
@@ -42,6 +45,10 @@ class PollStatusWorkerTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        val configuration = Configuration.Builder()
+            .setMinimumLoggingLevel(Log.DEBUG)
+            .build()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, configuration)
         TestForegroundDelegate.ensureChannel(context)
         mockWebServer = MockWebServer().apply { start() }
         val moshi = Moshi.Builder()
@@ -75,6 +82,7 @@ class PollStatusWorkerTest {
     @After
     fun tearDown() {
         mockWebServer.shutdown()
+        WorkManagerTestInitHelper.closeWorkDatabase(context)
     }
 
     @Test
