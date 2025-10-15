@@ -135,6 +135,7 @@ class SaFileRepositoryTest {
         every { sourceDocument.delete() } returns true
 
         every { processingFolderProvider.ensure() } returns destinationFolder
+        every { existingDocument.isFile } returns true
         every { existingDocument.name } returns "foo.jpg"
         every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
         every { destinationFolder.createFile("image/jpeg", "foo-1.jpg") } returns destinationDocument
@@ -149,6 +150,42 @@ class SaFileRepositoryTest {
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "foo-1.jpg") }
         verify(exactly = 0) { destinationFolder.createFile("image/jpeg", "foo.jpg") }
+    }
+
+    @Test
+    fun `moveToProcessing treats duplicate extensions case-insensitively`() = runTest {
+        val safUri = Uri.parse("content://com.android.providers.documents/document/primary:Pictures/foo.jpg")
+        val destinationUri = Uri.parse("content://com.example.destination/document/unique-upper")
+        val sourceDocument = mockk<DocumentFile>(relaxed = true)
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val destinationDocument = mockk<DocumentFile>(relaxed = true)
+        val existingDocument = mockk<DocumentFile>(relaxed = true)
+        val inputBytes = "duplicate-upper".toByteArray()
+        val outputStream = ByteArrayOutputStream()
+
+        mockkStatic(DocumentFile::class)
+        every { DocumentFile.fromSingleUri(context, safUri) } returns sourceDocument
+
+        every { sourceDocument.type } returns "image/jpeg"
+        every { sourceDocument.name } returns "foo.jpg"
+        every { sourceDocument.uri } returns safUri
+        every { sourceDocument.delete() } returns true
+
+        every { processingFolderProvider.ensure() } returns destinationFolder
+        every { existingDocument.isFile } returns true
+        every { existingDocument.name } returns "foo.JPG"
+        every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
+        every { destinationFolder.createFile("image/jpeg", "foo-1.jpg") } returns destinationDocument
+        every { destinationDocument.uri } returns destinationUri
+
+        every { contentResolver.openInputStream(safUri) } returns ByteArrayInputStream(inputBytes)
+        every { contentResolver.openOutputStream(destinationUri) } returns outputStream
+
+        val result = repository.moveToProcessing(safUri)
+
+        assertEquals(destinationUri, result)
+        assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "foo-1.jpg") }
     }
 
     @Test
@@ -176,6 +213,7 @@ class SaFileRepositoryTest {
         }
 
         every { processingFolderProvider.ensure() } returns destinationFolder
+        every { existingDocument.isFile } returns true
         every { existingDocument.name } returns "bar.jpg"
         every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
         every { destinationFolder.createFile("image/jpeg", "bar-1.jpg") } returns destinationDocument
@@ -216,6 +254,7 @@ class SaFileRepositoryTest {
         every { destinationDocument.uri } returns destinationUri
 
         every { existingDocument.name } returns "bar.jpg"
+        every { existingDocument.isFile } returns true
         every { parentDocument.listFiles() } returns arrayOf(existingDocument)
         every { parentDocument.createFile("image/jpeg", "bar-1.jpg") } returns destinationDocument
 
@@ -251,8 +290,11 @@ class SaFileRepositoryTest {
         every { sourceDocument.uri } returns safUri
         every { sourceDocument.delete() } returns true
 
+        every { existingBase.isFile } returns true
         every { existingBase.name } returns "foo.jpg"
+        every { existingSuffixOne.isFile } returns true
         every { existingSuffixOne.name } returns "foo-1.jpg"
+        every { existingSuffixTwo.isFile } returns true
         every { existingSuffixTwo.name } returns "foo-2.jpg"
 
         every { processingFolderProvider.ensure() } returns destinationFolder

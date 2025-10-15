@@ -168,6 +168,9 @@ class SaFileRepository @Inject constructor(
         var hasExactMatch = false
 
         destinationDirectory.listFiles().forEach { existing ->
+            if (!existing.isFile) {
+                return@forEach
+            }
             val existingName = existing.name ?: return@forEach
             val existingComponents = parseDisplayName(existingName)
             if (!existingComponents.sharesRootWith(originalComponents)) {
