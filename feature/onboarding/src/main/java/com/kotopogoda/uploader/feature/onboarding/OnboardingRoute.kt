@@ -96,6 +96,20 @@ fun OnboardingRoute(
         }
     }
 
+    var autoRequestKey by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentFolderUri, contentResolver) {
+        val treeUriString = currentFolderUri ?: return@LaunchedEffect
+        if (autoRequestKey == treeUriString) {
+            return@LaunchedEffect
+        }
+        val targetUri = runCatching { Uri.parse(treeUriString) }.getOrNull() ?: return@LaunchedEffect
+        val hasPermission = contentResolver.persistedUriPermissions.any { it.uri == targetUri }
+        if (!hasPermission) {
+            autoRequestKey = treeUriString
+            folderPickerLauncher.launch(targetUri)
+        }
+    }
+
     LaunchedEffect(viewModel.events) {
         viewModel.events.collect { event ->
             when (event) {

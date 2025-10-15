@@ -76,6 +76,8 @@ class ViewerViewModel @Inject constructor(
     private val anchorDate = MutableStateFlow<Instant?>(null)
     private val photoCount = MutableStateFlow(0)
     private val currentPhoto = MutableStateFlow<PhotoItem?>(null)
+    private val _currentFolderTreeUri = MutableStateFlow<String?>(null)
+    val currentFolderTreeUri: StateFlow<String?> = _currentFolderTreeUri.asStateFlow()
 
     private val undoStack = ArrayDeque<UserAction>()
     private val undoStackKey = "viewer_undo_stack"
@@ -103,13 +105,18 @@ class ViewerViewModel @Inject constructor(
         savedStateHandle[currentIndexKey] = _currentIndex.value
 
         viewModelScope.launch {
-            val folder = folderRepository.getFolder()
-            if (folder != null) {
-                val id = reviewProgressFolderId(folder.treeUri)
-                folderId.value = id
-                val stored = reviewProgressStore.loadPosition(id)
-                anchorDate.value = stored?.anchorDate
-                persistProgress(_currentIndex.value, anchorDate.value)
+            folderRepository.observeFolder().collect { folder ->
+                _currentFolderTreeUri.value = folder?.treeUri
+                if (folder != null) {
+                    val id = reviewProgressFolderId(folder.treeUri)
+                    folderId.value = id
+                    val stored = reviewProgressStore.loadPosition(id)
+                    anchorDate.value = stored?.anchorDate
+                    persistProgress(_currentIndex.value, anchorDate.value)
+                } else {
+                    folderId.value = null
+                    anchorDate.value = null
+                }
             }
         }
 
@@ -169,6 +176,12 @@ class ViewerViewModel @Inject constructor(
         viewModelScope.launch {
             val index = photoRepository.findIndexAtOrAfter(target)
             setCurrentIndex(index)
+        }
+    }
+
+    fun onFolderSelected(treeUri: String) {
+        viewModelScope.launch {
+            folderRepository.setFolder(treeUri)
         }
     }
 
