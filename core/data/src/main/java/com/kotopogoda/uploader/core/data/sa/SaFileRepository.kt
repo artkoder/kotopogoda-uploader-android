@@ -37,7 +37,7 @@ class SaFileRepository @Inject constructor(
                 ?: throw IllegalStateException("Original parent document missing for $originalParent")
 
             val mimeType = source.type ?: DEFAULT_MIME
-            val destination = parent.createFile(mimeType, displayName)
+            val destination = createUniqueFile(parent, mimeType, displayName)
                 ?: throw IllegalStateException("Unable to recreate destination $displayName")
 
             copyDocument(srcInProcessing, destination.uri)
@@ -81,7 +81,7 @@ class SaFileRepository @Inject constructor(
 
         val mimeType = source.type ?: DEFAULT_MIME
         val displayName = source.name ?: DEFAULT_FILE_NAME
-        val destination = destinationDirectory.createFile(mimeType, displayName)
+        val destination = createUniqueFile(destinationDirectory, mimeType, displayName)
             ?: throw IllegalStateException("Unable to create destination document for $src")
 
         copyDocument(src, destination.uri)
@@ -98,7 +98,7 @@ class SaFileRepository @Inject constructor(
         val resolver = context.contentResolver
         val mimeType = resolver.getType(src) ?: DEFAULT_MIME
         val displayName = resolveMediaStoreDisplayName(resolver, src) ?: DEFAULT_FILE_NAME
-        val destination = destinationDirectory.createFile(mimeType, displayName)
+        val destination = createUniqueFile(destinationDirectory, mimeType, displayName)
             ?: throw IllegalStateException("Unable to create destination document for $src")
 
         copyDocument(src, destination.uri)
@@ -147,6 +147,51 @@ class SaFileRepository @Inject constructor(
 
     private fun isMediaStoreUri(uri: Uri): Boolean {
         return uri.authority == MediaStore.AUTHORITY
+    }
+
+    private fun createUniqueFile(
+        destinationDirectory: DocumentFile,
+        mimeType: String,
+        displayName: String,
+    ): DocumentFile? {
+        val uniqueName = generateUniqueDisplayName(destinationDirectory, displayName)
+        return destinationDirectory.createFile(mimeType, uniqueName)
+    }
+
+    private fun generateUniqueDisplayName(
+        destinationDirectory: DocumentFile,
+        originalDisplayName: String,
+    ): String {
+        val (baseName, extension) = splitDisplayName(originalDisplayName)
+        var candidate = originalDisplayName
+        var suffix = 1
+
+        while (destinationDirectory.findFile(candidate) != null) {
+            candidate = buildCandidateName(baseName, extension, suffix)
+            suffix += 1
+        }
+
+        return candidate
+    }
+
+    private fun splitDisplayName(displayName: String): Pair<String, String?> {
+        val lastDotIndex = displayName.lastIndexOf('.')
+        if (lastDotIndex <= 0 || lastDotIndex == displayName.lastIndex) {
+            return displayName to null
+        }
+
+        val baseName = displayName.substring(0, lastDotIndex)
+        val extension = displayName.substring(lastDotIndex + 1)
+        return baseName to extension
+    }
+
+    private fun buildCandidateName(baseName: String, extension: String?, suffix: Int): String {
+        val suffixPart = "$baseName-$suffix"
+        return if (extension.isNullOrEmpty()) {
+            suffixPart
+        } else {
+            "$suffixPart.$extension"
+        }
     }
 
     companion object {

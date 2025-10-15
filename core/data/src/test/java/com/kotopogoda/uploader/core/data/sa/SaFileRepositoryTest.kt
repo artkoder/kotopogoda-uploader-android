@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import io.mockk.every
+import io.mockk.firstArg
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -58,6 +59,7 @@ class SaFileRepositoryTest {
         every { sourceDocument.delete() } returns true
 
         every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.findFile(any()) } returns null
         every { destinationFolder.createFile("image/jpeg", "foo.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
 
@@ -95,6 +97,7 @@ class SaFileRepositoryTest {
         }
 
         every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.findFile(any()) } returns null
         every { destinationFolder.createFile("image/jpeg", "bar.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
 
@@ -111,5 +114,126 @@ class SaFileRepositoryTest {
         verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
         verify(exactly = 1) { pendingIntent.send() }
         verify(exactly = 0) { contentResolver.delete(mediaUri, any(), any()) }
+    }
+
+    @Test
+    fun `moveToProcessing generates unique name when SAF destination has duplicate`() = runTest {
+        val safUri = Uri.parse("content://com.android.providers.documents/document/primary:Pictures/foo.jpg")
+        val destinationUri = Uri.parse("content://com.example.destination/document/unique")
+        val sourceDocument = mockk<DocumentFile>(relaxed = true)
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val destinationDocument = mockk<DocumentFile>(relaxed = true)
+        val existingDocument = mockk<DocumentFile>(relaxed = true)
+        val inputBytes = "duplicate".toByteArray()
+        val outputStream = ByteArrayOutputStream()
+
+        mockkStatic(DocumentFile::class)
+        every { DocumentFile.fromSingleUri(context, safUri) } returns sourceDocument
+
+        every { sourceDocument.type } returns "image/jpeg"
+        every { sourceDocument.name } returns "foo.jpg"
+        every { sourceDocument.uri } returns safUri
+        every { sourceDocument.delete() } returns true
+
+        every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.findFile(any()) } answers {
+            val requestedName = firstArg<String>()
+            if (requestedName == "foo.jpg") existingDocument else null
+        }
+        every { destinationFolder.createFile("image/jpeg", "foo-1.jpg") } returns destinationDocument
+        every { destinationDocument.uri } returns destinationUri
+
+        every { contentResolver.openInputStream(safUri) } returns ByteArrayInputStream(inputBytes)
+        every { contentResolver.openOutputStream(destinationUri) } returns outputStream
+
+        val result = repository.moveToProcessing(safUri)
+
+        assertEquals(destinationUri, result)
+        assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "foo-1.jpg") }
+        verify(exactly = 0) { destinationFolder.createFile("image/jpeg", "foo.jpg") }
+    }
+
+    @Test
+    fun `moveToProcessing generates unique name when MediaStore destination has duplicate`() = runTest {
+        val mediaUri = Uri.parse("content://media/external/images/media/42")
+        val destinationUri = Uri.parse("content://com.example.destination/document/unique-media")
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val destinationDocument = mockk<DocumentFile>(relaxed = true)
+        val existingDocument = mockk<DocumentFile>(relaxed = true)
+        val pendingIntent = mockk<PendingIntent>(relaxed = true)
+        val inputBytes = "media-duplicate".toByteArray()
+        val outputStream = ByteArrayOutputStream()
+
+        mockkStatic(DocumentFile::class)
+        every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
+
+        mockkStatic(Build.VERSION::class)
+        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
+
+        mockkStatic(MediaStore::class)
+        every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
+
+        val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
+            addRow(arrayOf<Any>("bar.jpg"))
+        }
+
+        every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.findFile(any()) } answers {
+            val requestedName = firstArg<String>()
+            if (requestedName == "bar.jpg") existingDocument else null
+        }
+        every { destinationFolder.createFile("image/jpeg", "bar-1.jpg") } returns destinationDocument
+        every { destinationDocument.uri } returns destinationUri
+
+        every { contentResolver.getType(mediaUri) } returns "image/jpeg"
+        every { contentResolver.query(mediaUri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null) } returns cursor
+        every { contentResolver.openInputStream(mediaUri) } returns ByteArrayInputStream(inputBytes)
+        every { contentResolver.openOutputStream(destinationUri) } returns outputStream
+        every { pendingIntent.send() } returns Unit
+
+        val result = repository.moveToProcessing(mediaUri)
+
+        assertEquals(destinationUri, result)
+        assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "bar-1.jpg") }
+        verify(exactly = 0) { destinationFolder.createFile("image/jpeg", "bar.jpg") }
+    }
+
+    @Test
+    fun `moveBack recreates file with unique name when duplicate exists`() = runTest {
+        val processingUri = Uri.parse("content://com.example.processing/document/processing")
+        val originalParentUri = Uri.parse("content://com.example.destination/tree/original")
+        val destinationUri = Uri.parse("content://com.example.destination/document/restored")
+        val sourceDocument = mockk<DocumentFile>(relaxed = true)
+        val parentDocument = mockk<DocumentFile>(relaxed = true)
+        val destinationDocument = mockk<DocumentFile>(relaxed = true)
+        val existingDocument = mockk<DocumentFile>(relaxed = true)
+        val inputBytes = "restore".toByteArray()
+        val outputStream = ByteArrayOutputStream()
+
+        mockkStatic(DocumentFile::class)
+        every { DocumentFile.fromSingleUri(context, processingUri) } returns sourceDocument
+        every { DocumentFile.fromTreeUri(context, originalParentUri) } returns parentDocument
+
+        every { sourceDocument.type } returns "image/jpeg"
+        every { sourceDocument.delete() } returns true
+        every { destinationDocument.uri } returns destinationUri
+
+        every { parentDocument.findFile(any()) } answers {
+            val requestedName = firstArg<String>()
+            if (requestedName == "bar.jpg") existingDocument else null
+        }
+        every { parentDocument.createFile("image/jpeg", "bar-1.jpg") } returns destinationDocument
+
+        every { contentResolver.openInputStream(processingUri) } returns ByteArrayInputStream(inputBytes)
+        every { contentResolver.openOutputStream(destinationUri) } returns outputStream
+
+        val result = repository.moveBack(processingUri, originalParentUri, "bar.jpg")
+
+        assertEquals(destinationUri, result)
+        assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 1) { parentDocument.createFile("image/jpeg", "bar-1.jpg") }
+        verify(exactly = 0) { parentDocument.createFile("image/jpeg", "bar.jpg") }
     }
 }
