@@ -124,7 +124,7 @@ class PhotoRepository @Inject constructor(
         }
         return runCatching {
             resolver.query(spec.contentUri, arrayOf(MediaStore.Images.Media._ID), bundle, null)
-                ?.use(Cursor::getCountSafely)
+                ?.use { cursor -> cursor.getCountSafely() }
         }.getOrNull() ?: 0
     }
 
@@ -203,7 +203,7 @@ class PhotoRepository @Inject constructor(
                     spec.contentUri,
                     PROJECTION,
                     bundle,
-                    params.signal
+                    null
                 )
             }.getOrElse { error ->
                 return LoadResult.Error(error)
