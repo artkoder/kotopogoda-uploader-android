@@ -9,7 +9,6 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import io.mockk.every
-import io.mockk.firstArg
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -59,7 +58,7 @@ class SaFileRepositoryTest {
         every { sourceDocument.delete() } returns true
 
         every { processingFolderProvider.ensure() } returns destinationFolder
-        every { destinationFolder.findFile(any()) } returns null
+        every { destinationFolder.listFiles() } returns emptyArray()
         every { destinationFolder.createFile("image/jpeg", "foo.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
 
@@ -97,7 +96,7 @@ class SaFileRepositoryTest {
         }
 
         every { processingFolderProvider.ensure() } returns destinationFolder
-        every { destinationFolder.findFile(any()) } returns null
+        every { destinationFolder.listFiles() } returns emptyArray()
         every { destinationFolder.createFile("image/jpeg", "bar.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
 
@@ -136,10 +135,8 @@ class SaFileRepositoryTest {
         every { sourceDocument.delete() } returns true
 
         every { processingFolderProvider.ensure() } returns destinationFolder
-        every { destinationFolder.findFile(any()) } answers {
-            val requestedName = firstArg<String>()
-            if (requestedName == "foo.jpg") existingDocument else null
-        }
+        every { existingDocument.name } returns "foo.jpg"
+        every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
         every { destinationFolder.createFile("image/jpeg", "foo-1.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
 
@@ -179,10 +176,8 @@ class SaFileRepositoryTest {
         }
 
         every { processingFolderProvider.ensure() } returns destinationFolder
-        every { destinationFolder.findFile(any()) } answers {
-            val requestedName = firstArg<String>()
-            if (requestedName == "bar.jpg") existingDocument else null
-        }
+        every { existingDocument.name } returns "bar.jpg"
+        every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
         every { destinationFolder.createFile("image/jpeg", "bar-1.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
 
@@ -220,10 +215,8 @@ class SaFileRepositoryTest {
         every { sourceDocument.delete() } returns true
         every { destinationDocument.uri } returns destinationUri
 
-        every { parentDocument.findFile(any()) } answers {
-            val requestedName = firstArg<String>()
-            if (requestedName == "bar.jpg") existingDocument else null
-        }
+        every { existingDocument.name } returns "bar.jpg"
+        every { parentDocument.listFiles() } returns arrayOf(existingDocument)
         every { parentDocument.createFile("image/jpeg", "bar-1.jpg") } returns destinationDocument
 
         every { contentResolver.openInputStream(processingUri) } returns ByteArrayInputStream(inputBytes)
@@ -235,5 +228,45 @@ class SaFileRepositoryTest {
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { parentDocument.createFile("image/jpeg", "bar-1.jpg") }
         verify(exactly = 0) { parentDocument.createFile("image/jpeg", "bar.jpg") }
+    }
+
+    @Test
+    fun `moveToProcessing advances suffix when original already ends with number`() = runTest {
+        val safUri = Uri.parse("content://com.android.providers.documents/document/primary:Pictures/foo-2.jpg")
+        val destinationUri = Uri.parse("content://com.example.destination/document/unique-suffix")
+        val sourceDocument = mockk<DocumentFile>(relaxed = true)
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val destinationDocument = mockk<DocumentFile>(relaxed = true)
+        val existingBase = mockk<DocumentFile>(relaxed = true)
+        val existingSuffixOne = mockk<DocumentFile>(relaxed = true)
+        val existingSuffixTwo = mockk<DocumentFile>(relaxed = true)
+        val inputBytes = "suffix".toByteArray()
+        val outputStream = ByteArrayOutputStream()
+
+        mockkStatic(DocumentFile::class)
+        every { DocumentFile.fromSingleUri(context, safUri) } returns sourceDocument
+
+        every { sourceDocument.type } returns "image/jpeg"
+        every { sourceDocument.name } returns "foo-2.jpg"
+        every { sourceDocument.uri } returns safUri
+        every { sourceDocument.delete() } returns true
+
+        every { existingBase.name } returns "foo.jpg"
+        every { existingSuffixOne.name } returns "foo-1.jpg"
+        every { existingSuffixTwo.name } returns "foo-2.jpg"
+
+        every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.listFiles() } returns arrayOf(existingBase, existingSuffixOne, existingSuffixTwo)
+        every { destinationFolder.createFile("image/jpeg", "foo-3.jpg") } returns destinationDocument
+        every { destinationDocument.uri } returns destinationUri
+
+        every { contentResolver.openInputStream(safUri) } returns ByteArrayInputStream(inputBytes)
+        every { contentResolver.openOutputStream(destinationUri) } returns outputStream
+
+        val result = repository.moveToProcessing(safUri)
+
+        assertEquals(destinationUri, result)
+        assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "foo-3.jpg") }
     }
 }

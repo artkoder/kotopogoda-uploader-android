@@ -162,19 +162,79 @@ class SaFileRepository @Inject constructor(
         destinationDirectory: DocumentFile,
         originalDisplayName: String,
     ): String {
-        val (baseName, extension) = splitDisplayName(originalDisplayName)
-        var candidate = originalDisplayName
-        var suffix = 1
+        val originalComponents = parseDisplayName(originalDisplayName)
 
-        while (destinationDirectory.findFile(candidate) != null) {
-            candidate = buildCandidateName(baseName, extension, suffix)
-            suffix += 1
+        val usedSuffixes = mutableSetOf<Int>()
+        var hasExactMatch = false
+
+        destinationDirectory.listFiles().forEach { existing ->
+            val existingName = existing.name ?: return@forEach
+            val existingComponents = parseDisplayName(existingName)
+            if (!existingComponents.sharesRootWith(originalComponents)) {
+                return@forEach
+            }
+
+            if (existingName == originalDisplayName) {
+                hasExactMatch = true
+            }
+
+            usedSuffixes += existingComponents.suffix ?: 0
         }
 
-        return candidate
+        if (!hasExactMatch) {
+            return originalDisplayName
+        }
+
+        var candidateSuffix = maxOf(originalComponents.nextSuffixCandidate, 1)
+        while (usedSuffixes.contains(candidateSuffix)) {
+            candidateSuffix += 1
+        }
+
+        return buildDisplayName(originalComponents.baseRoot, originalComponents.extension, candidateSuffix)
     }
 
-    private fun splitDisplayName(displayName: String): Pair<String, String?> {
+    private fun parseDisplayName(displayName: String): DisplayNameComponents {
+        val (baseName, extension) = splitExtension(displayName)
+        val lastHyphenIndex = baseName.lastIndexOf('-')
+        if (lastHyphenIndex > 0 && lastHyphenIndex + 1 < baseName.length) {
+            val suffixCandidate = baseName.substring(lastHyphenIndex + 1)
+            val suffix = suffixCandidate.toIntOrNull()
+            if (suffix != null) {
+                val baseRoot = baseName.substring(0, lastHyphenIndex)
+                if (baseRoot.isNotEmpty()) {
+                    return DisplayNameComponents(
+                        baseRoot = baseRoot,
+                        extension = extension,
+                        suffix = suffix,
+                        nextSuffixCandidate = suffix + 1
+                    )
+                }
+            }
+        }
+
+        return DisplayNameComponents(
+            baseRoot = baseName,
+            extension = extension,
+            suffix = null,
+            nextSuffixCandidate = 1
+        )
+    }
+
+    private fun buildDisplayName(baseRoot: String, extension: String?, suffix: Int?): String {
+        val basePart = if (suffix != null) {
+            "$baseRoot-$suffix"
+        } else {
+            baseRoot
+        }
+
+        return if (extension.isNullOrEmpty()) {
+            basePart
+        } else {
+            "$basePart.$extension"
+        }
+    }
+
+    private fun splitExtension(displayName: String): Pair<String, String?> {
         val lastDotIndex = displayName.lastIndexOf('.')
         if (lastDotIndex <= 0 || lastDotIndex == displayName.lastIndex) {
             return displayName to null
@@ -185,18 +245,30 @@ class SaFileRepository @Inject constructor(
         return baseName to extension
     }
 
-    private fun buildCandidateName(baseName: String, extension: String?, suffix: Int): String {
-        val suffixPart = "$baseName-$suffix"
-        return if (extension.isNullOrEmpty()) {
-            suffixPart
-        } else {
-            "$suffixPart.$extension"
-        }
-    }
-
     companion object {
         private const val BUFFER_SIZE = 64 * 1024
         private const val DEFAULT_MIME = "application/octet-stream"
         private const val DEFAULT_FILE_NAME = "photo.jpg"
     }
+}
+
+private data class DisplayNameComponents(
+    val baseRoot: String,
+    val extension: String?,
+    val suffix: Int?,
+    val nextSuffixCandidate: Int,
+) {
+    fun sharesRootWith(other: DisplayNameComponents): Boolean {
+        if (!extensionsMatch(extension, other.extension)) {
+            return false
+        }
+        return baseRoot == other.baseRoot
+    }
+}
+
+private fun extensionsMatch(first: String?, second: String?): Boolean {
+    if (first.isNullOrEmpty() || second.isNullOrEmpty()) {
+        return first.isNullOrEmpty() && second.isNullOrEmpty()
+    }
+    return first.equals(second, ignoreCase = true)
 }
