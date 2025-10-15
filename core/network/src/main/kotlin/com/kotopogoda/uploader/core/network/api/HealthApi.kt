@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.network.api
 
+import com.squareup.moshi.JsonClass
 import retrofit2.http.GET
 
 interface HealthApi {
@@ -7,7 +8,8 @@ interface HealthApi {
     suspend fun health(): HealthResponse
 }
 
+@JsonClass(generateAdapter = true)
 data class HealthResponse(
-    val status: String,
+    val status: Any?,
     val message: String? = null,
 )

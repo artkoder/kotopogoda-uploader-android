@@ -1,8 +1,5 @@
 package com.kotopogoda.uploader.core.network.health
 
-import com.kotopogoda.uploader.core.network.api.HealthApi
-import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
-import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,11 +12,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Singleton
 class HealthMonitor @Inject constructor(
-    private val networkClientProvider: NetworkClientProvider,
+    private val healthRepository: HealthRepository,
 ) {
 
     private val started = AtomicBoolean(false)
@@ -34,9 +30,7 @@ class HealthMonitor @Inject constructor(
         scope.launchCheckLoop(intervalMillis)
     }
 
-    suspend fun checkOnce() {
-        updateState()
-    }
+    suspend fun checkOnce(): HealthState = updateState()
 
     fun refreshNow() {
         refreshScope.launch {
@@ -51,27 +45,16 @@ class HealthMonitor @Inject constructor(
         }
     }
 
-    private suspend fun updateState() {
-        val now = Instant.now()
-        val result = withContext(Dispatchers.IO) {
-            val api = networkClientProvider.create(HealthApi::class.java)
-            runCatching { api.health() }
-        }
-
-        val newState = result.fold(
-            onSuccess = { response ->
-                when (response.status.lowercase()) {
-                    "online" -> HealthState(HealthStatus.ONLINE, now, response.message)
-                    "degraded" -> HealthState(HealthStatus.DEGRADED, now, response.message)
-                    "offline" -> HealthState(HealthStatus.OFFLINE, now, response.message)
-                    else -> HealthState(HealthStatus.ONLINE, now, response.message)
-                }
-            },
-            onFailure = { error ->
-                HealthState(HealthStatus.OFFLINE, now, error.message)
-            },
+    private suspend fun updateState(): HealthState {
+        val repositoryResult = healthRepository.check()
+        val newState = HealthState(
+            status = repositoryResult.status,
+            lastCheckedAt = repositoryResult.checkedAt,
+            message = repositoryResult.message,
+            latencyMillis = repositoryResult.latencyMillis,
         )
         _state.value = newState
+        return newState
     }
 
     companion object {

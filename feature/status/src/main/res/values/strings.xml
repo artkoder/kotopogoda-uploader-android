@@ -8,6 +8,8 @@
     <string name="status_health_offline">Оффлайн</string>
     <string name="status_health_unknown">Неизвестно</string>
     <string name="status_health_checked_at">Проверено: %1$s</string>
+    <string name="status_health_checked_at_with_duration">Проверено: %1$s (%2$s)</string>
+    <string name="status_health_latency_ms">%1$d мс</string>
     <string name="status_health_ping">Health-пинг</string>
     <string name="status_section_pairing">Привязка</string>
     <string name="status_pairing_unknown">Определяем состояние…</string>
