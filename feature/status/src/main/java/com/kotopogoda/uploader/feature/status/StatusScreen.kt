@@ -176,9 +176,27 @@ private fun HealthCard(state: StatusUiState, onRefresh: () -> Unit, modifier: Mo
                 Text(text = message, style = MaterialTheme.typography.bodyMedium)
             }
             val lastChecked = state.health.lastCheckedAt
+            val latency = state.health.latencyMillis
             if (lastChecked != null) {
+                val formattedTime = formatter.format(lastChecked)
+                val text = if (latency != null) {
+                    val latencyText = stringResource(id = R.string.status_health_latency_ms, latency)
+                    stringResource(
+                        id = R.string.status_health_checked_at_with_duration,
+                        formattedTime,
+                        latencyText
+                    )
+                } else {
+                    stringResource(id = R.string.status_health_checked_at, formattedTime)
+                }
                 Text(
-                    text = stringResource(id = R.string.status_health_checked_at, formatter.format(lastChecked)),
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (latency != null) {
+                Text(
+                    text = stringResource(id = R.string.status_health_latency_ms, latency),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

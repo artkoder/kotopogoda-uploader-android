@@ -79,7 +79,9 @@ class StatusViewModel @Inject constructor(
     }
 
     fun onRefreshHealth() {
-        healthMonitor.refreshNow()
+        viewModelScope.launch {
+            healthMonitor.checkOnce()
+        }
     }
 
     fun onOpenQueue() {

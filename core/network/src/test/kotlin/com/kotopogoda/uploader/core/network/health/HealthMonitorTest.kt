@@ -1,9 +1,10 @@
 package com.kotopogoda.uploader.core.network.health
 
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
+import com.kotopogoda.uploader.core.network.health.HealthRepository
 import com.kotopogoda.uploader.core.network.health.HealthStatus.DEGRADED
 import com.kotopogoda.uploader.core.network.health.HealthStatus.OFFLINE
-import com.kotopogoda.uploader.core.network.health.HealthStatus.ONLINE
+import com.kotopogoda.uploader.core.network.health.HealthStatus.UNKNOWN
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -12,6 +13,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import java.time.Clock
 import retrofit2.converter.moshi.MoshiConverterFactory
 
 class HealthMonitorTest {
@@ -29,7 +31,11 @@ class HealthMonitorTest {
             converterFactory = MoshiConverterFactory.create(),
             defaultBaseUrl = mockWebServer.url("/").toString(),
         )
-        healthMonitor = HealthMonitor(provider)
+        val repository = HealthRepository(
+            networkClientProvider = provider,
+            clock = Clock.systemUTC(),
+        )
+        healthMonitor = HealthMonitor(repository)
     }
 
     @After
@@ -41,27 +47,27 @@ class HealthMonitorTest {
     fun `checkOnce maps offline status to OFFLINE`() = runTest {
         enqueueHealthResponse("offline")
 
-        healthMonitor.checkOnce()
+        val state = healthMonitor.checkOnce()
 
-        assertEquals(OFFLINE, healthMonitor.state.value.status)
+        assertEquals(OFFLINE, state.status)
     }
 
     @Test
     fun `checkOnce maps degraded status to DEGRADED`() = runTest {
         enqueueHealthResponse("degraded")
 
-        healthMonitor.checkOnce()
+        val state = healthMonitor.checkOnce()
 
-        assertEquals(DEGRADED, healthMonitor.state.value.status)
+        assertEquals(DEGRADED, state.status)
     }
 
     @Test
     fun `checkOnce keeps tolerant handling for unknown status`() = runTest {
         enqueueHealthResponse("unexpected")
 
-        healthMonitor.checkOnce()
+        val state = healthMonitor.checkOnce()
 
-        assertEquals(ONLINE, healthMonitor.state.value.status)
+        assertEquals(UNKNOWN, state.status)
     }
 
     private fun enqueueHealthResponse(status: String) {
