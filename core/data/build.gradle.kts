@@ -34,4 +34,5 @@ dependencies {
     kapt(libs.dagger.hilt.compiler)
     implementation(libs.androidx.documentfile)
     implementation(libs.exif)
+    implementation(libs.androidx.paging.runtime)
 }

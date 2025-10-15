@@ -70,6 +70,9 @@ import com.kotopogoda.uploader.feature.viewer.R
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flowOf
@@ -84,7 +87,7 @@ fun ViewerRoute(
     healthState: HealthState,
     viewModel: ViewerViewModel = hiltViewModel()
 ) {
-    val photos by viewModel.photos.collectAsState()
+    val photos = viewModel.photos.collectAsLazyPagingItems()
     val pagerScrollEnabled by viewModel.isPagerScrollEnabled.collectAsState()
     val currentIndex by viewModel.currentIndex.collectAsState()
     val undoCount by viewModel.undoCount.collectAsState()
@@ -106,6 +109,7 @@ fun ViewerRoute(
         onOpenSettings = onOpenSettings,
         healthState = healthState,
         onPageChanged = viewModel::setCurrentIndex,
+        onVisiblePhotoChanged = viewModel::updateVisiblePhoto,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
         onSkip = viewModel::onSkip,
         onMoveToProcessing = viewModel::onMoveToProcessing,
@@ -118,7 +122,7 @@ fun ViewerRoute(
 @VisibleForTesting
 @Composable
 internal fun ViewerScreen(
-    photos: List<PhotoItem>,
+    photos: LazyPagingItems<PhotoItem>,
     currentIndex: Int,
     isPagerScrollEnabled: Boolean,
     undoCount: Int,
@@ -132,28 +136,54 @@ internal fun ViewerScreen(
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     onPageChanged: (Int) -> Unit,
+    onVisiblePhotoChanged: (Int, PhotoItem?) -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
-    onSkip: () -> Unit,
-    onMoveToProcessing: () -> Unit,
-    onEnqueueUpload: () -> Unit,
+    onSkip: (PhotoItem?) -> Unit,
+    onMoveToProcessing: (PhotoItem?) -> Unit,
+    onEnqueueUpload: (PhotoItem?) -> Unit,
     onUndo: () -> Unit,
     onJumpToDate: (Instant) -> Unit
 ) {
     BackHandler(onBack = onBack)
 
-    if (photos.isEmpty()) {
-        ViewerEmptyState()
+    val itemCount = photos.itemCount
+    val isRefreshing = photos.loadState.refresh is LoadState.Loading
+    val refreshError = photos.loadState.refresh as? LoadState.Error
+
+    if (itemCount == 0) {
+        LaunchedEffect(itemCount) {
+            onVisiblePhotoChanged(0, null)
+        }
+        if (isRefreshing) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (refreshError != null) {
+            ViewerErrorState(message = refreshError.error.message)
+        } else {
+            ViewerEmptyState()
+        }
         return
     }
 
-    var rememberedIndex by rememberSaveable(currentIndex) { mutableStateOf(currentIndex) }
-    val pagerState = rememberPagerState(initialPage = rememberedIndex, pageCount = { photos.size })
+    val clampedIndex = currentIndex.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+    var rememberedIndex by rememberSaveable(currentIndex, itemCount) { mutableStateOf(clampedIndex) }
+    val pagerState = rememberPagerState(initialPage = rememberedIndex, pageCount = { itemCount })
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var showJumpSheet by rememberSaveable { mutableStateOf(false) }
     val jumpSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val currentPhoto = photos.getOrNull(currentIndex)
+    val currentPhoto = if (rememberedIndex in 0 until itemCount) {
+        photos[rememberedIndex]
+    } else {
+        null
+    }
     val isQueuedFlow = remember(currentPhoto?.uri) {
         currentPhoto?.let { observeUploadEnqueued(it.uri) } ?: flowOf(false)
     }
@@ -180,12 +210,12 @@ internal fun ViewerScreen(
         }
     }
 
-    LaunchedEffect(currentIndex, photos.size) {
-        val clamped = currentIndex.coerceIn(0, photos.lastIndex)
+    LaunchedEffect(currentIndex, itemCount) {
+        val clamped = currentIndex.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
         if (clamped != rememberedIndex) {
             rememberedIndex = clamped
         }
-        if (photos.isNotEmpty() && pagerState.currentPage != clamped) {
+        if (itemCount > 0 && pagerState.currentPage != clamped) {
             pagerState.scrollToPage(clamped)
         }
     }
@@ -198,6 +228,10 @@ internal fun ViewerScreen(
                 }
                 onPageChanged(page)
             }
+    }
+
+    LaunchedEffect(itemCount, rememberedIndex, currentPhoto?.id, currentPhoto?.takenAt) {
+        onVisiblePhotoChanged(itemCount, currentPhoto)
     }
 
     val context = LocalContext.current
@@ -239,16 +273,16 @@ internal fun ViewerScreen(
         },
         bottomBar = {
             ViewerActionBar(
-                skipEnabled = !isBusy && currentIndex < photos.lastIndex,
+                skipEnabled = !isBusy && currentIndex < itemCount - 1,
                 processingEnabled = !isBusy && currentPhoto != null,
                 publishEnabled = !isBusy && currentPhoto != null && !isCurrentQueued,
                 processingBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing,
                 publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
                 canUndo = canUndo && !isBusy,
                 undoCount = undoCount,
-                onSkip = onSkip,
-                onMoveToProcessing = onMoveToProcessing,
-                onEnqueueUpload = onEnqueueUpload,
+                onSkip = { onSkip(currentPhoto) },
+                onMoveToProcessing = { onMoveToProcessing(currentPhoto) },
+                onEnqueueUpload = { onEnqueueUpload(currentPhoto) },
                 onUndo = onUndo
             )
         }
@@ -265,16 +299,22 @@ internal fun ViewerScreen(
             ) { page ->
                 val item = photos[page]
                 Box(modifier = Modifier.fillMaxSize()) {
-                    ZoomableImage(
-                        uri = item.uri,
-                        modifier = Modifier.fillMaxSize(),
-                        onZoomChanged = onZoomStateChanged
-                    )
-                    if (page == currentIndex && isCurrentQueued) {
-                        UploadQueuedBadge(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(16.dp)
+                    if (item != null) {
+                        ZoomableImage(
+                            uri = item.uri,
+                            modifier = Modifier.fillMaxSize(),
+                            onZoomChanged = onZoomStateChanged
+                        )
+                        if (page == currentIndex && isCurrentQueued) {
+                            UploadQueuedBadge(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(16.dp)
+                            )
+                        }
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center)
                         )
                     }
                 }
@@ -558,6 +598,29 @@ private fun UploadQueuedBadge(modifier: Modifier = Modifier) {
             text = stringResource(id = R.string.viewer_badge_enqueued),
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun ViewerErrorState(message: String?) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = stringResource(id = R.string.viewer_error_title),
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.error
+        )
+        Text(
+            text = message ?: stringResource(id = R.string.viewer_error_body),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
         )
     }
 }

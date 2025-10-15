@@ -28,6 +28,7 @@ mlkitBarcode = "17.2.0"
 securityCrypto = "1.1.0-alpha06"
 truth = "1.1.5"
 mockk = "1.13.10"
+paging = "3.2.1"
 
 
 [plugins]
@@ -92,3 +93,5 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 com-google-mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
+androidx-paging-runtime = { group = "androidx.paging", name = "paging-runtime", version.ref = "paging" }
+androidx-paging-compose = { group = "androidx.paging", name = "paging-compose", version.ref = "paging" }

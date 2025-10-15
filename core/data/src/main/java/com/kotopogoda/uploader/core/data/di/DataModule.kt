@@ -56,5 +56,11 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun providePhotoRepository(photoDao: PhotoDao): PhotoRepository = PhotoRepository(photoDao)
+    fun providePhotoRepository(
+        folderRepository: FolderRepository,
+        @ApplicationContext context: Context
+    ): PhotoRepository = PhotoRepository(
+        folderRepository = folderRepository,
+        context = context
+    )
 }
