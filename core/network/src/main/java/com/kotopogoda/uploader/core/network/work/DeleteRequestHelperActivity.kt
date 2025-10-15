@@ -95,7 +95,7 @@ internal class DeleteRequestHelperActivity : Activity() {
     }
 
     private fun updateProgress(id: UUID, builder: Data.Builder) {
-        WorkManager.getInstance(applicationContext).setProgressAsync(id, builder.build())
+        WorkManager.getInstance(applicationContext).setProgress(id, builder.build())
     }
 
     companion object {
