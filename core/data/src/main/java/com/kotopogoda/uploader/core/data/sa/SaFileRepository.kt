@@ -152,7 +152,7 @@ class SaFileRepository @Inject constructor(
     private fun createUniqueFile(
         destinationDirectory: DocumentFile,
         mimeType: String,
-        displayName: String,
+        displayName: String
     ): DocumentFile? {
         val uniqueName = generateUniqueDisplayName(destinationDirectory, displayName)
         return destinationDirectory.createFile(mimeType, uniqueName)
@@ -160,7 +160,7 @@ class SaFileRepository @Inject constructor(
 
     private fun generateUniqueDisplayName(
         destinationDirectory: DocumentFile,
-        originalDisplayName: String,
+        originalDisplayName: String
     ): String {
         val originalComponents = parseDisplayName(originalDisplayName)
 
@@ -256,7 +256,7 @@ private data class DisplayNameComponents(
     val baseRoot: String,
     val extension: String?,
     val suffix: Int?,
-    val nextSuffixCandidate: Int,
+    val nextSuffixCandidate: Int
 ) {
     fun sharesRootWith(other: DisplayNameComponents): Boolean {
         if (!extensionsMatch(extension, other.extension)) {
