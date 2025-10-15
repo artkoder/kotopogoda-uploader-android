@@ -1,5 +1,8 @@
 package com.kotopogoda.uploader.navigation
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -7,8 +10,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -54,6 +59,16 @@ fun KotopogodaNavHost(
     val startDestination by viewModel.startDestination.collectAsState()
 
     val resolvedStartDestination = startDestination
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val navigateBack = remember(navController, activity) {
+        {
+            val navigated = navController.navigateUp()
+            if (!navigated) {
+                activity?.finish()
+            }
+        }
+    }
 
     LaunchedEffect(navigationEvents) {
         navigationEvents?.let { events ->
@@ -125,7 +140,7 @@ fun KotopogodaNavHost(
             ) {
                 MediaPermissionGate {
                     ViewerRoute(
-                        onBack = { navController.popBackStack() },
+                        onBack = navigateBack,
                         onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
                         onOpenStatus = { navController.navigate(STATUS_ROUTE) },
                         onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
@@ -135,13 +150,13 @@ fun KotopogodaNavHost(
             }
             composable(QUEUE_ROUTE) {
                 QueueRoute(
-                    onBack = { navController.popBackStack() },
+                    onBack = navigateBack,
                     healthState = healthState,
                 )
             }
             composable(SETTINGS_ROUTE) {
                 SettingsRoute(
-                    onBack = { navController.popBackStack() },
+                    onBack = navigateBack,
                     onResetPairing = {
                         onResetPairing()
                         navController.navigate(PairingRoute) {
@@ -153,11 +168,17 @@ fun KotopogodaNavHost(
             }
             composable(STATUS_ROUTE) {
                 StatusRoute(
-                    onBack = { navController.popBackStack() },
+                    onBack = navigateBack,
                     onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
                     onOpenPairingSettings = { navController.navigate(SETTINGS_ROUTE) },
                 )
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
