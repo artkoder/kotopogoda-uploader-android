@@ -3,11 +3,16 @@ package com.kotopogoda.uploader.core.network.work
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ForegroundInfo
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.await
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.api.UploadStatusDto
@@ -57,15 +62,19 @@ class PollStatusWorker @AssistedInject constructor(
                             maybeDelayForRetryAfter(response.headers())
                             Result.retry()
                         }
-                        RemoteState.DONE -> {
-                            val deleted = deleteDocument(uri)
-                            Result.success(
-                                workDataOf(
-                                    UploadEnqueuer.KEY_DELETED to deleted,
-                                    UploadEnqueuer.KEY_URI to uriString,
-                                    UploadEnqueuer.KEY_DISPLAY_NAME to displayName
-                                )
-                            )
+                        RemoteState.DONE -> when (val outcome = deleteDocument(uri)) {
+                            is DeleteOutcome.Completed -> {
+                                val output = Data.Builder()
+                                    .putString(UploadEnqueuer.KEY_URI, uriString)
+                                    .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
+                                when (outcome.state) {
+                                    DeleteCompletionState.DELETED -> output.putBoolean(UploadEnqueuer.KEY_DELETED, true)
+                                    DeleteCompletionState.USER_DECLINED -> output.putBoolean(UploadEnqueuer.KEY_DELETED, false)
+                                    DeleteCompletionState.UNKNOWN -> Unit
+                                }
+                                Result.success(output.build())
+                            }
+                            DeleteOutcome.WaitingForUserConfirmation -> Result.retry()
                         }
                         RemoteState.FAILED -> Result.failure()
                     }
@@ -86,14 +95,122 @@ class PollStatusWorker @AssistedInject constructor(
         }
     }
 
-    private fun deleteDocument(uri: Uri): Boolean {
+    private suspend fun deleteDocument(uri: Uri): DeleteOutcome {
         if (uri.scheme == ContentResolver.SCHEME_FILE) {
-            val path = uri.path ?: return false
-            return runCatching { File(path).delete() }.getOrDefault(false)
+            val path = uri.path ?: return DeleteOutcome.Completed(DeleteCompletionState.UNKNOWN)
+            val deleted = runCatching { File(path).delete() }.getOrDefault(false)
+            return DeleteOutcome.Completed(if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN)
         }
-        return runCatching {
+
+        if (isMediaStoreUri(uri)) {
+            return deleteMediaStoreDocument(uri)
+        }
+
+        val deleted = runCatching {
             DocumentFile.fromSingleUri(appContext, uri)?.delete() == true
         }.getOrDefault(false)
+        return DeleteOutcome.Completed(if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN)
+    }
+
+    private suspend fun deleteMediaStoreDocument(uri: Uri): DeleteOutcome {
+        val resolver = appContext.contentResolver
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            val deleted = runCatching { resolver.delete(uri, null, null) > 0 }
+                .getOrDefault(false)
+            return DeleteOutcome.Completed(if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN)
+        }
+
+        val progress = loadCurrentProgress()
+        val status = progress.getString(DeleteRequestContract.KEY_PENDING_DELETE_STATUS)
+            ?: DeleteRequestContract.STATUS_NONE
+        val storedIntentBytes = progress.getByteArray(DeleteRequestContract.KEY_PENDING_DELETE_INTENT)
+            ?.takeIf { it.isNotEmpty() }
+
+        when (status) {
+            DeleteRequestContract.STATUS_CONFIRMED -> {
+                clearPendingDeleteState()
+                val deleted = !isMediaStoreEntryPresent(resolver, uri)
+                return DeleteOutcome.Completed(if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN)
+            }
+
+            DeleteRequestContract.STATUS_DECLINED -> {
+                clearPendingDeleteState()
+                return DeleteOutcome.Completed(DeleteCompletionState.USER_DECLINED)
+            }
+
+            DeleteRequestContract.STATUS_PENDING -> {
+                if (storedIntentBytes != null) {
+                    val now = System.currentTimeMillis()
+                    val lastLaunch = progress.getLong(DeleteRequestContract.KEY_PENDING_DELETE_LAST_LAUNCH, 0L)
+                    val shouldRelaunch = now - lastLaunch >= DeleteRequestContract.DELETE_RELAUNCH_INTERVAL_MILLIS
+                    if (shouldRelaunch) {
+                        updateLastLaunch(now)
+                        DeleteRequestHelperActivity.launch(appContext, id, storedIntentBytes)
+                    }
+                    return DeleteOutcome.WaitingForUserConfirmation
+                }
+                clearPendingDeleteState()
+            }
+        }
+
+        return runCatching {
+            val pendingIntent = MediaStore.createDeleteRequest(resolver, listOf(uri))
+            val serialized = PendingIntentSerializer.serialize(pendingIntent)
+            setProgress(
+                workDataOf(
+                    DeleteRequestContract.KEY_PENDING_DELETE_STATUS to DeleteRequestContract.STATUS_PENDING,
+                    DeleteRequestContract.KEY_PENDING_DELETE_INTENT to serialized,
+                    DeleteRequestContract.KEY_PENDING_DELETE_LAST_LAUNCH to System.currentTimeMillis()
+                )
+            )
+            DeleteRequestHelperActivity.launch(appContext, id, serialized)
+            DeleteOutcome.WaitingForUserConfirmation
+        }.getOrElse {
+            clearPendingDeleteState()
+            DeleteOutcome.Completed(DeleteCompletionState.UNKNOWN)
+        }
+    }
+
+    private suspend fun loadCurrentProgress(): Data {
+        return runCatching {
+            WorkManager.getInstance(appContext).getWorkInfoById(id).await()?.progress ?: Data.EMPTY
+        }.getOrDefault(Data.EMPTY)
+    }
+
+    private suspend fun clearPendingDeleteState() {
+        setProgress(
+            workDataOf(
+                DeleteRequestContract.KEY_PENDING_DELETE_STATUS to DeleteRequestContract.STATUS_NONE,
+                DeleteRequestContract.KEY_PENDING_DELETE_INTENT to ByteArray(0),
+                DeleteRequestContract.KEY_PENDING_DELETE_LAST_LAUNCH to 0L
+            )
+        )
+    }
+
+    private suspend fun updateLastLaunch(timestamp: Long) {
+        setProgress(workDataOf(DeleteRequestContract.KEY_PENDING_DELETE_LAST_LAUNCH to timestamp))
+    }
+
+    private fun isMediaStoreEntryPresent(resolver: ContentResolver, uri: Uri): Boolean {
+        return runCatching {
+            resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+                ?.use { cursor -> cursor.moveToFirst() }
+        }.getOrDefault(false)
+    }
+
+    private fun isMediaStoreUri(uri: Uri): Boolean {
+        return uri.authority == MediaStore.AUTHORITY
+    }
+
+    private enum class DeleteCompletionState {
+        DELETED,
+        USER_DECLINED,
+        UNKNOWN,
+    }
+
+    private sealed interface DeleteOutcome {
+        data class Completed(val state: DeleteCompletionState) : DeleteOutcome
+        data object WaitingForUserConfirmation : DeleteOutcome
     }
 
     private fun createForeground(displayName: String): ForegroundInfo {

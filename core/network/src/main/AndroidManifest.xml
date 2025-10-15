@@ -1,2 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="com.kotopogoda.uploader.core.network" />
+<manifest package="com.kotopogoda.uploader.core.network">
+
+    <application>
+        <activity
+            android:name=".work.DeleteRequestHelperActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
+
+</manifest>
