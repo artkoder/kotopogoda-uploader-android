@@ -2,8 +2,11 @@
 
 package com.kotopogoda.uploader.feature.viewer
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -93,6 +96,46 @@ fun ViewerRoute(
     val undoCount by viewModel.undoCount.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val actionInProgress by viewModel.actionInProgress.collectAsState()
+    val currentFolderUri by viewModel.currentFolderTreeUri.collectAsState()
+    val context = LocalContext.current
+    val contentResolver = context.contentResolver
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            try {
+                contentResolver.takePersistableUriPermission(uri, flags)
+                currentFolderUri?.let { previousUriString ->
+                    val previousUri = Uri.parse(previousUriString)
+                    contentResolver.persistedUriPermissions
+                        .firstOrNull { it.uri == previousUri }
+                        ?.let { persistedPermission ->
+                            val releaseFlags =
+                                (if (persistedPermission.isReadPermission) {
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                } else {
+                                    0
+                                }) or
+                                    (if (persistedPermission.isWritePermission) {
+                                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                    } else {
+                                        0
+                                    })
+                            runCatching {
+                                contentResolver.releasePersistableUriPermission(
+                                    persistedPermission.uri,
+                                    releaseFlags
+                                )
+                            }
+                        }
+                }
+                viewModel.onFolderSelected(uri.toString())
+            } catch (_: SecurityException) {
+                // ignore and leave the state unchanged
+            }
+        }
+    }
 
     ViewerScreen(
         photos = photos,
@@ -115,7 +158,10 @@ fun ViewerRoute(
         onMoveToProcessing = viewModel::onMoveToProcessing,
         onEnqueueUpload = viewModel::onEnqueueUpload,
         onUndo = viewModel::onUndo,
-        onJumpToDate = viewModel::jumpToDate
+        onJumpToDate = viewModel::jumpToDate,
+        onSelectFolder = {
+            folderPickerLauncher.launch(currentFolderUri?.let(Uri::parse))
+        }
     )
 }
 
@@ -142,7 +188,8 @@ internal fun ViewerScreen(
     onMoveToProcessing: (PhotoItem?) -> Unit,
     onEnqueueUpload: (PhotoItem?) -> Unit,
     onUndo: () -> Unit,
-    onJumpToDate: (Instant) -> Unit
+    onJumpToDate: (Instant) -> Unit,
+    onSelectFolder: () -> Unit
 ) {
     BackHandler(onBack = onBack)
 
@@ -164,7 +211,11 @@ internal fun ViewerScreen(
                 CircularProgressIndicator()
             }
         } else if (refreshError != null) {
-            ViewerErrorState(message = refreshError.error.message)
+            ViewerErrorState(
+                message = refreshError.error.message,
+                onSelectFolder = onSelectFolder,
+                onBack = onBack
+            )
         } else {
             ViewerEmptyState()
         }
@@ -603,7 +654,11 @@ private fun UploadQueuedBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ViewerErrorState(message: String?) {
+private fun ViewerErrorState(
+    message: String?,
+    onSelectFolder: () -> Unit,
+    onBack: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -621,6 +676,18 @@ private fun ViewerErrorState(message: String?) {
             text = message ?: stringResource(id = R.string.viewer_error_body),
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
+        )
+        Button(onClick = onSelectFolder) {
+            Text(text = stringResource(id = R.string.viewer_error_select_again))
+        }
+        OutlinedButton(onClick = onBack) {
+            Text(text = stringResource(id = R.string.viewer_error_back))
+        }
+        Text(
+            text = stringResource(id = R.string.viewer_error_sd_hint),
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

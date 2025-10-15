@@ -5,6 +5,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -123,8 +124,13 @@ class PhotoRepository @Inject constructor(
             }
         }
         return runCatching {
-            resolver.query(spec.contentUri, arrayOf(MediaStore.Images.Media._ID), bundle, null)
-                ?.use { cursor -> cursor.getCountSafely() }
+            resolver.queryWithFallback(
+                uris = spec.contentUris,
+                projection = arrayOf(MediaStore.Images.Media._ID),
+                bundle = bundle
+            ) { _, cursor ->
+                cursor.getCountSafely()
+            } ?: 0
         }.getOrNull() ?: 0
     }
 
@@ -155,16 +161,32 @@ class PhotoRepository @Inject constructor(
             baseSelection += "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
             selectionArgs += "$path%"
         }
-        val contentUri = MediaStore.Images.Media.getContentUri(volume)
+        val mediaStoreVolume = toMediaStoreVolume(volume)
+        val contentUris = buildList {
+            val primary = runCatching {
+                MediaStore.Images.Media.getContentUri(mediaStoreVolume)
+            }.getOrNull()
+            if (primary != null) {
+                add(primary)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val aggregated = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                if (primary == null || aggregated != primary) {
+                    add(aggregated)
+                }
+            } else if (primary == null) {
+                add(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            }
+        }.ifEmpty { listOf(MediaStore.Images.Media.EXTERNAL_CONTENT_URI) }
         return MediaStoreQuerySpec(
-            contentUri = contentUri,
+            contentUris = contentUris,
             selectionParts = baseSelection,
             selectionArgs = selectionArgs
         )
     }
 
     private data class MediaStoreQuerySpec(
-        val contentUri: Uri,
+        val contentUris: List<Uri>,
         val selectionParts: List<String>,
         val selectionArgs: List<String>
     )
@@ -198,59 +220,58 @@ class PhotoRepository @Inject constructor(
                 }
             }
 
-            val cursor = runCatching {
-                contentResolver.query(
-                    spec.contentUri,
-                    PROJECTION,
-                    bundle,
-                    null
-                )
-            }.getOrElse { error ->
-                return LoadResult.Error(error)
-            } ?: return LoadResult.Page(emptyList(), prevKey = null, nextKey = null)
-
-            return cursor.use { result ->
-                val idIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val dateTakenIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
-                val mimeIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
-                val items = buildList {
-                    while (result.moveToNext()) {
-                        val id = result.getLong(idIndex)
-                        val uri = ContentUris.withAppendedId(spec.contentUri, id)
-                        val takenAt = if (result.isNull(dateTakenIndex)) {
-                            null
-                        } else {
-                            val value = result.getLong(dateTakenIndex)
-                            if (value > 0) Instant.ofEpochMilli(value) else null
-                        }
-                        val mime = if (result.isNull(mimeIndex)) null else result.getString(mimeIndex)
-                        if (mime != null && mime.startsWith("image/")) {
-                            add(
-                                PhotoItem(
-                                    id = id.toString(),
-                                    uri = uri,
-                                    takenAt = takenAt
+            val page = runCatching {
+                contentResolver.queryWithFallback(
+                    uris = spec.contentUris,
+                    projection = PROJECTION,
+                    bundle = bundle
+                ) { contentUri, result ->
+                    val idIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    val dateTakenIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                    val mimeIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+                    val items = buildList {
+                        while (result.moveToNext()) {
+                            val id = result.getLong(idIndex)
+                            val uri = ContentUris.withAppendedId(contentUri, id)
+                            val takenAt = if (result.isNull(dateTakenIndex)) {
+                                null
+                            } else {
+                                val value = result.getLong(dateTakenIndex)
+                                if (value > 0) Instant.ofEpochMilli(value) else null
+                            }
+                            val mime = if (result.isNull(mimeIndex)) null else result.getString(mimeIndex)
+                            if (mime != null && mime.startsWith("image/")) {
+                                add(
+                                    PhotoItem(
+                                        id = id.toString(),
+                                        uri = uri,
+                                        takenAt = takenAt
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
+                    val nextKey = if (items.size < limit) {
+                        null
+                    } else {
+                        offset + items.size
+                    }
+                    val prevKey = if (offset == 0) {
+                        null
+                    } else {
+                        max(0, offset - limit)
+                    }
+                    LoadResult.Page(
+                        data = items,
+                        prevKey = prevKey,
+                        nextKey = nextKey
+                    )
                 }
-                val nextKey = if (items.size < limit) {
-                    null
-                } else {
-                    offset + items.size
-                }
-                val prevKey = if (offset == 0) {
-                    null
-                } else {
-                    max(0, offset - limit)
-                }
-                LoadResult.Page(
-                    data = items,
-                    prevKey = prevKey,
-                    nextKey = nextKey
-                )
+            }.getOrElse { error ->
+                return LoadResult.Error(error)
             }
+
+            return page ?: LoadResult.Page(emptyList(), prevKey = null, nextKey = null)
         }
 
         override fun getRefreshKey(state: PagingState<Int, PhotoItem>): Int? {
@@ -276,4 +297,31 @@ class PhotoRepository @Inject constructor(
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
     }
+}
+
+private inline fun <T> ContentResolver.queryWithFallback(
+    uris: List<Uri>,
+    projection: Array<String>,
+    bundle: Bundle?,
+    crossinline block: (Uri, Cursor) -> T
+): T? {
+    var lastIllegalArgument: IllegalArgumentException? = null
+    for (uri in uris) {
+        val cursor = try {
+            query(uri, projection, bundle, null)
+        } catch (error: IllegalArgumentException) {
+            lastIllegalArgument = error
+            continue
+        }
+        if (cursor == null) {
+            continue
+        }
+        cursor.use { result ->
+            return block(uri, result)
+        }
+    }
+    if (lastIllegalArgument != null) {
+        throw lastIllegalArgument
+    }
+    return null
 }
