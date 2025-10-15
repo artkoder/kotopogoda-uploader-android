@@ -195,7 +195,7 @@ class PollStatusWorker @AssistedInject constructor(
         return runCatching {
             resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
                 ?.use { cursor -> cursor.moveToFirst() }
-        }.getOrDefault(false)
+        }.getOrNull() ?: false
     }
 
     private fun isMediaStoreUri(uri: Uri): Boolean {
