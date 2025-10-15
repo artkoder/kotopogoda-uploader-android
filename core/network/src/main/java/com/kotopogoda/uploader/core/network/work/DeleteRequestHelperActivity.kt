@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.work.Data
+import androidx.work.WorkManager
+import androidx.work.setProgress
 import java.util.UUID
 
 internal class DeleteRequestHelperActivity : Activity() {
@@ -93,10 +95,8 @@ internal class DeleteRequestHelperActivity : Activity() {
         updateProgress(id, builder)
     }
 
-    @Suppress("UNUSED_PARAMETER")
     private fun updateProgress(id: UUID, builder: Data.Builder) {
-        // WorkManager#setProgress* is not available on the CI WorkManager version.
-        // Progress updates are handled from within the worker itself.
+        WorkManager.getInstance(applicationContext).setProgress(id, builder.build())
     }
 
     companion object {
