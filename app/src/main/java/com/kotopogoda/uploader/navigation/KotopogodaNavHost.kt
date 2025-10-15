@@ -29,6 +29,7 @@ import com.kotopogoda.uploader.feature.pairing.navigation.PairingRoute
 import com.kotopogoda.uploader.feature.pairing.navigation.pairingScreen
 import com.kotopogoda.uploader.feature.status.StatusRoute
 import com.kotopogoda.uploader.feature.status.navigation.STATUS_ROUTE
+import com.kotopogoda.uploader.permissions.MediaPermissionGate
 import com.kotopogoda.uploader.ui.SettingsRoute
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
@@ -103,13 +104,15 @@ fun KotopogodaNavHost(
                 }
             })
             composable(AppDestination.Onboarding.route) {
-                OnboardingRoute(
-                    onOpenViewer = { startIndex ->
-                        navController.navigate(viewerRoute(startIndex)) {
-                            popUpTo(AppDestination.Onboarding.route) { inclusive = true }
+                MediaPermissionGate {
+                    OnboardingRoute(
+                        onOpenViewer = { startIndex ->
+                            navController.navigate(viewerRoute(startIndex)) {
+                                popUpTo(AppDestination.Onboarding.route) { inclusive = true }
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
             composable(
                 route = AppDestination.Viewer.route,
@@ -120,13 +123,15 @@ fun KotopogodaNavHost(
                     }
                 )
             ) {
-                ViewerRoute(
-                    onBack = { navController.popBackStack() },
-                    onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
-                    onOpenStatus = { navController.navigate(STATUS_ROUTE) },
-                    onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
-                    healthState = healthState,
-                )
+                MediaPermissionGate {
+                    ViewerRoute(
+                        onBack = { navController.popBackStack() },
+                        onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
+                        onOpenStatus = { navController.navigate(STATUS_ROUTE) },
+                        onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
+                        healthState = healthState,
+                    )
+                }
             }
             composable(QUEUE_ROUTE) {
                 QueueRoute(

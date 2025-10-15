@@ -57,6 +57,11 @@ fun PairingRoute(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val readStoragePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -90,12 +95,12 @@ fun PairingRoute(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
             ContextCompat.checkSelfPermission(
                 context,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                readStoragePermission,
             ) == PackageManager.PERMISSION_GRANTED
         ) {
             viewModel.exportLogs()
         } else {
-            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            storagePermissionLauncher.launch(readStoragePermission)
         }
     }
 

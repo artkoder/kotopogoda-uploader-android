@@ -45,4 +45,8 @@
     <string name="upload_summary_notification_content">Загружается %1$d из %2$d (ожидают: %3$d)</string>
     <string name="upload_summary_notification_empty">Очередь: 0</string>
     <string name="upload_summary_notification_cancel_all">Отменить все</string>
+    <string name="media_permission_title">Нужен доступ к фото</string>
+    <string name="media_permission_body">Предоставьте приложению доступ к фотографиям, чтобы выбрать и отправить их.</string>
+    <string name="media_permission_grant">Предоставить доступ</string>
+    <string name="media_permission_settings">Открыть настройки</string>
 </resources>
