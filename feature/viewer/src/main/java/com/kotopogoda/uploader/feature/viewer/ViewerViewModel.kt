@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.feature.viewer
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import androidx.annotation.StringRes
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -359,13 +360,26 @@ class ViewerViewModel @Inject constructor(
         val folder = folderRepository.getFolder()
             ?: throw IllegalStateException("Root folder is not selected")
         val treeUri = Uri.parse(folder.treeUri)
+        val resolver = context.contentResolver
+
+        if (uri.authority == MediaStore.AUTHORITY) {
+            loadMediaStoreDocumentInfo(resolver, uri, treeUri)
+        } else {
+            loadSafDocumentInfo(resolver, uri, treeUri)
+        }
+    }
+
+    private fun loadSafDocumentInfo(
+        resolver: android.content.ContentResolver,
+        uri: Uri,
+        treeUri: Uri
+    ): DocumentInfo {
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_SIZE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
             DocumentsContract.Document.COLUMN_DOCUMENT_ID
         )
-        val resolver = context.contentResolver
         val cursor = resolver.query(uri, projection, null, null, null)
             ?: throw IllegalStateException("Unable to query document $uri")
         cursor.use { result ->
@@ -389,27 +403,114 @@ class ViewerViewModel @Inject constructor(
                 result.getLong(lastModifiedIndex)
             }
             val documentId = result.getString(documentIdIndex)
-            val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
-            val parentDocumentId = when {
-                documentId == null -> treeDocumentId
-                documentId == treeDocumentId -> treeDocumentId
-                else -> {
-                    val slashIndex = documentId.lastIndexOf('/')
-                    if (slashIndex > 0) {
-                        documentId.substring(0, slashIndex)
-                    } else {
-                        treeDocumentId
-                    }
-                }
-            }
+            val parentDocumentId = resolveSafParentDocumentId(treeUri, documentId)
             val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
-            DocumentInfo(
+            return DocumentInfo(
                 uri = uri,
                 displayName = name,
                 parentUri = parentUri,
                 size = size,
                 lastModified = lastModified
             )
+        }
+    }
+
+    private fun loadMediaStoreDocumentInfo(
+        resolver: android.content.ContentResolver,
+        uri: Uri,
+        treeUri: Uri
+    ): DocumentInfo {
+        val projection = arrayOf(
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.DATE_TAKEN,
+            MediaStore.MediaColumns.RELATIVE_PATH
+        )
+        val cursor = resolver.query(uri, projection, null, null, null)
+            ?: throw IllegalStateException("Unable to query document $uri")
+        cursor.use { result ->
+            if (!result.moveToFirst()) {
+                throw IllegalStateException("Unable to read document info for $uri")
+            }
+            val displayNameIndex = result.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val sizeIndex = result.getColumnIndex(MediaStore.MediaColumns.SIZE)
+            val dateModifiedIndex = result.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+            val dateTakenIndex = result.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+            val relativePathIndex = result.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+
+            val name = result.getString(displayNameIndex) ?: DEFAULT_FILE_NAME
+            val size = if (sizeIndex >= 0 && !result.isNull(sizeIndex)) {
+                result.getLong(sizeIndex)
+            } else {
+                null
+            }
+            val dateModifiedSeconds = if (dateModifiedIndex >= 0 && !result.isNull(dateModifiedIndex)) {
+                result.getLong(dateModifiedIndex)
+            } else {
+                null
+            }
+            val dateTakenMillis = if (dateTakenIndex >= 0 && !result.isNull(dateTakenIndex)) {
+                result.getLong(dateTakenIndex)
+            } else {
+                null
+            }
+            val lastModified = when {
+                dateModifiedSeconds != null && dateModifiedSeconds > 0 ->
+                    java.util.concurrent.TimeUnit.SECONDS.toMillis(dateModifiedSeconds)
+                dateTakenMillis != null && dateTakenMillis > 0 -> dateTakenMillis
+                else -> null
+            }
+            val relativePath = if (relativePathIndex >= 0 && !result.isNull(relativePathIndex)) {
+                result.getString(relativePathIndex)
+            } else {
+                null
+            }
+            val parentDocumentId = resolveMediaStoreParentDocumentId(treeUri, relativePath)
+            val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
+            return DocumentInfo(
+                uri = uri,
+                displayName = name,
+                parentUri = parentUri,
+                size = size,
+                lastModified = lastModified
+            )
+        }
+    }
+
+    private fun resolveSafParentDocumentId(treeUri: Uri, documentId: String?): String {
+        val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+        if (documentId.isNullOrEmpty() || documentId == treeDocumentId) {
+            return treeDocumentId
+        }
+        val slashIndex = documentId.lastIndexOf('/')
+        if (slashIndex > 0) {
+            return documentId.substring(0, slashIndex)
+        }
+        return treeDocumentId
+    }
+
+    private fun resolveMediaStoreParentDocumentId(treeUri: Uri, relativePath: String?): String {
+        val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+        if (relativePath.isNullOrEmpty()) {
+            return treeDocumentId
+        }
+        val sanitizedPath = relativePath.trimEnd('/')
+        if (sanitizedPath.isEmpty()) {
+            return treeDocumentId
+        }
+        val volume = treeDocumentId.substringBefore(':', missingDelimiterValue = treeDocumentId)
+        val treePath = treeDocumentId.substringAfter(':', missingDelimiterValue = "")
+        val candidate = when {
+            treePath.isEmpty() -> sanitizedPath
+            sanitizedPath == treePath -> sanitizedPath
+            sanitizedPath.startsWith("$treePath/") -> sanitizedPath
+            else -> treePath
+        }
+        return if (candidate.isEmpty()) {
+            treeDocumentId
+        } else {
+            "$volume:$candidate"
         }
     }
 
