@@ -63,6 +63,7 @@ class HealthMonitor @Inject constructor(
                 when (response.status.lowercase()) {
                     "online" -> HealthState(HealthStatus.ONLINE, now, response.message)
                     "degraded" -> HealthState(HealthStatus.DEGRADED, now, response.message)
+                    "offline" -> HealthState(HealthStatus.OFFLINE, now, response.message)
                     else -> HealthState(HealthStatus.ONLINE, now, response.message)
                 }
             },
