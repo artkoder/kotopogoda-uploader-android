@@ -6,7 +6,6 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.work.Data
 import androidx.work.WorkManager
-import androidx.work.setProgress
 import java.util.UUID
 
 internal class DeleteRequestHelperActivity : Activity() {
@@ -96,7 +95,7 @@ internal class DeleteRequestHelperActivity : Activity() {
     }
 
     private fun updateProgress(id: UUID, builder: Data.Builder) {
-        WorkManager.getInstance(applicationContext).setProgress(id, builder.build())
+        WorkManager.getInstance(applicationContext).setProgressAsync(id, builder.build())
     }
 
     companion object {
