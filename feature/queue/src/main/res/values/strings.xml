@@ -11,8 +11,9 @@
     <string name="queue_status_poll_succeeded">Готово. Файл удалён</string>
     <string name="queue_status_poll_manual_delete">Требуется ручное удаление</string>
     <string name="queue_status_poll_failed">Ошибка обработки</string>
-    <string name="queue_progress_unknown">Прогресс неизвестен</string>
-    <string name="queue_progress_percent">%1$d%%</string>
+    <string name="queue_progress_unknown">Прогресс: неизвестен</string>
+    <string name="queue_progress_percent">Прогресс: %1$d%%</string>
+    <string name="queue_progress_with_total">Прогресс: %1$d%% (%2$s из %3$s)</string>
     <string name="queue_action_cancel">Отменить</string>
     <string name="queue_action_retry">Повторить</string>
     <string name="queue_back">Назад</string>
@@ -20,4 +21,11 @@
     <string name="queue_health_degraded">Проблемы</string>
     <string name="queue_health_offline">Оффлайн</string>
     <string name="queue_health_unknown">—</string>
+    <string name="queue_last_error">Последняя ошибка: %1$s</string>
+    <string name="queue_error_http_with_code">Ошибка сервера (%1$d)</string>
+    <string name="queue_error_http">Ошибка сервера</string>
+    <string name="queue_error_network">Сетевая ошибка</string>
+    <string name="queue_error_io">Ошибка чтения файла</string>
+    <string name="queue_error_remote_failure">Обработка на сервере завершилась с ошибкой</string>
+    <string name="queue_error_unexpected">Неизвестная ошибка</string>
 </resources>

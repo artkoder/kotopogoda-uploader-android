@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
+import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.File
@@ -61,21 +62,38 @@ class PollStatusWorker @AssistedInject constructor(
                             Result.retry()
                         }
                         RemoteState.DONE -> handleCompletion(uri, uriString, displayName)
-                        RemoteState.FAILED -> Result.failure()
+                        RemoteState.FAILED -> failureResult(
+                            displayName = displayName,
+                            uriString = uriString,
+                            errorKind = UploadWorkErrorKind.REMOTE_FAILURE
+                        )
                     }
                 }
-                404 -> Result.failure()
+                404 -> failureResult(
+                    displayName = displayName,
+                    uriString = uriString,
+                    errorKind = UploadWorkErrorKind.HTTP,
+                    httpCode = response.code()
+                )
                 429 -> {
+                    recordError(displayName, UploadWorkErrorKind.HTTP, response.code())
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
                 in 500..599 -> {
+                    recordError(displayName, UploadWorkErrorKind.HTTP, response.code())
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
-                else -> Result.failure()
+                else -> failureResult(
+                    displayName = displayName,
+                    uriString = uriString,
+                    errorKind = UploadWorkErrorKind.HTTP,
+                    httpCode = response.code()
+                )
             }
         } catch (io: IOException) {
+            recordError(displayName, UploadWorkErrorKind.IO)
             Result.retry()
         }
     }
@@ -134,6 +152,34 @@ class PollStatusWorker @AssistedInject constructor(
                 UploadEnqueuer.KEY_DISPLAY_NAME to displayName,
             )
         )
+    }
+
+    private suspend fun recordError(
+        displayName: String,
+        errorKind: UploadWorkErrorKind,
+        httpCode: Int? = null
+    ) {
+        val builder = Data.Builder()
+            .putInt(UploadEnqueuer.KEY_PROGRESS, INDETERMINATE_PROGRESS)
+            .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
+            .putString(UploadEnqueuer.KEY_ERROR_KIND, errorKind.rawValue)
+        httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
+        setProgress(builder.build())
+    }
+
+    private suspend fun failureResult(
+        displayName: String,
+        uriString: String,
+        errorKind: UploadWorkErrorKind,
+        httpCode: Int? = null
+    ): Result {
+        recordError(displayName, errorKind, httpCode)
+        val builder = Data.Builder()
+            .putString(UploadEnqueuer.KEY_URI, uriString)
+            .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
+            .putString(UploadEnqueuer.KEY_ERROR_KIND, errorKind.rawValue)
+        httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
+        return Result.failure(builder.build())
     }
 
     private fun isMediaStoreUri(uri: Uri): Boolean {

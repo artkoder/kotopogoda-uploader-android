@@ -4,15 +4,16 @@ import android.content.Context
 import android.net.Uri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
+import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.ByteArrayOutputStream
@@ -35,6 +36,8 @@ class UploadWorker @AssistedInject constructor(
     private val summaryStarter: UploadSummaryStarter,
 ) : CoroutineWorker(appContext, params) {
 
+    private var lastProgressSnapshot = ProgressSnapshot()
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         summaryStarter.ensureRunning()
         val uriString = inputData.getString(UploadEnqueuer.KEY_URI)
@@ -45,18 +48,17 @@ class UploadWorker @AssistedInject constructor(
         val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext Result.failure()
 
         try {
-            setProgress(
-                workDataOf(
-                    UploadEnqueuer.KEY_PROGRESS to INDETERMINATE_PROGRESS,
-                    UploadEnqueuer.KEY_DISPLAY_NAME to displayName
-                )
-            )
-            setForeground(createForeground(displayName, INDETERMINATE_PROGRESS))
-
             val totalBytes = appContext.contentResolver
                 .openAssetFileDescriptor(uri, "r")
                 ?.use { it.length }
                 ?: -1L
+
+            updateProgress(
+                displayName = displayName,
+                progress = INDETERMINATE_PROGRESS,
+                bytesSent = if (totalBytes > 0) 0L else null,
+                totalBytes = totalBytes.takeIf { it > 0 }
+            )
 
             val payload = readDocumentPayload(uri, totalBytes, displayName)
             val mimeType = appContext.contentResolver.getType(uri)
@@ -65,6 +67,7 @@ class UploadWorker @AssistedInject constructor(
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
 
             var lastReportedPercent = -1
+            var lastBytesSent: Long? = null
             val fileRequestBody = ProgressRequestBody(
                 payload.bytes.toRequestBody(mediaType),
                 onProgress = { bytesSent: Long, _: Long ->
@@ -76,7 +79,13 @@ class UploadWorker @AssistedInject constructor(
                 if (percent != lastReportedPercent) {
                     lastReportedPercent = percent
                     runBlocking {
-                        updateProgress(displayName, percent)
+                        lastBytesSent = bytesSent
+                        updateProgress(
+                            displayName = displayName,
+                            progress = percent,
+                            bytesSent = bytesSent,
+                            totalBytes = payload.size.takeIf { it > 0 }
+                        )
                     }
                 }
                 }
@@ -98,26 +107,53 @@ class UploadWorker @AssistedInject constructor(
                 202, 409 -> {
                     val uploadId = response.body()?.uploadId
                     if (uploadId.isNullOrBlank()) {
+                        recordError(displayName, UploadWorkErrorKind.UNEXPECTED)
                         Result.retry()
                     } else {
+                        updateProgress(
+                            displayName = displayName,
+                            progress = 100,
+                            bytesSent = lastBytesSent ?: payload.size,
+                            totalBytes = payload.size.takeIf { it > 0 }
+                        )
                         Result.success(
-                            workDataOf(
-                                UploadEnqueuer.KEY_UPLOAD_ID to uploadId,
-                                UploadEnqueuer.KEY_URI to uriString,
-                                UploadEnqueuer.KEY_DISPLAY_NAME to displayName
+                            buildResultData(
+                                displayName = displayName,
+                                uriString = uriString,
+                                uploadId = uploadId,
+                                bytesSent = lastProgressSnapshot.bytesSent,
+                                totalBytes = lastProgressSnapshot.totalBytes
                             )
                         )
                     }
                 }
-                413, 415 -> Result.failure()
-                429 -> Result.retry()
-                in 500..599 -> Result.retry()
-                else -> Result.failure()
+                413, 415 -> failureResult(
+                    displayName = displayName,
+                    uriString = uriString,
+                    errorKind = UploadWorkErrorKind.HTTP,
+                    httpCode = response.code()
+                )
+                429 -> retryResult(
+                    displayName = displayName,
+                    errorKind = UploadWorkErrorKind.HTTP,
+                    httpCode = response.code()
+                )
+                in 500..599 -> retryResult(
+                    displayName = displayName,
+                    errorKind = UploadWorkErrorKind.HTTP,
+                    httpCode = response.code()
+                )
+                else -> failureResult(
+                    displayName = displayName,
+                    uriString = uriString,
+                    errorKind = UploadWorkErrorKind.HTTP,
+                    httpCode = response.code()
+                )
             }
         } catch (io: IOException) {
-            Result.retry()
+            retryResult(displayName, UploadWorkErrorKind.IO)
         } catch (error: Exception) {
-            Result.failure()
+            failureResult(displayName, uriString, UploadWorkErrorKind.UNEXPECTED)
         }
     }
 
@@ -145,7 +181,12 @@ class UploadWorker @AssistedInject constructor(
                     output.write(buffer, 0, read)
                     if (totalBytes > 0) {
                         val progress = ((total * 100) / totalBytes).toInt().coerceIn(0, 99)
-                        updateProgress(displayName, progress)
+                        updateProgress(
+                            displayName = displayName,
+                            progress = progress,
+                            bytesSent = total,
+                            totalBytes = totalBytes
+                        )
                     }
                 }
             }
@@ -153,7 +194,12 @@ class UploadWorker @AssistedInject constructor(
         if (totalBytes <= 0) {
             updateProgress(displayName, INDETERMINATE_PROGRESS)
         } else {
-            updateProgress(displayName, 99)
+            updateProgress(
+                displayName = displayName,
+                progress = 99,
+                bytesSent = total,
+                totalBytes = totalBytes
+            )
         }
         val sha256Hex = digest.digest().toHexString()
         return FilePayload(
@@ -163,14 +209,92 @@ class UploadWorker @AssistedInject constructor(
         )
     }
 
-    private suspend fun updateProgress(displayName: String, progress: Int) {
-        setProgress(
-            workDataOf(
-                UploadEnqueuer.KEY_PROGRESS to progress,
-                UploadEnqueuer.KEY_DISPLAY_NAME to displayName
+    private suspend fun updateProgress(
+        displayName: String,
+        progress: Int,
+        bytesSent: Long? = lastProgressSnapshot.bytesSent,
+        totalBytes: Long? = lastProgressSnapshot.totalBytes,
+        errorKind: UploadWorkErrorKind? = null,
+        httpCode: Int? = null,
+    ) {
+        lastProgressSnapshot = ProgressSnapshot(
+            progress = progress,
+            bytesSent = bytesSent,
+            totalBytes = totalBytes
+        )
+        val builder = Data.Builder()
+            .putInt(UploadEnqueuer.KEY_PROGRESS, progress)
+            .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
+        bytesSent?.let { builder.putLong(UploadEnqueuer.KEY_BYTES_SENT, it) }
+        totalBytes?.let { builder.putLong(UploadEnqueuer.KEY_TOTAL_BYTES, it) }
+        errorKind?.let { builder.putString(UploadEnqueuer.KEY_ERROR_KIND, it.rawValue) }
+        httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
+        setProgress(builder.build())
+        setForeground(createForeground(displayName, progress))
+    }
+
+    private suspend fun recordError(
+        displayName: String,
+        errorKind: UploadWorkErrorKind,
+        httpCode: Int? = null
+    ) {
+        val snapshot = lastProgressSnapshot
+        updateProgress(
+            displayName = displayName,
+            progress = snapshot.progress,
+            bytesSent = snapshot.bytesSent,
+            totalBytes = snapshot.totalBytes,
+            errorKind = errorKind,
+            httpCode = httpCode
+        )
+    }
+
+    private suspend fun retryResult(
+        displayName: String,
+        errorKind: UploadWorkErrorKind,
+        httpCode: Int? = null
+    ): Result {
+        recordError(displayName, errorKind, httpCode)
+        return Result.retry()
+    }
+
+    private suspend fun failureResult(
+        displayName: String,
+        uriString: String,
+        errorKind: UploadWorkErrorKind,
+        httpCode: Int? = null
+    ): Result {
+        recordError(displayName, errorKind, httpCode)
+        return Result.failure(
+            buildResultData(
+                displayName = displayName,
+                uriString = uriString,
+                bytesSent = lastProgressSnapshot.bytesSent,
+                totalBytes = lastProgressSnapshot.totalBytes,
+                errorKind = errorKind,
+                httpCode = httpCode
             )
         )
-        setForeground(createForeground(displayName, progress))
+    }
+
+    private fun buildResultData(
+        displayName: String,
+        uriString: String,
+        uploadId: String? = null,
+        bytesSent: Long? = null,
+        totalBytes: Long? = null,
+        errorKind: UploadWorkErrorKind? = null,
+        httpCode: Int? = null,
+    ): Data {
+        val builder = Data.Builder()
+            .putString(UploadEnqueuer.KEY_URI, uriString)
+            .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
+        uploadId?.let { builder.putString(UploadEnqueuer.KEY_UPLOAD_ID, it) }
+        bytesSent?.let { builder.putLong(UploadEnqueuer.KEY_BYTES_SENT, it) }
+        totalBytes?.let { builder.putLong(UploadEnqueuer.KEY_TOTAL_BYTES, it) }
+        errorKind?.let { builder.putString(UploadEnqueuer.KEY_ERROR_KIND, it.rawValue) }
+        httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
+        return builder.build()
     }
 
     private fun createForeground(displayName: String, progress: Int): ForegroundInfo {
@@ -189,6 +313,12 @@ class UploadWorker @AssistedInject constructor(
         val bytes: ByteArray,
         val size: Long,
         val sha256Hex: String,
+    )
+
+    private data class ProgressSnapshot(
+        val progress: Int = INDETERMINATE_PROGRESS,
+        val bytesSent: Long? = null,
+        val totalBytes: Long? = null,
     )
 
     private fun String.toPlainRequestBody() =
