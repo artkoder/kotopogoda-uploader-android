@@ -3,14 +3,15 @@ package com.kotopogoda.uploader.core.network.work
 import android.content.Context
 import android.net.Uri
 import androidx.hilt.work.HiltWorker
-import androidx.work.ForegroundInfo
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.network.api.UploadApi
+import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
+import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
-import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -18,6 +19,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -62,10 +64,24 @@ class UploadWorker @AssistedInject constructor(
                 ?: DEFAULT_MIME_TYPE
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
 
+            var lastReportedPercent = -1
+            val fileRequestBody = ProgressRequestBody(payload.bytes.toRequestBody(mediaType)) { bytesSent, _ ->
+                val percent = if (payload.size > 0) {
+                    ((bytesSent * 100) / payload.size).toInt().coerceIn(0, 100)
+                } else {
+                    100
+                }
+                if (percent != lastReportedPercent) {
+                    lastReportedPercent = percent
+                    runBlocking {
+                        updateProgress(displayName, percent)
+                    }
+                }
+            }
             val filePart = MultipartBody.Part.createFormData(
                 "file",
                 displayName,
-                payload.bytes.toRequestBody(mediaType)
+                fileRequestBody
             )
             val response = uploadApi.upload(
                 idempotencyKey = idempotencyKey,
@@ -125,7 +141,7 @@ class UploadWorker @AssistedInject constructor(
                     digest.update(buffer, 0, read)
                     output.write(buffer, 0, read)
                     if (totalBytes > 0) {
-                        val progress = ((total * 100) / totalBytes).toInt().coerceIn(0, 100)
+                        val progress = ((total * 100) / totalBytes).toInt().coerceIn(0, 99)
                         updateProgress(displayName, progress)
                     }
                 }
@@ -134,7 +150,7 @@ class UploadWorker @AssistedInject constructor(
         if (totalBytes <= 0) {
             updateProgress(displayName, INDETERMINATE_PROGRESS)
         } else {
-            updateProgress(displayName, 100)
+            updateProgress(displayName, 99)
         }
         val sha256Hex = digest.digest().toHexString()
         return FilePayload(
