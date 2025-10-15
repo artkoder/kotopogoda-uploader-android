@@ -30,4 +30,5 @@ dependencies {
     kapt(libs.dagger.hilt.compiler)
     implementation(libs.timber)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.com.squareup.okhttp3.logging.interceptor)
 }

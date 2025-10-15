@@ -104,6 +104,7 @@ tasks.withType<KaptGenerateStubsTask>().configureEach {
 }
 
 dependencies {
+    implementation(project(":core:logging"))
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
     implementation(libs.com.squareup.retrofit2.retrofit)

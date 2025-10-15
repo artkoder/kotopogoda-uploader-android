@@ -1,7 +1,6 @@
 package com.kotopogoda.uploader.core.logging
 
 import android.content.Context
-import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.time.LocalDateTime
@@ -13,55 +12,30 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import timber.log.Timber
+import okhttp3.logging.HttpLoggingInterceptor
 
 @Singleton
-class FileLogger @Inject constructor(
+class HttpFileLogger @Inject constructor(
     @ApplicationContext context: Context,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : Timber.Tree() {
+) : HttpLoggingInterceptor.Logger {
 
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
     private val writer = RotatingLogWriter(
         directoryProvider = { ensureLogsDirectory(context) },
-        fileBaseName = APP_LOG_BASE_NAME,
+        fileBaseName = HTTP_LOG_BASE_NAME,
         maxFiles = LOG_MAX_FILES,
         maxFileSizeBytes = LOG_MAX_FILE_SIZE_BYTES,
     )
 
     fun logsDirectory(): File = writer.logsDirectory()
 
-    override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+    override fun log(message: String) {
         val timestamp = LocalDateTime.now().format(dateFormatter)
-        val level = priorityLabel(priority)
-        val formattedMessage = buildString {
-            append("[")
-            append(timestamp)
-            append("][")
-            append(level)
-            append("] ")
-            if (!tag.isNullOrBlank()) {
-                append(tag)
-                append(": ")
-            }
-            append(message)
-        }
+        val formatted = "[$timestamp] $message"
         scope.launch {
-            writer.appendLine(formattedMessage)
-            if (t != null) {
-                writer.appendLine(Log.getStackTraceString(t))
-            }
+            writer.appendLine(formatted)
         }
-    }
-
-    private fun priorityLabel(priority: Int): String = when (priority) {
-        Log.VERBOSE -> "V"
-        Log.DEBUG -> "D"
-        Log.INFO -> "I"
-        Log.WARN -> "W"
-        Log.ERROR -> "E"
-        Log.ASSERT -> "A"
-        else -> priority.toString()
     }
 }
