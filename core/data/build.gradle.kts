@@ -35,4 +35,8 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.exif)
     implementation(libs.androidx.paging.runtime)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
 }
