@@ -87,6 +87,10 @@ class UploadEnqueuer @Inject constructor(
         const val KEY_DISPLAY_NAME = "displayName"
         const val KEY_PROGRESS = "progress"
         const val KEY_DELETED = "deleted"
+        const val KEY_COMPLETION_STATE = "completionState"
+        const val STATE_UPLOADED_DELETED = "uploadedDeleted"
+        const val STATE_UPLOADED_AWAITING_DELETE = "uploadedAwaitingDelete"
+        const val STATE_UPLOAD_COMPLETED_UNKNOWN = "uploadCompletedUnknown"
         private const val INITIAL_BACKOFF_SECONDS = 10L
         private const val POLL_INITIAL_BACKOFF_SECONDS = 30L
         private const val DEFAULT_FILE_NAME = "photo.jpg"
