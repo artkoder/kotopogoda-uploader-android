@@ -91,7 +91,7 @@ internal class DeleteRequestHelperActivity : Activity() {
             builder.putByteArray(DeleteRequestContract.KEY_PENDING_DELETE_INTENT, ByteArray(0))
             builder.putLong(DeleteRequestContract.KEY_PENDING_DELETE_LAST_LAUNCH, 0L)
         }
-        WorkManager.getInstance(applicationContext).setProgress(id, builder.build())
+        WorkManager.getInstance(applicationContext).setProgressAsync(id, builder.build())
     }
 
     companion object {
