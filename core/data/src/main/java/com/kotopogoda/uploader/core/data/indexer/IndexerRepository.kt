@@ -50,13 +50,14 @@ class IndexerRepository @Inject constructor(
             val rootDocument = DocumentFile.fromTreeUri(context, treeUri)
                 ?: throw IllegalStateException("Unable to resolve tree URI: ${folder.treeUri}")
 
-        var progress = ScanProgress()
-        emit(progress)
+            var progress = ScanProgress()
+            emit(progress)
 
-        withContext(ioDispatcher) {
-            traverse(rootDocument) { outcome ->
-                progress = progress.advance(outcome)
-                this@flow.emit(progress)
+            withContext(ioDispatcher) {
+                traverse(rootDocument) { outcome ->
+                    progress = progress.advance(outcome)
+                    this@flow.emit(progress)
+                }
             }
         }
     }
