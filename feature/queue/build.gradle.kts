@@ -53,4 +53,6 @@ dependencies {
     kapt(libs.dagger.hilt.compiler)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(libs.junit)
 }

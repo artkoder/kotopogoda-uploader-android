@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.feature.queue
 
+import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus
+import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import com.kotopogoda.uploader.feature.queue.R
 
 const val QUEUE_ROUTE = "queue"
@@ -138,6 +141,7 @@ private fun QueueItemCard(
     onRetry: (QueueItemUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors()
@@ -151,21 +155,57 @@ private fun QueueItemCard(
             Spacer(modifier = Modifier.height(8.dp))
             if (item.isIndeterminate) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text(
-                    text = stringResource(id = R.string.queue_progress_unknown),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
             } else {
                 LinearProgressIndicator(
                     progress = item.progress / 100f,
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+            val progressLabel = if (item.isIndeterminate) {
+                stringResource(id = R.string.queue_progress_unknown)
+            } else {
+                val totalBytes = item.totalBytes
+                val bytesSent = item.bytesSent
+                if (totalBytes != null && totalBytes > 0 && bytesSent != null) {
+                    val sentLabel = Formatter.formatShortFileSize(context, bytesSent.coerceAtLeast(0))
+                    val totalLabel = Formatter.formatShortFileSize(context, totalBytes.coerceAtLeast(0))
+                    stringResource(
+                        id = R.string.queue_progress_with_total,
+                        item.progress,
+                        sentLabel,
+                        totalLabel
+                    )
+                } else {
+                    stringResource(id = R.string.queue_progress_percent, item.progress)
+                }
+            }
+            Text(
+                text = progressLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            val errorMessage = item.errorKind?.let { kind ->
+                when (kind) {
+                    UploadWorkErrorKind.HTTP -> {
+                        val code = item.errorHttpCode
+                        if (code != null) {
+                            stringResource(id = R.string.queue_error_http_with_code, code)
+                        } else {
+                            stringResource(id = R.string.queue_error_http)
+                        }
+                    }
+                    UploadWorkErrorKind.NETWORK -> stringResource(id = R.string.queue_error_network)
+                    UploadWorkErrorKind.IO -> stringResource(id = R.string.queue_error_io)
+                    UploadWorkErrorKind.REMOTE_FAILURE -> stringResource(id = R.string.queue_error_remote_failure)
+                    UploadWorkErrorKind.UNEXPECTED -> stringResource(id = R.string.queue_error_unexpected)
+                }
+            }
+            if (!errorMessage.isNullOrBlank()) {
                 Text(
-                    text = stringResource(id = R.string.queue_progress_percent, item.progress),
+                    text = stringResource(id = R.string.queue_last_error, errorMessage),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }

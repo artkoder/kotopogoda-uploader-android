@@ -14,6 +14,7 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import com.squareup.moshi.Moshi
@@ -110,6 +111,8 @@ class UploadWorkerTest {
 
         assertTrue(result is Success)
         assertEquals("abc", result.outputData.getString(UploadEnqueuer.KEY_UPLOAD_ID))
+        assertEquals(file.length(), result.outputData.getLong(UploadEnqueuer.KEY_BYTES_SENT, -1))
+        assertEquals(file.length(), result.outputData.getLong(UploadEnqueuer.KEY_TOTAL_BYTES, -1))
 
         val request = mockWebServer.takeRequest()
         assertEquals("/v1/uploads", request.path)
@@ -159,6 +162,9 @@ class UploadWorkerTest {
         val result = worker.doWork()
 
         assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals(UploadWorkErrorKind.HTTP.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        assertEquals(413, outputData.getInt(UploadEnqueuer.KEY_HTTP_CODE, -1))
     }
 
     @Test
@@ -172,6 +178,9 @@ class UploadWorkerTest {
         val result = worker.doWork()
 
         assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals(UploadWorkErrorKind.HTTP.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        assertEquals(415, outputData.getInt(UploadEnqueuer.KEY_HTTP_CODE, -1))
     }
 
     @Test
