@@ -1,0 +1,115 @@
+package com.kotopogoda.uploader.core.data.sa
+
+import android.app.PendingIntent
+import android.content.ContentResolver
+import android.content.Context
+import android.database.MatrixCursor
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import androidx.documentfile.provider.DocumentFile
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import io.mockk.verify
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runTest
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class SaFileRepositoryTest {
+
+    private val context = mockk<Context>(relaxed = true)
+    private val contentResolver = mockk<ContentResolver>(relaxed = true)
+    private val processingFolderProvider = mockk<ProcessingFolderProvider>()
+    private val repository = SaFileRepository(context, processingFolderProvider)
+
+    init {
+        every { context.contentResolver } returns contentResolver
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+    }
+
+    @Test
+    fun `moveToProcessing copies and deletes SAF document`() = runTest {
+        val safUri = Uri.parse("content://com.android.providers.documents/document/primary:Pictures/foo.jpg")
+        val destinationUri = Uri.parse("content://com.example.destination/document/1")
+        val sourceDocument = mockk<DocumentFile>(relaxed = true)
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val destinationDocument = mockk<DocumentFile>(relaxed = true)
+        val inputBytes = "hello-world".toByteArray()
+        val outputStream = ByteArrayOutputStream()
+
+        mockkStatic(DocumentFile::class)
+        every { DocumentFile.fromSingleUri(context, safUri) } returns sourceDocument
+
+        every { sourceDocument.type } returns "image/jpeg"
+        every { sourceDocument.name } returns "foo.jpg"
+        every { sourceDocument.uri } returns safUri
+        every { sourceDocument.delete() } returns true
+
+        every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.createFile("image/jpeg", "foo.jpg") } returns destinationDocument
+        every { destinationDocument.uri } returns destinationUri
+
+        every { contentResolver.openInputStream(safUri) } returns ByteArrayInputStream(inputBytes)
+        every { contentResolver.openOutputStream(destinationUri) } returns outputStream
+
+        val result = repository.moveToProcessing(safUri)
+
+        assertEquals(destinationUri, result)
+        assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 1) { sourceDocument.delete() }
+    }
+
+    @Test
+    fun `moveToProcessing copies and requests deletion for MediaStore document`() = runTest {
+        val mediaUri = Uri.parse("content://media/external/images/media/42")
+        val destinationUri = Uri.parse("content://com.example.destination/document/2")
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val destinationDocument = mockk<DocumentFile>(relaxed = true)
+        val pendingIntent = mockk<PendingIntent>(relaxed = true)
+        val inputBytes = "media-bytes".toByteArray()
+        val outputStream = ByteArrayOutputStream()
+
+        mockkStatic(DocumentFile::class)
+        every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
+
+        mockkStatic(Build.VERSION::class)
+        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
+
+        mockkStatic(MediaStore::class)
+        every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
+
+        val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
+            addRow(arrayOf<Any>("bar.jpg"))
+        }
+
+        every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.createFile("image/jpeg", "bar.jpg") } returns destinationDocument
+        every { destinationDocument.uri } returns destinationUri
+
+        every { contentResolver.getType(mediaUri) } returns "image/jpeg"
+        every { contentResolver.query(mediaUri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null) } returns cursor
+        every { contentResolver.openInputStream(mediaUri) } returns ByteArrayInputStream(inputBytes)
+        every { contentResolver.openOutputStream(destinationUri) } returns outputStream
+        every { pendingIntent.send() } returns Unit
+
+        val result = repository.moveToProcessing(mediaUri)
+
+        assertEquals(destinationUri, result)
+        assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
+        verify(exactly = 1) { pendingIntent.send() }
+        verify(exactly = 0) { contentResolver.delete(mediaUri, any(), any()) }
+    }
+}
