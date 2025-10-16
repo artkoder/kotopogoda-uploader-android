@@ -2,30 +2,23 @@ package com.kotopogoda.uploader.core.work
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
-import android.net.Uri
-import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OverwritingInputMerger
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
-import com.kotopogoda.uploader.core.network.upload.UPLOAD_QUEUE_NAME
 import com.kotopogoda.uploader.core.network.upload.UPLOAD_PROCESSOR_WORK_NAME
-import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
-import com.kotopogoda.uploader.core.network.upload.UploadTags
-import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
+import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner
+import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskParams
+import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult
 import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
-import com.kotopogoda.uploader.core.network.work.PollStatusWorker
-import com.kotopogoda.uploader.core.network.work.UploadWorker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.IOException
 import java.net.UnknownHostException
 import java.util.concurrent.CancellationException
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -36,10 +29,12 @@ class UploadProcessorWorker @AssistedInject constructor(
     private val repository: UploadQueueRepository,
     private val workManager: WorkManager,
     private val constraintsHelper: UploadConstraintsHelper,
+    private val taskRunner: UploadTaskRunner,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val queued = repository.fetchQueued(BATCH_SIZE)
+        repository.recoverStuckProcessing()
+        val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
         if (queued.isEmpty()) {
             if (repository.hasQueued()) {
                 enqueueSelf()
@@ -51,18 +46,39 @@ class UploadProcessorWorker @AssistedInject constructor(
 
         for (item in queued) {
             repository.markProcessing(item.id)
-            val result = runCatching {
-                enqueueUploadWork(item)
+            val outcome = try {
+                taskRunner.run(
+                    UploadTaskParams(
+                        uri = item.uri,
+                        idempotencyKey = item.idempotencyKey,
+                        displayName = item.displayName,
+                    )
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                UploadTaskResult.Failure(
+                    errorKind = error.toUploadErrorKind(),
+                    httpCode = null,
+                    retryable = error.isRetryable(),
+                )
             }
             result.onFailure { error ->
                 if (error is CancellationException) {
                     throw error
                 }
-                val kind = error.toUploadErrorKind()
-                val retryable = error.isRetryable()
-                repository.markFailed(item.id, kind, httpCode = null, requeue = retryable)
-                if (retryable) {
-                    shouldRetry = true
+                is UploadTaskResult.Failure -> {
+                    if (isProcessing) {
+                        repository.markFailed(
+                            id = item.id,
+                            errorKind = outcome.errorKind,
+                            httpCode = outcome.httpCode,
+                            requeue = outcome.retryable,
+                        )
+                        if (outcome.retryable) {
+                            shouldRetry = true
+                        }
+                    }
                 }
             }
         }
@@ -137,12 +153,8 @@ class UploadProcessorWorker @AssistedInject constructor(
     companion object {
         const val WORK_NAME = UPLOAD_PROCESSOR_WORK_NAME
         private const val BATCH_SIZE = 5
-        private const val INITIAL_BACKOFF_SECONDS = 10L
-        private const val POLL_INITIAL_BACKOFF_SECONDS = 30L
     }
 }
-
-private fun uniqueName(uri: Uri): String = "upload:${UploadEnqueuer.sha256(uri.toString())}"
 
 private fun Throwable.toUploadErrorKind(): UploadWorkErrorKind = when (this) {
     is UnknownHostException -> UploadWorkErrorKind.NETWORK

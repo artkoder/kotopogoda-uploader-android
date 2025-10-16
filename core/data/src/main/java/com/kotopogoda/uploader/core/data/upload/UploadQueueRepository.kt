@@ -4,12 +4,12 @@ import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import java.time.Clock
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class UploadQueueRepository @Inject constructor(
@@ -74,14 +74,16 @@ class UploadQueueRepository @Inject constructor(
         )
     }
 
-    suspend fun markCancelled(uri: Uri) = withContext(Dispatchers.IO) {
-        val photo = photoDao.getByUri(uri.toString()) ?: return@withContext
-        val existing = uploadItemDao.getByPhotoId(photo.id) ?: return@withContext
+    suspend fun markCancelled(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        val photo = photoDao.getByUri(uri.toString()) ?: return@withContext false
+        val existing = uploadItemDao.getByPhotoId(photo.id) ?: return@withContext false
+        val wasProcessing = existing.state == UploadItemState.PROCESSING.rawValue
         uploadItemDao.updateState(
             id = existing.id,
             state = UploadItemState.FAILED.rawValue,
             updatedAt = currentTimeMillis(),
         )
+        wasProcessing
     }
 
     suspend fun cancelAll() = withContext(Dispatchers.IO) {
@@ -95,9 +97,18 @@ class UploadQueueRepository @Inject constructor(
         )
     }
 
-    suspend fun fetchQueued(limit: Int): List<UploadQueueItem> = withContext(Dispatchers.IO) {
-        val queued = uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, limit)
+    suspend fun recoverStuckProcessing(): Int = withContext(Dispatchers.IO) {
         val now = currentTimeMillis()
+        recoverStuckProcessingInternal(now)
+    }
+
+    suspend fun fetchQueued(limit: Int, recoverStuck: Boolean = true): List<UploadQueueItem> = withContext(Dispatchers.IO) {
+        val now = currentTimeMillis()
+        if (recoverStuck) {
+            recoverStuckProcessingInternal(now)
+        }
+        val queued = uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, limit)
+        val updateTimestamp = currentTimeMillis()
         buildList {
             for (entity in queued) {
                 if (entity.uri.isBlank()) {
@@ -106,7 +117,7 @@ class UploadQueueRepository @Inject constructor(
                         state = UploadItemState.FAILED.rawValue,
                         lastErrorKind = UploadWorkErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
-                        updatedAt = now,
+                        updatedAt = updateTimestamp,
                     )
                     continue
                 }
@@ -117,7 +128,7 @@ class UploadQueueRepository @Inject constructor(
                         state = UploadItemState.FAILED.rawValue,
                         lastErrorKind = UploadWorkErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
-                        updatedAt = now,
+                        updatedAt = updateTimestamp,
                     )
                     continue
                 }
@@ -172,6 +183,11 @@ class UploadQueueRepository @Inject constructor(
         uploadItemDao.countByState(UploadItemState.QUEUED.rawValue) > 0
     }
 
+    suspend fun getState(id: Long): UploadItemState? = withContext(Dispatchers.IO) {
+        val entity = uploadItemDao.getById(id) ?: return@withContext null
+        UploadItemState.fromRawValue(entity.state)
+    }
+
     private fun buildDisplayName(relPath: String?, uri: Uri): String {
         val fromRelPath = relPath?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
         val fromUri = uri.lastPathSegment?.takeIf { it.isNotBlank() }
@@ -198,6 +214,7 @@ class UploadQueueRepository @Inject constructor(
 
     companion object {
         private const val DEFAULT_DISPLAY_NAME = "photo.jpg"
+        internal const val PROCESSING_RECOVERY_TIMEOUT_MS = 5 * 60 * 1000L
     }
 }
 

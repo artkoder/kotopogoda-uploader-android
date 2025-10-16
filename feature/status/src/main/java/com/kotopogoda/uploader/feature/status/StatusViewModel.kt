@@ -9,12 +9,13 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkInfo
 import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.health.HealthMonitor
 import com.kotopogoda.uploader.core.network.health.HealthState
-import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,7 +40,7 @@ import android.os.StatFs
 class StatusViewModel @Inject constructor(
     private val healthMonitor: HealthMonitor,
     private val deviceCredsStore: DeviceCredsStore,
-    private val uploadEnqueuer: UploadEnqueuer,
+    private val uploadQueueRepository: UploadQueueRepository,
     private val folderRepository: FolderRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
@@ -51,7 +52,7 @@ class StatusViewModel @Inject constructor(
     private val _uiState: StateFlow<StatusUiState> = combine(
         healthMonitor.state,
         deviceCredsStore.credsFlow,
-        uploadEnqueuer.getAllUploadsFlow().map { infos -> infos.toSummary() },
+        uploadQueueRepository.observeQueue().map { entries -> entries.toSummary() },
         storageStateFlow(),
     ) { health, creds, queueSummary, storage ->
         StatusUiState(
@@ -167,24 +168,29 @@ class StatusViewModel @Inject constructor(
         return StatFs(path)
     }
 
-    private fun List<WorkInfo>.toSummary(): QueueSummary {
+    private fun List<UploadQueueEntry>.toSummary(): QueueSummary {
         if (isEmpty()) {
             return QueueSummary.Empty
         }
-        val running = count { it.state == WorkInfo.State.RUNNING }
-        val enqueued = count { it.state == WorkInfo.State.ENQUEUED }
-        val succeeded = count { it.state == WorkInfo.State.SUCCEEDED }
-        val failed = count { it.state == WorkInfo.State.FAILED }
-        val blocked = count { it.state == WorkInfo.State.BLOCKED }
-        val cancelled = count { it.state == WorkInfo.State.CANCELLED }
+        var queued = 0
+        var processing = 0
+        var succeeded = 0
+        var failed = 0
+        for (entry in this) {
+            when (entry.state) {
+                UploadItemState.QUEUED -> queued += 1
+                UploadItemState.PROCESSING -> processing += 1
+                UploadItemState.SUCCEEDED -> succeeded += 1
+                UploadItemState.FAILED -> failed += 1
+            }
+        }
+        val total = queued + processing + succeeded + failed
         return QueueSummary(
-            total = size,
-            running = running,
-            enqueued = enqueued,
+            total = total,
+            processing = processing,
+            queued = queued,
             succeeded = succeeded,
             failed = failed,
-            blocked = blocked,
-            cancelled = cancelled,
         )
     }
 
@@ -245,15 +251,13 @@ sealed interface PairingStatus {
 
 data class QueueSummary(
     val total: Int,
-    val running: Int,
-    val enqueued: Int,
+    val processing: Int,
+    val queued: Int,
     val succeeded: Int,
     val failed: Int,
-    val blocked: Int,
-    val cancelled: Int,
 ) {
     companion object {
-        val Empty = QueueSummary(0, 0, 0, 0, 0, 0, 0)
+        val Empty = QueueSummary(0, 0, 0, 0, 0)
     }
 }
 

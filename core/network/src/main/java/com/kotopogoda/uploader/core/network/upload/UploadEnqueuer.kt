@@ -6,7 +6,6 @@ import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.WorkQuery
 import androidx.work.getWorkInfosByTagFlow
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import java.security.MessageDigest
@@ -34,13 +33,17 @@ class UploadEnqueuer @Inject constructor(
     suspend fun cancel(uri: Uri) {
         val uniqueName = uniqueName(uri)
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
-        uploadItemsRepository.markCancelled(uri)
+        val cancelledWhileProcessing = uploadItemsRepository.markCancelled(uri)
+        if (cancelledWhileProcessing) {
+            cancelUploadProcessorWork()
+        }
         ensureUploadRunning()
     }
 
     suspend fun cancelAllUploads() {
         workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD)
         workManager.cancelAllWorkByTag(UploadTags.TAG_POLL)
+        cancelUploadProcessorWork()
         uploadItemsRepository.cancelAll()
         ensureUploadRunning()
     }
@@ -52,13 +55,6 @@ class UploadEnqueuer @Inject constructor(
         uploadItemsRepository.enqueue(uri)
         summaryStarter.ensureRunning()
         ensureUploadRunning()
-    }
-
-    fun getAllUploadsFlow(): Flow<List<WorkInfo>> {
-        val query = WorkQuery.Builder
-            .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL))
-            .build()
-        return workManager.getWorkInfosFlow(query)
     }
 
     fun isEnqueued(uri: Uri): Flow<Boolean> =
@@ -108,5 +104,16 @@ class UploadEnqueuer @Inject constructor(
             workerClass.getField("WORK_NAME").get(null) as? String
         }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
         workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.KEEP, request)
+    }
+
+    private fun cancelUploadProcessorWork() {
+        val workerClass = runCatching {
+            Class.forName("com.kotopogoda.uploader.core.work.UploadProcessorWorker")
+                .asSubclass(ListenableWorker::class.java)
+        }.getOrNull() ?: return
+        val workName = runCatching {
+            workerClass.getField("WORK_NAME").get(null) as? String
+        }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
+        workManager.cancelUniqueWork(workName)
     }
 }
