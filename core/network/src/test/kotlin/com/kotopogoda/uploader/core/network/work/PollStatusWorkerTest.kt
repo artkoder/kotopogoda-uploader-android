@@ -18,9 +18,11 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
+import java.net.UnknownHostException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
@@ -269,6 +271,58 @@ class PollStatusWorkerTest {
         val result = worker.doWork()
 
         assertTrue(result is Retry)
+    }
+
+    @Test
+    fun networkFailureRetriesWithNetworkErrorKind() = runBlocking {
+        val previousFactory = workerFactory
+        val failingApi = object : UploadApi {
+            override suspend fun upload(
+                idempotencyKey: String,
+                file: okhttp3.MultipartBody.Part,
+                contentSha256Part: okhttp3.RequestBody,
+                mime: okhttp3.RequestBody,
+                size: okhttp3.RequestBody,
+                exifDate: okhttp3.RequestBody?,
+                originalRelpath: okhttp3.RequestBody?,
+            ) = throw UnsupportedOperationException()
+
+            override suspend fun getStatus(uploadId: String): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadStatusDto> {
+                throw UnknownHostException("dns")
+            }
+        }
+        workerFactory = object : WorkerFactory() {
+            override fun createWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters
+            ): PollStatusWorker? {
+                if (workerClassName == PollStatusWorker::class.qualifiedName) {
+                    return PollStatusWorker(
+                        appContext,
+                        workerParameters,
+                        failingApi,
+                        TestForegroundDelegate(appContext),
+                        NoopUploadSummaryStarter,
+                    )
+                }
+                return null
+            }
+        }
+
+        try {
+            val file = createTempFile()
+            val inputData = pollInputData(file)
+
+            val worker = createWorker(inputData)
+            val result = worker.doWork()
+
+            assertTrue(result is Retry)
+            val progress = worker.progress.get(1, TimeUnit.SECONDS)
+            assertEquals(UploadWorkErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        } finally {
+            workerFactory = previousFactory
+        }
     }
 
     private fun createWorker(inputData: Data): PollStatusWorker {

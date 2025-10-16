@@ -23,6 +23,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.File
 import java.io.IOException
+import java.net.UnknownHostException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -52,7 +53,15 @@ class PollStatusWorker @AssistedInject constructor(
         setForeground(createForeground(displayName))
 
         try {
-            val response = uploadApi.getStatus(uploadId)
+            val response = try {
+                uploadApi.getStatus(uploadId)
+            } catch (io: UnknownHostException) {
+                recordError(displayName, UploadWorkErrorKind.NETWORK)
+                return@withContext Result.retry()
+            } catch (io: IOException) {
+                recordError(displayName, UploadWorkErrorKind.NETWORK)
+                return@withContext Result.retry()
+            }
             when (response.code()) {
                 200 -> {
                     val body = response.body() ?: return@withContext Result.retry()
@@ -93,7 +102,7 @@ class PollStatusWorker @AssistedInject constructor(
                 )
             }
         } catch (io: IOException) {
-            recordError(displayName, UploadWorkErrorKind.IO)
+            recordError(displayName, UploadWorkErrorKind.NETWORK)
             Result.retry()
         }
     }

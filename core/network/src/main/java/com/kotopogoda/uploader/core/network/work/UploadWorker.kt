@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.network.work
 
+import android.app.RecoverableSecurityException
 import android.content.Context
 import android.net.Uri
 import androidx.hilt.work.HiltWorker
@@ -18,7 +19,9 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.UnknownHostException
 import java.security.MessageDigest
+import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -95,13 +98,19 @@ class UploadWorker @AssistedInject constructor(
                 displayName,
                 fileRequestBody
             )
-            val response = uploadApi.upload(
-                idempotencyKey = idempotencyKey,
-                file = filePart,
-                contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
-                mime = mimeType.toPlainRequestBody(),
-                size = payload.size.toString().toPlainRequestBody(),
-            )
+            val response = try {
+                uploadApi.upload(
+                    idempotencyKey = idempotencyKey,
+                    file = filePart,
+                    contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
+                    mime = mimeType.toPlainRequestBody(),
+                    size = payload.size.toString().toPlainRequestBody(),
+                )
+            } catch (io: UnknownHostException) {
+                return@withContext retryResult(displayName, UploadWorkErrorKind.NETWORK)
+            } catch (io: IOException) {
+                return@withContext retryResult(displayName, UploadWorkErrorKind.NETWORK)
+            }
 
             when (response.code()) {
                 202, 409 -> {
@@ -150,8 +159,14 @@ class UploadWorker @AssistedInject constructor(
                     httpCode = response.code()
                 )
             }
+        } catch (security: RecoverableSecurityException) {
+            failureResult(displayName, uriString, UploadWorkErrorKind.IO)
+        } catch (security: SecurityException) {
+            failureResult(displayName, uriString, UploadWorkErrorKind.IO)
         } catch (io: IOException) {
             retryResult(displayName, UploadWorkErrorKind.IO)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             failureResult(displayName, uriString, UploadWorkErrorKind.UNEXPECTED)
         }
