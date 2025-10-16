@@ -47,16 +47,16 @@ class UploadEnqueuer @Inject constructor(
         val upload = createUploadRequest(uniqueName, uri, idempotencyKey, displayName)
         val poll = createPollRequest(uniqueName, uri, idempotencyKey, displayName)
 
-        enqueueChain(uniqueName, ExistingWorkPolicy.KEEP, upload, poll)
+        enqueueChain(upload, poll)
         summaryStarter.ensureRunning()
     }
 
     fun cancel(uri: Uri) {
-        workManager.cancelUniqueWork(uniqueName(uri))
+        cancel(uniqueName(uri))
     }
 
     fun cancel(uniqueName: String) {
-        workManager.cancelUniqueWork(uniqueName)
+        workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
     }
 
     fun cancelAllUploads() {
@@ -70,10 +70,12 @@ class UploadEnqueuer @Inject constructor(
         val displayName = metadata.displayName ?: DEFAULT_FILE_NAME
         val idempotencyKey = metadata.idempotencyKey ?: return
 
+        cancel(uniqueName)
+
         val upload = createUploadRequest(uniqueName, uri, idempotencyKey, displayName)
         val poll = createPollRequest(uniqueName, uri, idempotencyKey, displayName)
 
-        enqueueChain(uniqueName, ExistingWorkPolicy.REPLACE, upload, poll)
+        enqueueChain(upload, poll)
         summaryStarter.ensureRunning()
     }
 
@@ -113,6 +115,8 @@ class UploadEnqueuer @Inject constructor(
         private const val POLL_INITIAL_BACKOFF_SECONDS = 30L
         private const val DEFAULT_FILE_NAME = "photo.jpg"
 
+        private const val UPLOAD_QUEUE_NAME = "upload-queue"
+
         fun sha256(value: String): String {
             val digest = MessageDigest.getInstance("SHA-256")
             val bytes = digest.digest(value.toByteArray(Charsets.UTF_8))
@@ -121,12 +125,10 @@ class UploadEnqueuer @Inject constructor(
     }
 
     private fun enqueueChain(
-        uniqueName: String,
-        policy: ExistingWorkPolicy,
         upload: OneTimeWorkRequest,
-        poll: OneTimeWorkRequest
+        poll: OneTimeWorkRequest,
     ) {
-        workManager.beginUniqueWork(uniqueName, policy, upload)
+        workManager.beginUniqueWork(UPLOAD_QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, upload)
             .then(poll)
             .enqueue()
     }
