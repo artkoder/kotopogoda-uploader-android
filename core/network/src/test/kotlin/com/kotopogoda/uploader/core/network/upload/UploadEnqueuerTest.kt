@@ -136,6 +136,7 @@ class UploadEnqueuerTest {
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
+        verify(exactly = 0) { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
     }
 
     @Test
