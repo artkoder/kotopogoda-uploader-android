@@ -1,58 +1,25 @@
-name: "Feature"
-description: "Новый пользовательский функционал (эпик/фича)"
-labels: ["feature", "epic"]
+name: "Feature (Epic)"
+description: "Вставьте целиком спецификацию фичи"
+labels: ["feature","epic"]
 body:
-  - type: input
-    id: summary
+  - type: textarea
+    id: spec
     attributes:
-      label: Короткое название (user-value)
-      placeholder: "Избранные города на главном экране"
+      label: Спецификация (одним блоком Markdown)
+      description: |
+        Вставьте текст из GPT. ВАЖНО: сделайте раздел **## План** со списком чекбоксов,
+        это и есть очередность шагов для Codex.
+      placeholder: |
+        # Название
+        ## Задача/ценность
+        ...
+        ## Acceptance Criteria
+        - [ ] ...
+        - [ ] ...
+        ## План
+        - [ ] Шаг 1
+        - [ ] Шаг 2
+        - [ ] Шаг 3
+        ## Риски/QA/Роллаут
+        ...
     validations: { required: true }
-
-  - type: textarea
-    id: problem
-    attributes:
-      label: Задача/ценность
-      description: Зачем это пользователю? Как меряем успех?
-      placeholder: |
-        Пользователь хочет быстро возвращаться к нужным городам.
-        Метрики: % пользователей, использующих избранное; среднее время до прогноза.
-    validations: { required: true }
-
-  - type: textarea
-    id: acceptance
-    attributes:
-      label: Acceptance Criteria (чётко проверяемые пункты)
-      placeholder: |
-        - [ ] Пользователь может добавить/удалить город из избранного
-        - [ ] Избранные синхронизируются между устройствами
-        - [ ] Тесты: модель, API, UI happy-path
-    validations: { required: true }
-
-  - type: textarea
-    id: plan
-    attributes:
-      label: План (шаги — то, что будет делать Codex по очереди)
-      description: Каждый шаг — отдельный коммит/группа коммитов в одном Draft PR
-      placeholder: |
-        - [ ] Добавить модель/миграцию Favorites
-        - [ ] API: POST/DELETE /favorites
-        - [ ] UI: звёздочка в списке городов
-        - [ ] Экран «Избранные» + сортировка
-        - [ ] Тесты + README
-    validations: { required: true }
-
-  - type: textarea
-    id: risks
-    attributes:
-      label: Риски/не-цели
-      placeholder: |
-        Риски: сложность миграции БД.
-        Не-цели: реальный пуш-sync сегодня не делаем.
-
-  - type: textarea
-    id: qa
-    attributes:
-      label: QA / Роллаут / Готово к релизу
-      placeholder: |
-        Smoke-чеклист, фича-флаг, steps для ручной сборки/релиза.
