@@ -8,6 +8,8 @@ import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.upload.UploadItemDao
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -40,6 +42,9 @@ object DataModule {
     fun providePhotoDao(database: KotopogodaDatabase): PhotoDao = database.photoDao()
 
     @Provides
+    fun provideUploadItemDao(database: KotopogodaDatabase): UploadItemDao = database.uploadItemDao()
+
+    @Provides
     @Singleton
     fun provideFolderRepository(folderDao: FolderDao): FolderRepository = FolderRepository(folderDao)
 
@@ -64,4 +69,10 @@ object DataModule {
         folderRepository = folderRepository,
         context = context
     )
+
+    @Provides
+    @Singleton
+    fun provideUploadQueueRepository(
+        uploadItemDao: UploadItemDao
+    ): UploadQueueRepository = UploadQueueRepository(uploadItemDao)
 }
