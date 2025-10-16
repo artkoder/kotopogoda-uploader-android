@@ -20,6 +20,28 @@ interface UploadItemDao {
     @Query("SELECT * FROM upload_items ORDER BY created_at DESC")
     fun observeAll(): Flow<List<UploadItemEntity>>
 
+    @Query(
+        "SELECT EXISTS(" +
+            "SELECT 1 FROM upload_items WHERE photo_id = :photoId AND state IN (:queuedState, :processingState)" +
+            ")"
+    )
+    fun observeQueuedOrProcessingByPhotoId(
+        photoId: String,
+        queuedState: String,
+        processingState: String,
+    ): Flow<Boolean>
+
+    @Query(
+        "SELECT EXISTS(" +
+            "SELECT 1 FROM upload_items WHERE uri = :uri AND state IN (:queuedState, :processingState)" +
+            ")"
+    )
+    fun observeQueuedOrProcessingByUri(
+        uri: String,
+        queuedState: String,
+        processingState: String,
+    ): Flow<Boolean>
+
     @Query("SELECT * FROM upload_items WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): UploadItemEntity?
 

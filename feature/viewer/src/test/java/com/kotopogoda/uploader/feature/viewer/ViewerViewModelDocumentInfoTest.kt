@@ -31,6 +31,7 @@ import java.security.MessageDigest
 import java.time.Instant
 import kotlin.text.Charsets
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -43,6 +44,7 @@ import android.content.Intent
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ViewerViewModelDocumentInfoTest {
 
@@ -297,6 +299,7 @@ class ViewerViewModelDocumentInfoTest {
         coEvery { reviewProgressStore.loadPosition(any()) } returns storedPosition
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
         every { uploadQueueRepository.observeQueue() } returns flowOf(emptyList())
+        every { uploadQueueRepository.observeQueuedOrProcessing(any()) } returns flowOf(false)
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
 
         val viewModel = ViewerViewModel(
@@ -310,7 +313,30 @@ class ViewerViewModelDocumentInfoTest {
             savedStateHandle = savedStateHandle
         )
 
-        return ViewModelEnvironment(viewModel, saFileRepository, uploadEnqueuer)
+        return ViewModelEnvironment(viewModel, saFileRepository, uploadEnqueuer, uploadQueueRepository)
+    }
+
+    @Test
+    fun observeUploadEnqueuedReflectsQueueState() = runTest(context = dispatcher) {
+        val folder = Folder(
+            id = 1,
+            treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda").toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val context = TestContext(MockContentResolver())
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val photo = PhotoItem(id = "queued", uri = Uri.parse("content://photo/queued"), takenAt = Instant.ofEpochMilli(0))
+        every { environment.uploadEnqueuer.isEnqueued(photo.uri) } returns flowOf(false)
+        every { environment.uploadQueueRepository.observeQueuedOrProcessing(photo.id) } returns flowOf(true)
+
+        val result = environment.viewModel.observeUploadEnqueued(photo).first()
+
+        assertTrue(result)
     }
 
     private fun createSafCursor(
@@ -385,6 +411,7 @@ class ViewerViewModelDocumentInfoTest {
     private data class ViewModelEnvironment(
         val viewModel: ViewerViewModel,
         val saFileRepository: SaFileRepository,
-        val uploadEnqueuer: UploadEnqueuer
+        val uploadEnqueuer: UploadEnqueuer,
+        val uploadQueueRepository: UploadQueueRepository
     )
 }

@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -558,7 +560,14 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
-    fun observeUploadEnqueued(uri: Uri) = uploadEnqueuer.isEnqueued(uri)
+    fun observeUploadEnqueued(photo: PhotoItem?): Flow<Boolean> {
+        val current = photo ?: return flowOf(false)
+        return combine(
+            uploadEnqueuer.isEnqueued(current.uri),
+            uploadQueueRepository.observeQueuedOrProcessing(current.id)
+        ) { enqueued, queued -> enqueued || queued }
+            .distinctUntilChanged()
+    }
 
     private suspend fun finalizeDeletion(pending: PendingDelete) {
         val backup = pending.backup

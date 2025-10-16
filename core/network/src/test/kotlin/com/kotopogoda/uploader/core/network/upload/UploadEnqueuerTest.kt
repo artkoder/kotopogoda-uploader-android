@@ -16,8 +16,11 @@ import io.mockk.every
 import io.mockk.match
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
+import kotlin.test.assertTrue
 
 class UploadEnqueuerTest {
 
@@ -153,5 +156,17 @@ class UploadEnqueuerTest {
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
+    }
+
+    @Test
+    fun isEnqueued_delegatesToRepository() = runBlocking {
+        val enqueuer = createEnqueuer()
+        val uri = Uri.parse("content://example/queued")
+        every { uploadItemsRepository.observeQueuedOrProcessing(uri) } returns flowOf(true)
+
+        val result = enqueuer.isEnqueued(uri).first()
+
+        assertTrue(result)
+        verify { uploadItemsRepository.observeQueuedOrProcessing(uri) }
     }
 }
