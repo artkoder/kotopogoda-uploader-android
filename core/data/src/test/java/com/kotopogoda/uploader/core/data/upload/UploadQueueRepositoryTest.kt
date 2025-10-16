@@ -6,6 +6,7 @@ import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import java.time.Clock
@@ -61,6 +62,24 @@ class UploadQueueRepositoryTest {
 
         coVerify(exactly = 0) { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) }
         coVerify { uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, 3) }
+    }
+
+    @Test
+    fun `recoverStuckProcessing returns affected rows`() = runTest {
+        coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) } returns 2
+
+        val affected = repository.recoverStuckProcessing()
+
+        assertEquals(2, affected)
+        val expectedNow = clock.instant().toEpochMilli()
+        coVerify {
+            uploadItemDao.requeueProcessingToQueued(
+                processingState = UploadItemState.PROCESSING.rawValue,
+                queuedState = UploadItemState.QUEUED.rawValue,
+                stuckBefore = expectedNow - UploadQueueRepository.PROCESSING_RECOVERY_TIMEOUT_MS,
+                updatedAt = expectedNow,
+            )
+        }
     }
 
     @Test
