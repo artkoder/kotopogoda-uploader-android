@@ -50,13 +50,10 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberTooltipState
-import androidx.compose.material3.tooltipAnchor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -627,43 +624,35 @@ private fun ViewerActionBar(
                     busy = publishBusy
                 )
             }
-            val undoTooltipState = rememberTooltipState()
-            PlainTooltipBox(
-                tooltip = {
-                    Text(text = stringResource(id = R.string.viewer_action_undo_tooltip))
-                },
-                state = undoTooltipState
+            OutlinedButton(
+                onClick = onUndo,
+                enabled = canUndo,
+                modifier = buttonModifier
             ) {
-                OutlinedButton(
-                    onClick = onUndo,
-                    enabled = canUndo,
-                    modifier = buttonModifier.tooltipAnchor()
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = null
-                            )
-                            ActionButtonLabel(text = stringResource(id = R.string.viewer_action_undo))
-                            if (undoCount > 0) {
-                                Badge(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                ) {
-                                    Text(
-                                        text = undoCount.toString(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Clip
-                                    )
-                                }
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = null
+                        )
+                        ActionButtonLabel(text = stringResource(id = R.string.viewer_action_undo))
+                        if (undoCount > 0) {
+                            Badge(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ) {
+                                Text(
+                                    text = undoCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Clip
+                                )
                             }
                         }
                     }
