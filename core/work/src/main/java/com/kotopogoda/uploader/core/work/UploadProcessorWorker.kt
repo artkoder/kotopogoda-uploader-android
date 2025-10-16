@@ -7,6 +7,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UPLOAD_PROCESSOR_WORK_NAME
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner
@@ -63,19 +64,24 @@ class UploadProcessorWorker @AssistedInject constructor(
                 )
             }
 
+            val isProcessing = repository.getState(item.id) == UploadItemState.PROCESSING
             when (outcome) {
                 is UploadTaskResult.Success -> {
-                    repository.markSucceeded(item.id)
+                    if (isProcessing) {
+                        repository.markSucceeded(item.id)
+                    }
                 }
                 is UploadTaskResult.Failure -> {
-                    repository.markFailed(
-                        id = item.id,
-                        errorKind = outcome.errorKind,
-                        httpCode = outcome.httpCode,
-                        requeue = outcome.retryable,
-                    )
-                    if (outcome.retryable) {
-                        shouldRetry = true
+                    if (isProcessing) {
+                        repository.markFailed(
+                            id = item.id,
+                            errorKind = outcome.errorKind,
+                            httpCode = outcome.httpCode,
+                            requeue = outcome.retryable,
+                        )
+                        if (outcome.retryable) {
+                            shouldRetry = true
+                        }
                     }
                 }
             }
