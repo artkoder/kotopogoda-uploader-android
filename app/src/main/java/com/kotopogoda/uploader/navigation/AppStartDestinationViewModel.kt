@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.navigation
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,7 +26,7 @@ class AppStartDestinationViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val folder = folderRepository.getFolder()
-            val hasPermission = folder?.treeUri?.let(::hasPersistedPermission) ?: false
+            val hasPermission = folder?.let { hasPersistedPermission(it.treeUri, it.flags) } ?: false
             _startDestination.value = if (folder == null || !hasPermission) {
                 AppDestination.Onboarding
             } else {
@@ -34,8 +35,22 @@ class AppStartDestinationViewModel @Inject constructor(
         }
     }
 
-    private fun hasPersistedPermission(treeUri: String): Boolean {
+    private fun hasPersistedPermission(treeUri: String, flags: Int): Boolean {
         val uri = runCatching { Uri.parse(treeUri) }.getOrNull() ?: return false
-        return context.contentResolver.persistedUriPermissions.any { it.uri == uri }
+        val requiredFlags = maskPersistableFlags(flags)
+        if (requiredFlags == 0) {
+            return false
+        }
+        val persisted = context.contentResolver.persistedUriPermissions.firstOrNull { it.uri == uri }
+            ?: return false
+        val persistedFlags =
+            (if (persisted.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                (if (persisted.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        return persistedFlags and requiredFlags == requiredFlags
+    }
+
+    private fun maskPersistableFlags(flags: Int): Int {
+        val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        return flags and mask
     }
 }

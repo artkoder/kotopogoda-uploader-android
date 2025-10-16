@@ -63,6 +63,7 @@ class OnboardingViewModel @Inject constructor(
                     }
                     _uiState.value = OnboardingUiState.FolderSelected(
                         treeUri = folder.treeUri,
+                        flags = folder.flags,
                         photoCount = photoCount,
                         progress = progress,
                         scanState = scanState
@@ -75,9 +76,9 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    fun onFolderSelected(treeUri: String) {
+    fun onFolderSelected(treeUri: String, flags: Int) {
         viewModelScope.launch {
-            folderRepository.setFolder(treeUri)
+            folderRepository.setFolder(treeUri, flags)
         }
     }
 
@@ -182,6 +183,7 @@ sealed interface OnboardingUiState {
     data object FolderNotSelected : OnboardingUiState
     data class FolderSelected(
         val treeUri: String,
+        val flags: Int,
         val photoCount: Int,
         val progress: ReviewPosition?,
         val scanState: OnboardingScanState

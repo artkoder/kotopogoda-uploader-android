@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.feature.onboarding
 
+import android.content.Intent
 import com.google.common.truth.Truth.assertThat
 import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
@@ -26,11 +27,13 @@ class OnboardingViewModelTest {
         val folderFlow = MutableStateFlow<Folder?>(null)
         val folderRepository = mockk<FolderRepository>()
         every { folderRepository.observeFolder() } returns folderFlow
-        coEvery { folderRepository.setFolder(any()) } coAnswers {
+        coEvery { folderRepository.setFolder(any(), any()) } coAnswers {
             val uri = firstArg<String>()
+            val flags = secondArg<Int>()
             folderFlow.value = Folder(
                 id = 1,
                 treeUri = uri,
+                flags = flags,
                 lastScanAt = null,
                 lastViewedPhotoId = null,
                 lastViewedAt = null
@@ -55,7 +58,7 @@ class OnboardingViewModelTest {
             indexerRepository = indexerRepository
         )
 
-        viewModel.onFolderSelected("content://test/folder")
+        viewModel.onFolderSelected("content://test/folder", Intent.FLAG_GRANT_READ_URI_PERMISSION)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value as OnboardingUiState.FolderSelected

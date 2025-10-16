@@ -1,6 +1,8 @@
 package com.kotopogoda.uploader.feature.status
 
 import android.content.Context
+import android.content.Intent
+import android.content.UriPermission
 import android.net.Uri
 import android.os.Environment
 import android.provider.DocumentsContract
@@ -120,7 +122,12 @@ class StatusViewModel @Inject constructor(
         }
         val treeUri = runCatching { Uri.parse(folder.treeUri) }.getOrNull()
             ?: return StorageStatus.Error
-        val hasPersistedPermission = context.contentResolver.persistedUriPermissions.any { it.uri == treeUri }
+        val requiredFlags = maskPersistableFlags(folder.flags)
+        val hasPersistedPermission = hasPersistedPermission(
+            context.contentResolver.persistedUriPermissions,
+            treeUri,
+            requiredFlags
+        )
         val documentFile = DocumentFile.fromTreeUri(context, treeUri)
         val displayName = documentFile?.name ?: treeUri.toString()
 
@@ -194,6 +201,26 @@ class StatusViewModel @Inject constructor(
         viewModelScope.launch {
             _events.send(event)
         }
+    }
+
+    private fun maskPersistableFlags(flags: Int): Int {
+        val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        return flags and mask
+    }
+
+    private fun hasPersistedPermission(
+        permissions: List<UriPermission>,
+        uri: Uri,
+        requiredFlags: Int
+    ): Boolean {
+        if (requiredFlags == 0) {
+            return false
+        }
+        val persisted = permissions.firstOrNull { it.uri == uri } ?: return false
+        val persistedFlags =
+            (if (persisted.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                (if (persisted.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        return persistedFlags and requiredFlags == requiredFlags
     }
 }
 

@@ -1,7 +1,10 @@
 package com.kotopogoda.uploader.feature.onboarding
 
+import android.app.Activity
 import android.content.Intent
+import android.content.UriPermission
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -57,14 +60,19 @@ fun OnboardingRoute(
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     val currentFolderUri = (uiState as? OnboardingUiState.FolderSelected)?.treeUri
+    val currentFolderFlags = (uiState as? OnboardingUiState.FolderSelected)?.flags
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null) {
+            val resultFlags = result.data?.flags ?: 0
+            val mask = maskPersistableFlags(resultFlags)
             try {
-                contentResolver.takePersistableUriPermission(uri, flags)
+                if (mask != 0) {
+                    contentResolver.takePersistableUriPermission(uri, mask)
+                }
                 currentFolderUri?.let { previousUriString ->
                     val previousUri = Uri.parse(previousUriString)
                     contentResolver.persistedUriPermissions
@@ -89,10 +97,25 @@ fun OnboardingRoute(
                             }
                         }
                 }
-                viewModel.onFolderSelected(uri.toString())
+                viewModel.onFolderSelected(uri.toString(), mask)
             } catch (_: SecurityException) {
                 // ignore and leave the state unchanged
             }
+        }
+    }
+
+    val launchFolderPicker = remember(folderPickerLauncher) {
+        { initialUri: Uri? ->
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                if (initialUri != null) {
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+                }
+            }
+            folderPickerLauncher.launch(intent)
         }
     }
 
@@ -103,10 +126,11 @@ fun OnboardingRoute(
             return@LaunchedEffect
         }
         val targetUri = runCatching { Uri.parse(treeUriString) }.getOrNull() ?: return@LaunchedEffect
-        val hasPermission = contentResolver.persistedUriPermissions.any { it.uri == targetUri }
+        val requiredFlags = maskPersistableFlags(currentFolderFlags ?: 0)
+        val hasPermission = hasPersistedPermission(contentResolver.persistedUriPermissions, targetUri, requiredFlags)
         if (!hasPermission) {
             autoRequestKey = treeUriString
-            folderPickerLauncher.launch(targetUri)
+            launchFolderPicker(targetUri)
         }
     }
 
@@ -121,12 +145,32 @@ fun OnboardingRoute(
     OnboardingScreen(
         uiState = uiState,
         onSelectFolder = {
-            folderPickerLauncher.launch(currentFolderUri?.let(Uri::parse))
+            launchFolderPicker(currentFolderUri?.let(Uri::parse))
         },
         onStartReview = viewModel::onStartReview,
         onResetProgress = viewModel::onResetProgress,
         onResetAnchor = viewModel::onResetAnchor
     )
+}
+
+private fun maskPersistableFlags(flags: Int): Int {
+    val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    return flags and mask
+}
+
+private fun hasPersistedPermission(
+    permissions: List<UriPermission>,
+    uri: Uri,
+    requiredFlags: Int
+): Boolean {
+    if (requiredFlags == 0) {
+        return false
+    }
+    val persisted = permissions.firstOrNull { it.uri == uri } ?: return false
+    val persistedFlags =
+        (if (persisted.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+            (if (persisted.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+    return persistedFlags and requiredFlags == requiredFlags
 }
 
 @Composable
