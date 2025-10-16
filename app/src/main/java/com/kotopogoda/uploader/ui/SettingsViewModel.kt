@@ -45,6 +45,7 @@ class SettingsViewModel @Inject constructor(
             queueNotificationPersistent = false,
             queueNotificationPermissionGranted = notificationPermissionChecker.canPostNotifications(),
             isQueueNotificationToggleEnabled = notificationPermissionChecker.canPostNotifications(),
+            wifiOnlyUploadsEnabled = false,
             logsDirectoryPath = logManager.logsDirectoryPath(),
         )
     )
@@ -62,6 +63,7 @@ class SettingsViewModel @Inject constructor(
                         appLoggingEnabled = settings.appLogging,
                         httpLoggingEnabled = settings.httpLogging,
                         queueNotificationPersistent = settings.persistentQueueNotification,
+                        wifiOnlyUploadsEnabled = settings.wifiOnlyUploads,
                         isBaseUrlValid = true,
                         isBaseUrlDirty = false,
                     )
@@ -116,7 +118,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun onAppLoggingChanged(enabled: Boolean) {
-        toggleLogging(
+        togglePreference(
             enabled = enabled,
             currentValue = uiState.value.appLoggingEnabled,
             updateState = { value -> _uiState.update { it.copy(appLoggingEnabled = value) } },
@@ -125,11 +127,20 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun onHttpLoggingChanged(enabled: Boolean) {
-        toggleLogging(
+        togglePreference(
             enabled = enabled,
             currentValue = uiState.value.httpLoggingEnabled,
             updateState = { value -> _uiState.update { it.copy(httpLoggingEnabled = value) } },
             block = { settingsRepository.setHttpLogging(enabled) }
+        )
+    }
+
+    fun onWifiOnlyUploadsChanged(enabled: Boolean) {
+        togglePreference(
+            enabled = enabled,
+            currentValue = uiState.value.wifiOnlyUploadsEnabled,
+            updateState = { value -> _uiState.update { it.copy(wifiOnlyUploadsEnabled = value) } },
+            block = { settingsRepository.setWifiOnlyUploads(enabled) }
         )
     }
 
@@ -158,7 +169,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    private fun toggleLogging(
+    private fun togglePreference(
         enabled: Boolean,
         currentValue: Boolean,
         updateState: (Boolean) -> Unit,
@@ -262,6 +273,7 @@ data class SettingsUiState(
     val queueNotificationPersistent: Boolean = false,
     val queueNotificationPermissionGranted: Boolean = true,
     val isQueueNotificationToggleEnabled: Boolean = true,
+    val wifiOnlyUploadsEnabled: Boolean = false,
     val isExporting: Boolean = false,
     val appVersion: String,
     val contractVersion: String,

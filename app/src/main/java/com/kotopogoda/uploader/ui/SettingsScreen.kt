@@ -136,6 +136,7 @@ fun SettingsRoute(
         onApplyBaseUrl = viewModel::onApplyBaseUrl,
         onAppLoggingChanged = viewModel::onAppLoggingChanged,
         onHttpLoggingChanged = viewModel::onHttpLoggingChanged,
+        onWifiOnlyUploadsChanged = viewModel::onWifiOnlyUploadsChanged,
         onQueueNotificationChanged = viewModel::onQueueNotificationChanged,
         onRequestQueueNotificationPermission = viewModel::onRequestQueueNotificationPermission,
         onExportLogs = viewModel::onExportLogs,
@@ -156,6 +157,7 @@ fun SettingsScreen(
     onApplyBaseUrl: () -> Unit,
     onAppLoggingChanged: (Boolean) -> Unit,
     onHttpLoggingChanged: (Boolean) -> Unit,
+    onWifiOnlyUploadsChanged: (Boolean) -> Unit,
     onQueueNotificationChanged: (Boolean) -> Unit,
     onRequestQueueNotificationPermission: () -> Unit,
     onExportLogs: () -> Unit,
@@ -245,6 +247,12 @@ fun SettingsScreen(
                             Text(text = stringResource(id = R.string.settings_base_url_save))
                         }
                     }
+                    SettingsSwitchRow(
+                        title = stringResource(id = R.string.settings_wifi_only_uploads),
+                        description = stringResource(id = R.string.settings_wifi_only_uploads_desc),
+                        checked = uiState.wifiOnlyUploadsEnabled,
+                        onCheckedChange = onWifiOnlyUploadsChanged,
+                    )
                 }
             }
 
