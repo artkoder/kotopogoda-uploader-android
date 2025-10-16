@@ -56,10 +56,11 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 UPLOAD_PROCESSOR_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
+        verify(exactly = 0) { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
     }
 
     @Test
@@ -79,7 +80,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 UPLOAD_PROCESSOR_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -102,7 +103,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 UPLOAD_PROCESSOR_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -131,7 +132,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 UPLOAD_PROCESSOR_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -152,7 +153,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 UPLOAD_PROCESSOR_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
