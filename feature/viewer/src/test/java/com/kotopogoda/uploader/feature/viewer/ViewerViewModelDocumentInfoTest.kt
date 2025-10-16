@@ -15,6 +15,7 @@ import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -253,7 +254,34 @@ class ViewerViewModelDocumentInfoTest {
         assertEquals(expectedKey, idempotencySlot.captured)
     }
 
-    private fun createEnvironment(context: TestContext, folder: Folder): ViewModelEnvironment {
+    @Test
+    fun restoresStoredIndexOnInitialization() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val storedIndex = 3
+        val storedPosition = ReviewPosition(index = storedIndex, anchorDate = Instant.ofEpochMilli(42))
+        val context = TestContext(MockContentResolver())
+        val environment = createEnvironment(context, folder, storedPosition)
+        advanceUntilIdle()
+
+        environment.viewModel.updateVisiblePhoto(totalCount = 10, photo = null)
+        advanceUntilIdle()
+
+        assertEquals(storedIndex, environment.viewModel.currentIndex.value)
+    }
+
+    private fun createEnvironment(
+        context: TestContext,
+        folder: Folder,
+        storedPosition: ReviewPosition? = null
+    ): ViewModelEnvironment {
         val photoRepository = mockk<PhotoRepository>()
         val folderRepository = mockk<FolderRepository>()
         val saFileRepository = mockk<SaFileRepository>()
@@ -264,7 +292,7 @@ class ViewerViewModelDocumentInfoTest {
         every { photoRepository.observePhotos() } returns flowOf(PagingData.empty())
         every { folderRepository.observeFolder() } returns flowOf(folder)
         coEvery { folderRepository.getFolder() } returns folder
-        coEvery { reviewProgressStore.loadPosition(any()) } returns null
+        coEvery { reviewProgressStore.loadPosition(any()) } returns storedPosition
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
         every { uploadEnqueuer.getAllUploadsFlow() } returns flowOf(emptyList())
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
