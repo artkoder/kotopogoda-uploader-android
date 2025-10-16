@@ -78,22 +78,16 @@ class UploadQueueRepository @Inject constructor(
         val photo = photoDao.getByUri(uri.toString()) ?: return@withContext false
         val existing = uploadItemDao.getByPhotoId(photo.id) ?: return@withContext false
         val wasProcessing = existing.state == UploadItemState.PROCESSING.rawValue
-        uploadItemDao.updateState(
-            id = existing.id,
-            state = UploadItemState.FAILED.rawValue,
-            updatedAt = currentTimeMillis(),
-        )
+        uploadItemDao.deleteById(existing.id)
         wasProcessing
     }
 
     suspend fun cancelAll() = withContext(Dispatchers.IO) {
-        uploadItemDao.updateStatesClearingError(
+        uploadItemDao.deleteByStates(
             states = listOf(
                 UploadItemState.QUEUED.rawValue,
                 UploadItemState.PROCESSING.rawValue,
             ),
-            state = UploadItemState.FAILED.rawValue,
-            updatedAt = currentTimeMillis(),
         )
     }
 
@@ -156,11 +150,7 @@ class UploadQueueRepository @Inject constructor(
     }
 
     suspend fun markSucceeded(id: Long) = withContext(Dispatchers.IO) {
-        uploadItemDao.updateState(
-            id = id,
-            state = UploadItemState.SUCCEEDED.rawValue,
-            updatedAt = currentTimeMillis(),
-        )
+        uploadItemDao.deleteById(id)
     }
 
     suspend fun markFailed(
@@ -169,14 +159,17 @@ class UploadQueueRepository @Inject constructor(
         httpCode: Int? = null,
         requeue: Boolean = false,
     ) = withContext(Dispatchers.IO) {
-        val state = if (requeue) UploadItemState.QUEUED else UploadItemState.FAILED
-        uploadItemDao.updateStateWithError(
-            id = id,
-            state = state.rawValue,
-            lastErrorKind = errorKind.rawValue,
-            httpCode = httpCode,
-            updatedAt = currentTimeMillis(),
-        )
+        if (requeue) {
+            uploadItemDao.updateStateWithError(
+                id = id,
+                state = UploadItemState.QUEUED.rawValue,
+                lastErrorKind = errorKind.rawValue,
+                httpCode = httpCode,
+                updatedAt = currentTimeMillis(),
+            )
+        } else {
+            uploadItemDao.deleteById(id)
+        }
     }
 
     suspend fun hasQueued(): Boolean = withContext(Dispatchers.IO) {
