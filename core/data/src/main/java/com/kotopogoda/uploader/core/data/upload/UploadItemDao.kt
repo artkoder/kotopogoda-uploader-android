@@ -70,4 +70,10 @@ interface UploadItemDao {
         stuckBefore: Long,
         updatedAt: Long,
     ): Int
+
+    @Query("DELETE FROM upload_items WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM upload_items WHERE state IN (:states)")
+    suspend fun deleteByStates(states: List<String>)
 }
