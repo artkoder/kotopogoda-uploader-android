@@ -93,6 +93,9 @@ class ViewerViewModel @Inject constructor(
     private val _undoCount = MutableStateFlow(0)
     val undoCount: StateFlow<Int> = _undoCount.asStateFlow()
 
+    private val initialIndexRestored = MutableStateFlow(false)
+    private var pendingInitialIndex: Int? = null
+
     val canUndo: StateFlow<Boolean> = undoCount
         .map { it > 0 }
         .stateIn(
@@ -121,29 +124,59 @@ class ViewerViewModel @Inject constructor(
                     folderId.value = id
                     val stored = reviewProgressStore.loadPosition(id)
                     anchorDate.value = stored?.anchorDate
-                    persistProgress(_currentIndex.value, anchorDate.value)
+                    pendingInitialIndex = stored?.index?.coerceAtLeast(0)
+                    initialIndexRestored.value = pendingInitialIndex == null
+                    pendingInitialIndex?.let { index ->
+                        updateCurrentIndexInternal(index)
+                    }
                 } else {
                     folderId.value = null
                     anchorDate.value = null
+                    pendingInitialIndex = null
+                    initialIndexRestored.value = true
                 }
             }
         }
 
         viewModelScope.launch {
-            combine(currentIndex, photoCount) { index, count -> index to count }
-                .collect { (index, count) ->
-                    val clamped = clampToCount(index, count)
-                    if (clamped != index) {
-                        setCurrentIndex(clamped)
+            combine(currentIndex, photoCount, initialIndexRestored) { index, count, restored ->
+                Triple(index, count, restored)
+            }.collect { (index, count, restored) ->
+                val pending = pendingInitialIndex
+                if (!restored) {
+                    if (pending != null) {
+                        if (count > 0) {
+                            val clamped = clampToCount(pending, count)
+                            updateCurrentIndexInternal(clamped)
+                            pendingInitialIndex = null
+                            initialIndexRestored.value = true
+                        } else if (count == 0 && pending == 0) {
+                            updateCurrentIndexInternal(0)
+                            pendingInitialIndex = null
+                            initialIndexRestored.value = true
+                        }
+                    } else {
+                        initialIndexRestored.value = true
                     }
+                    return@collect
                 }
+
+                val clamped = clampToCount(index, count)
+                if (clamped != index) {
+                    setCurrentIndex(clamped)
+                }
+            }
         }
 
         viewModelScope.launch {
-            combine(currentIndex, currentPhoto) { index, photo -> index to photo?.takenAt }
+            combine(currentIndex, currentPhoto, initialIndexRestored) { index, photo, restored ->
+                Triple(index, photo?.takenAt, restored)
+            }
                 .debounce(300)
-                .collect { (index, takenAt) ->
-                    persistProgress(index, takenAt)
+                .collect { (index, takenAt, restored) ->
+                    if (restored) {
+                        persistProgress(index, takenAt)
+                    }
                 }
         }
 
@@ -176,6 +209,11 @@ class ViewerViewModel @Inject constructor(
         if (_currentIndex.value == normalized) {
             return
         }
+        updateCurrentIndexInternal(normalized)
+    }
+
+    private fun updateCurrentIndexInternal(index: Int) {
+        val normalized = index.coerceAtLeast(0)
         _currentIndex.value = normalized
         savedStateHandle[currentIndexKey] = normalized
     }
