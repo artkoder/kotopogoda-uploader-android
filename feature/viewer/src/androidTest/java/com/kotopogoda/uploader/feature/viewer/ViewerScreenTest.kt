@@ -56,6 +56,8 @@ class ViewerScreenTest {
                 onMoveToProcessing = { _ -> },
                 onEnqueueUpload = { _ -> },
                 onUndo = {},
+                onDelete = { _ -> },
+                onDeleteResult = {},
                 onJumpToDate = {}
             )
         }

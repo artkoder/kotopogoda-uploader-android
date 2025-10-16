@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.exif)
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
+    implementation(libs.androidx.documentfile)
+    implementation(libs.timber)
     kapt(libs.dagger.hilt.compiler)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
