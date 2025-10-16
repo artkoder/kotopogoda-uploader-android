@@ -1,80 +1,74 @@
 package com.kotopogoda.uploader.feature.queue
 
 import android.net.Uri
+import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
 import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
-import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
-import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
-import com.kotopogoda.uploader.core.network.uploadqueue.UploadQueueItem
-import com.kotopogoda.uploader.core.network.uploadqueue.UploadQueueItemState
-import java.util.UUID
+import com.kotopogoda.uploader.feature.queue.R
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import org.junit.Test
 
 class QueueViewModelMappingTest {
 
     @Test
-    fun progressBytesAreExposedInUiModel() {
-        val id = UUID.randomUUID()
-        val uri = Uri.parse("file:///tmp/photo.jpg")
-        val queueItem = UploadQueueItem(
-            id = id,
-            metadata = UploadWorkMetadata(
-                uniqueName = "unique",
-                uri = uri,
-                displayName = "photo.jpg",
-                idempotencyKey = "key",
-                kind = UploadWorkKind.UPLOAD
-            ),
-            kind = UploadWorkKind.UPLOAD,
-            state = UploadQueueItemState.RUNNING,
-            progress = 12,
-            progressDisplayName = "photo.jpg",
-            bytesSent = 512L * 1024,
-            totalBytes = 4_200_000L,
+    fun processingItemIsMappedToIndeterminateProgress() {
+        val entity = UploadItemEntity(
+            id = 42,
+            photoId = "photo-id",
+            uri = "file:///tmp/photo.jpg",
+            displayName = "photo.jpg",
+            size = 4_200_000L,
+            state = UploadItemState.PROCESSING.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = Uri.parse(entity.uri),
+            state = UploadItemState.PROCESSING,
             lastErrorKind = null,
             lastErrorHttpCode = null,
-            deleted = null,
         )
 
-        val uiModel = queueItem.toQueueItemUiModel()
+        val uiModel = entry.toQueueItemUiModel()
 
-        assertEquals(12, uiModel.progressPercent)
-        assertEquals(512L * 1024, uiModel.bytesSent)
-        assertEquals(4_200_000L, uiModel.totalBytes)
-        assertNull(uiModel.lastErrorKind)
+        assertNull(uiModel.progressPercent)
+        assertEquals(42, uiModel.id)
         assertEquals("photo.jpg", uiModel.title)
+        assertEquals(entity.size, uiModel.totalBytes)
+        assertFalse(uiModel.canRetry)
     }
 
     @Test
     fun failureMetadataFromOutputIsExposed() {
-        val id = UUID.randomUUID()
-        val uri = Uri.parse("file:///tmp/photo.jpg")
-        val queueItem = UploadQueueItem(
-            id = id,
-            metadata = UploadWorkMetadata(
-                uniqueName = "unique",
-                uri = uri,
-                displayName = "photo.jpg",
-                idempotencyKey = "key",
-                kind = UploadWorkKind.UPLOAD
-            ),
-            kind = UploadWorkKind.UPLOAD,
-            state = UploadQueueItemState.FAILED,
-            progress = null,
-            progressDisplayName = null,
-            bytesSent = null,
-            totalBytes = null,
+        val entity = UploadItemEntity(
+            id = 24,
+            photoId = "photo-id",
+            uri = "file:///tmp/photo.jpg",
+            displayName = "photo.jpg",
+            size = 1_024L,
+            state = UploadItemState.FAILED.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+            lastErrorKind = UploadWorkErrorKind.HTTP.rawValue,
+            httpCode = 413,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = Uri.parse(entity.uri),
+            state = UploadItemState.FAILED,
             lastErrorKind = UploadWorkErrorKind.HTTP,
             lastErrorHttpCode = 413,
-            deleted = null,
         )
 
-        val uiModel = queueItem.toQueueItemUiModel()
+        val uiModel = entry.toQueueItemUiModel()
 
         assertEquals(UploadWorkErrorKind.HTTP, uiModel.lastErrorKind)
         assertEquals(413, uiModel.lastErrorHttpCode)
-        assertTrue(uiModel.canRetry)
+        assertEquals(0, uiModel.progressPercent)
+        assertEquals(R.string.queue_status_failed, uiModel.statusResId)
     }
 }
