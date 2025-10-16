@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.core.work
 
 import androidx.work.Constraints
 import androidx.work.NetworkType
+import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
 import com.kotopogoda.uploader.core.settings.WifiOnlyUploadsFlow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,7 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 @Singleton
 class UploadConstraintsHelper @Inject constructor(
     @WifiOnlyUploadsFlow wifiOnlyUploadsFlow: Flow<Boolean>,
-) {
+) : UploadConstraintsProvider {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val wifiOnlyState = wifiOnlyUploadsFlow.stateIn(
@@ -24,7 +25,7 @@ class UploadConstraintsHelper @Inject constructor(
         initialValue = false,
     )
 
-    fun buildConstraints(): Constraints {
+    override fun buildConstraints(): Constraints {
         val requiredNetworkType = if (wifiOnlyState.value) {
             NetworkType.UNMETERED
         } else {

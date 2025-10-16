@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UPLOAD_QUEUE_NAME
+import com.kotopogoda.uploader.core.network.upload.UPLOAD_PROCESSOR_WORK_NAME
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
@@ -134,7 +135,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         .build()
 
     companion object {
-        const val WORK_NAME = "upload-processor"
+        const val WORK_NAME = UPLOAD_PROCESSOR_WORK_NAME
         private const val BATCH_SIZE = 5
         private const val INITIAL_BACKOFF_SECONDS = 10L
         private const val POLL_INITIAL_BACKOFF_SECONDS = 30L

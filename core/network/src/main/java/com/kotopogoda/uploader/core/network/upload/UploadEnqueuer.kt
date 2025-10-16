@@ -21,6 +21,7 @@ class UploadEnqueuer @Inject constructor(
     private val workManager: WorkManager,
     private val summaryStarter: UploadSummaryStarter,
     private val uploadItemsRepository: UploadItemsRepository,
+    private val constraintsProvider: UploadConstraintsProvider,
 ) {
 
     @Suppress("UNUSED_PARAMETER")
@@ -98,7 +99,13 @@ class UploadEnqueuer @Inject constructor(
             Class.forName("com.kotopogoda.uploader.core.work.UploadProcessorWorker")
                 .asSubclass(ListenableWorker::class.java)
         }.getOrNull() ?: return
-        val request = OneTimeWorkRequest.Builder(workerClass).build()
-        workManager.enqueueUniqueWork(UPLOAD_QUEUE_NAME, ExistingWorkPolicy.KEEP, request)
+        val constraints = constraintsProvider.buildConstraints()
+        val request = OneTimeWorkRequest.Builder(workerClass)
+            .setConstraints(constraints)
+            .build()
+        val workName = runCatching {
+            workerClass.getField("WORK_NAME").get(null) as? String
+        }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
+        workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.KEEP, request)
     }
 }
