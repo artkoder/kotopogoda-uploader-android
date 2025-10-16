@@ -18,6 +18,12 @@ data class UploadItemEntity(
     val id: Long = 0,
     @ColumnInfo(name = "photo_id")
     val photoId: String,
+    @ColumnInfo(name = "uri", defaultValue = "''")
+    val uri: String = "",
+    @ColumnInfo(name = "display_name", defaultValue = "'photo.jpg'")
+    val displayName: String = "photo.jpg",
+    @ColumnInfo(name = "size", defaultValue = "0")
+    val size: Long = 0,
     @ColumnInfo(name = "state")
     val state: String,
     @ColumnInfo(name = "created_at")
