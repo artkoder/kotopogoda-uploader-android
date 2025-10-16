@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallTopAppBar
 import androidx.compose.material3.SnackbarHost
@@ -546,7 +547,7 @@ private fun JumpToDateSheet(
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            presets.forEach { (labelRes, date) ->
+            for ((labelRes, date) in presets) {
                 AssistChip(
                     onClick = {
                         datePickerState.selectedDateMillis = date.startOfDayInstant(zoneId).toEpochMilli()

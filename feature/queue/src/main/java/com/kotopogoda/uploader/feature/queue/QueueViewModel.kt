@@ -62,6 +62,10 @@ class QueueViewModel @Inject constructor(
         summaryStarter.ensureRunning()
     }
 
+    fun startUploadProcessing() {
+        uploadEnqueuer.ensureUploadRunning()
+    }
+
 }
 
 data class QueueUiState(
