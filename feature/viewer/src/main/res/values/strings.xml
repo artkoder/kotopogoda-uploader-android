@@ -6,6 +6,7 @@
     <string name="viewer_action_publish">К публикации</string>
     <string name="viewer_action_undo">Отменить</string>
     <string name="viewer_action_undo_with_count">Отменить (%1$d)</string>
+    <string name="viewer_action_undo_tooltip">Отменить выбор</string>
     <string name="viewer_snackbar_action_undo">Отменить</string>
     <string name="viewer_snackbar_skip_success">Фотография пропущена</string>
     <string name="viewer_snackbar_processing_success">Перенесено в «На обработку»</string>
