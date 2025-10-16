@@ -130,4 +130,5 @@ dependencies {
     testImplementation("androidx.test:core-ktx:1.5.0")
     testImplementation("androidx.work:work-testing:${libs.versions.work.get()}")
     testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation(libs.mockk)
 }

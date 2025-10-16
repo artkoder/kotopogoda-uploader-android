@@ -14,19 +14,33 @@ import androidx.work.WorkQuery
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.network.work.PollStatusWorker
 import com.kotopogoda.uploader.core.network.work.UploadWorker
+import com.kotopogoda.uploader.core.settings.WifiOnlyUploadsFlow
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlin.text.Charsets
 
 @Singleton
 class UploadEnqueuer @Inject constructor(
     private val workManager: WorkManager,
     private val summaryStarter: UploadSummaryStarter,
+    @WifiOnlyUploadsFlow wifiOnlyUploadsFlow: Flow<Boolean>,
 ) {
+
+    private val wifiOnlyUploadsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val wifiOnlyUploadsState = wifiOnlyUploadsFlow.stateIn(
+        scope = wifiOnlyUploadsScope,
+        started = SharingStarted.Eagerly,
+        initialValue = false,
+    )
 
     fun enqueue(uri: Uri, idempotencyKey: String, displayName: String) {
         val uniqueName = uniqueName(uri)
@@ -167,9 +181,14 @@ class UploadEnqueuer @Inject constructor(
             .build()
     }
 
-    private fun networkConstraints(): Constraints {
+    internal fun networkConstraints(): Constraints {
+        val requiredNetworkType = if (wifiOnlyUploadsState.value) {
+            NetworkType.UNMETERED
+        } else {
+            NetworkType.CONNECTED
+        }
         return Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiredNetworkType(requiredNetworkType)
             .build()
     }
 }

@@ -5,4 +5,5 @@ data class AppSettings(
     val appLogging: Boolean,
     val httpLogging: Boolean,
     val persistentQueueNotification: Boolean,
+    val wifiOnlyUploads: Boolean,
 )
