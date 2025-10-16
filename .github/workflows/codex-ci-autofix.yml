@@ -20,7 +20,7 @@ jobs:
       github.event.check_suite.conclusion != 'success'
     runs-on: ubuntu-latest
     steps:
-      - name: Skip if already requested
+      - name: Skip if already requested + collect failing
         id: guard
         uses: actions/github-script@v7
         with:
@@ -32,12 +32,11 @@ jobs:
             const already = labels.some(l => l.name === 'codex:ci-fix-requested');
             if (already) { core.setOutput('skip', 'true'); return; }
 
-            // Соберём список упавших чеков
-            const { data: runs } = await github.rest.checks.listForSuite({
+            const { data } = await github.rest.checks.listForSuite({
               owner: context.repo.owner, repo: context.repo.repo,
               check_suite_id: context.payload.check_suite.id
             });
-            const failing = runs.check_runs
+            const failing = (data.check_runs || [])
               .filter(r => r.conclusion && r.conclusion !== 'success')
               .map(r => `• ${r.name}`).join('\n') || 'неизвестно';
             core.setOutput('failing', failing);
@@ -45,6 +44,8 @@ jobs:
       - name: Label & comment to start Codex
         if: steps.guard.outputs.skip != 'true'
         uses: actions/github-script@v7
+        env:
+          FAILING: ${{ steps.guard.outputs.failing }}
         with:
           script: |
             const pr = context.payload.check_suite.pull_requests[0];
@@ -52,19 +53,21 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number,
               labels: ['codex:ci-fix-requested']
             });
-            const body =
-`@codex
+
+            const body = `@codex
 Всегда отвечай и комментируй **на русском**.
 Пожалуйста, почини упавшие чеки в этом PR.
 
 Чеки:
-${{ steps.guard.outputs.failing }}
+${process.env.FAILING}
 
 Правила: работай в текущей ветке PR; каждый шаг — отдельный коммит; перед следующим шагом запускай тесты/линт. Если остаётся красным — остановись и кратко опиши причину.`;
+
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: pr.number, body
             });
+
 
   clear-label:
     if: >
