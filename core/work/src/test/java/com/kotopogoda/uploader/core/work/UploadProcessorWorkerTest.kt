@@ -43,7 +43,7 @@ class UploadProcessorWorkerTest {
 
         coEvery { repository.recoverStuckProcessing() } returns 1
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
-        coEvery { repository.markProcessing(queueItem.id) } returns Unit
+        coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.getState(queueItem.id) } returns UploadItemState.PROCESSING
         coEvery { repository.markSucceeded(queueItem.id) } returns Unit
         coEvery { repository.hasQueued() } returns false
@@ -90,7 +90,7 @@ class UploadProcessorWorkerTest {
 
         coEvery { repository.recoverStuckProcessing() } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
-        coEvery { repository.markProcessing(queueItem.id) } returns Unit
+        coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.getState(queueItem.id) } returns UploadItemState.FAILED
         coEvery { repository.hasQueued() } returns false
         coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success
@@ -112,5 +112,43 @@ class UploadProcessorWorkerTest {
         coVerify { repository.getState(queueItem.id) }
         coVerify(exactly = 0) { repository.markSucceeded(queueItem.id) }
         coVerify(exactly = 0) { repository.markFailed(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `worker skips upload when item cannot transition to processing`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsHelper = mockk<UploadConstraintsHelper>()
+        val taskRunner = mockk<UploadTaskRunner>()
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val queueItem = UploadQueueItem(
+            id = 3L,
+            uri = Uri.parse("content://example/cancelled"),
+            idempotencyKey = "idempotency",
+            displayName = "photo.jpg",
+            size = 10L,
+        )
+
+        coEvery { repository.recoverStuckProcessing() } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
+        coEvery { repository.markProcessing(queueItem.id) } returns false
+        coEvery { repository.hasQueued() } returns false
+        every { constraintsHelper.buildConstraints() } returns Constraints.NONE
+        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+
+        val worker = UploadProcessorWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsHelper,
+            taskRunner,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        coVerify { repository.markProcessing(queueItem.id) }
+        coVerify(exactly = 0) { taskRunner.run(any()) }
     }
 }

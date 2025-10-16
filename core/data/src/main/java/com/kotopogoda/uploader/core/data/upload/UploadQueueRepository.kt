@@ -147,12 +147,14 @@ class UploadQueueRepository @Inject constructor(
         }
     }
 
-    suspend fun markProcessing(id: Long) = withContext(Dispatchers.IO) {
-        uploadItemDao.updateState(
+    suspend fun markProcessing(id: Long): Boolean = withContext(Dispatchers.IO) {
+        val updatedRows = uploadItemDao.updateStateIfCurrent(
             id = id,
-            state = UploadItemState.PROCESSING.rawValue,
+            expectedState = UploadItemState.QUEUED.rawValue,
+            newState = UploadItemState.PROCESSING.rawValue,
             updatedAt = currentTimeMillis(),
         )
+        updatedRows > 0
     }
 
     suspend fun markSucceeded(id: Long) = withContext(Dispatchers.IO) {

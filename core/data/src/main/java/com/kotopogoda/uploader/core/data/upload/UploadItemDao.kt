@@ -42,6 +42,17 @@ interface UploadItemDao {
     suspend fun updateState(id: Long, state: String, updatedAt: Long)
 
     @Query(
+        "UPDATE upload_items SET state = :newState, updated_at = :updatedAt " +
+            "WHERE id = :id AND state = :expectedState"
+    )
+    suspend fun updateStateIfCurrent(
+        id: Long,
+        expectedState: String,
+        newState: String,
+        updatedAt: Long,
+    ): Int
+
+    @Query(
         "UPDATE upload_items SET state = :state, last_error_kind = :lastErrorKind, http_code = :httpCode, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateStateWithError(

@@ -45,7 +45,10 @@ class UploadProcessorWorker @AssistedInject constructor(
         var shouldRetry = false
 
         for (item in queued) {
-            repository.markProcessing(item.id)
+            val markedProcessing = repository.markProcessing(item.id)
+            if (!markedProcessing) {
+                continue
+            }
             val outcome = try {
                 taskRunner.run(
                     UploadTaskParams(

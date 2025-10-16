@@ -6,6 +6,8 @@ import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -59,5 +61,32 @@ class UploadQueueRepositoryTest {
 
         coVerify(exactly = 0) { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) }
         coVerify { uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, 3) }
+    }
+
+    @Test
+    fun `markProcessing only updates queued items`() = runTest {
+        coEvery { uploadItemDao.updateStateIfCurrent(any(), any(), any(), any()) } returns 1
+
+        val result = repository.markProcessing(5L)
+
+        assertTrue(result)
+        val expectedNow = clock.instant().toEpochMilli()
+        coVerify {
+            uploadItemDao.updateStateIfCurrent(
+                id = 5L,
+                expectedState = UploadItemState.QUEUED.rawValue,
+                newState = UploadItemState.PROCESSING.rawValue,
+                updatedAt = expectedNow,
+            )
+        }
+    }
+
+    @Test
+    fun `markProcessing returns false when state changed`() = runTest {
+        coEvery { uploadItemDao.updateStateIfCurrent(any(), any(), any(), any()) } returns 0
+
+        val result = repository.markProcessing(6L)
+
+        assertFalse(result)
     }
 }
