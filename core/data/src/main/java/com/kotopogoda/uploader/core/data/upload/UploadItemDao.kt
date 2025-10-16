@@ -17,6 +17,19 @@ interface UploadItemDao {
     suspend fun getByState(state: String, limit: Int): List<UploadItemEntity>
 
     @Query(
+        "UPDATE upload_items SET state = :state, uri = :uri, display_name = :displayName, size = :size, " +
+            "last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE id = :id"
+    )
+    suspend fun updateStateWithMetadata(
+        id: Long,
+        state: String,
+        uri: String,
+        displayName: String,
+        size: Long,
+        updatedAt: Long,
+    )
+
+    @Query(
         "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateState(id: Long, state: String, updatedAt: Long)

@@ -21,19 +21,26 @@ class UploadQueueRepository @Inject constructor(
             ?: throw IllegalStateException("Photo not found for uri=$uri")
         val now = currentTimeMillis()
         val existing = uploadItemDao.getByPhotoId(photo.id)
+        val displayName = buildDisplayName(photo.relPath, uri)
         if (existing == null) {
             uploadItemDao.insert(
                 UploadItemEntity(
                     photoId = photo.id,
+                    uri = photo.uri,
+                    displayName = displayName,
+                    size = photo.size,
                     state = UploadItemState.QUEUED.rawValue,
                     createdAt = now,
                     updatedAt = now,
                 )
             )
         } else {
-            uploadItemDao.updateState(
+            uploadItemDao.updateStateWithMetadata(
                 id = existing.id,
                 state = UploadItemState.QUEUED.rawValue,
+                uri = photo.uri,
+                displayName = displayName,
+                size = photo.size,
                 updatedAt = now,
             )
         }
@@ -75,8 +82,7 @@ class UploadQueueRepository @Inject constructor(
         val now = currentTimeMillis()
         buildList {
             for (entity in queued) {
-                val photo = photoDao.getById(entity.photoId)
-                if (photo == null) {
+                if (entity.uri.isBlank()) {
                     uploadItemDao.updateStateWithError(
                         id = entity.id,
                         state = UploadItemState.FAILED.rawValue,
@@ -86,7 +92,7 @@ class UploadQueueRepository @Inject constructor(
                     )
                     continue
                 }
-                val uri = runCatching { Uri.parse(photo.uri) }.getOrNull()
+                val uri = runCatching { Uri.parse(entity.uri) }.getOrNull()
                 if (uri == null) {
                     uploadItemDao.updateStateWithError(
                         id = entity.id,
@@ -97,14 +103,15 @@ class UploadQueueRepository @Inject constructor(
                     )
                     continue
                 }
-                val displayName = buildDisplayName(photo.relPath, uri)
-                val idempotencyKey = buildIdempotencyKey(photo.sha256, photo.id)
+                val displayName = resolveDisplayName(entity, uri)
+                val idempotencyKey = buildIdempotencyKey(entity.photoId)
                 add(
                     UploadQueueItem(
                         id = entity.id,
                         uri = uri,
                         idempotencyKey = idempotencyKey,
                         displayName = displayName,
+                        size = entity.size,
                     )
                 )
             }
@@ -153,8 +160,15 @@ class UploadQueueRepository @Inject constructor(
         return fromRelPath ?: fromUri ?: DEFAULT_DISPLAY_NAME
     }
 
-    private fun buildIdempotencyKey(sha256: String, fallback: String): String {
-        return if (sha256.isNotBlank()) sha256 else fallback
+    private fun resolveDisplayName(entity: UploadItemEntity, uri: Uri): String {
+        val stored = entity.displayName.takeIf { it.isNotBlank() && it != DEFAULT_DISPLAY_NAME }
+        val normalizedStored = stored?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+        val fromUri = uri.lastPathSegment?.takeIf { it.isNotBlank() }
+        return normalizedStored ?: fromUri ?: DEFAULT_DISPLAY_NAME
+    }
+
+    private fun buildIdempotencyKey(photoId: String): String {
+        return photoId
     }
 
     private fun currentTimeMillis(): Long = clock.instant().toEpochMilli()
@@ -169,4 +183,5 @@ data class UploadQueueItem(
     val uri: Uri,
     val idempotencyKey: String,
     val displayName: String,
+    val size: Long,
 )

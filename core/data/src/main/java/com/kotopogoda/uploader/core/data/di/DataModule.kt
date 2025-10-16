@@ -36,6 +36,7 @@ object DataModule {
         KotopogodaDatabase.MIGRATION_3_4,
         KotopogodaDatabase.MIGRATION_4_5,
         KotopogodaDatabase.MIGRATION_5_6,
+        KotopogodaDatabase.MIGRATION_6_7,
     ).build()
 
     @Provides

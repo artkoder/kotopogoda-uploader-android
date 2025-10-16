@@ -14,7 +14,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -83,12 +83,21 @@ abstract class KotopogodaDatabase : RoomDatabase() {
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `upload_items` (" +
-                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
-                        "`photo_id` TEXT NOT NULL, " +
-                        "`state` TEXT NOT NULL, " +
-                        "`created_at` INTEGER NOT NULL" +
-                        ")"
+                    """
+                    CREATE TABLE IF NOT EXISTS `upload_items` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `photo_id` TEXT NOT NULL,
+                        `uri` TEXT NOT NULL DEFAULT '',
+                        `display_name` TEXT NOT NULL DEFAULT 'photo.jpg',
+                        `size` INTEGER NOT NULL DEFAULT 0,
+                        `state` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        `updated_at` INTEGER,
+                        `last_error_kind` TEXT,
+                        `http_code` INTEGER
+                    )
+                    """
+                        .trimIndent()
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_state` ON `upload_items` (`state`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_created_at` ON `upload_items` (`created_at`)")
@@ -97,10 +106,89 @@ abstract class KotopogodaDatabase : RoomDatabase() {
 
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `updated_at` INTEGER")
-                db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `last_error_kind` TEXT")
-                db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `http_code` INTEGER")
+                val columns = getTableColumns(db, "upload_items")
+                if ("updated_at" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `updated_at` INTEGER")
+                }
+                if ("last_error_kind" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `last_error_kind` TEXT")
+                }
+                if ("http_code" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `http_code` INTEGER")
+                }
             }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = getTableColumns(db, "upload_items")
+                if ("uri" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `uri` TEXT NOT NULL DEFAULT ''")
+                }
+                if ("display_name" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `display_name` TEXT NOT NULL DEFAULT 'photo.jpg'")
+                }
+                if ("size" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `size` INTEGER NOT NULL DEFAULT 0")
+                }
+
+                db.execSQL(
+                    """
+                    UPDATE upload_items
+                    SET uri = (
+                        SELECT uri FROM photos WHERE photos.id = upload_items.photo_id
+                    )
+                    WHERE uri = ''
+                        AND EXISTS (
+                            SELECT 1 FROM photos WHERE photos.id = upload_items.photo_id
+                        )
+                    """
+                        .trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE upload_items
+                    SET size = (
+                        SELECT size FROM photos WHERE photos.id = upload_items.photo_id
+                    )
+                    WHERE size = 0
+                        AND EXISTS (
+                            SELECT 1 FROM photos WHERE photos.id = upload_items.photo_id
+                        )
+                    """
+                        .trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE upload_items
+                    SET display_name = COALESCE(
+                        (
+                            SELECT rel_path FROM photos WHERE photos.id = upload_items.photo_id
+                        ),
+                        (
+                            SELECT uri FROM photos WHERE photos.id = upload_items.photo_id
+                        ),
+                        display_name
+                    )
+                    WHERE (TRIM(display_name) = '' OR display_name = 'photo.jpg')
+                        AND EXISTS (
+                            SELECT 1 FROM photos WHERE photos.id = upload_items.photo_id
+                        )
+                    """
+                        .trimIndent()
+                )
+            }
+        }
+
+        private fun getTableColumns(db: SupportSQLiteDatabase, tableName: String): Set<String> {
+            val columns = mutableSetOf<String>()
+            db.query("PRAGMA table_info(`$tableName`)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                while (cursor.moveToNext()) {
+                    columns.add(cursor.getString(nameIndex))
+                }
+            }
+            return columns
         }
     }
 }
