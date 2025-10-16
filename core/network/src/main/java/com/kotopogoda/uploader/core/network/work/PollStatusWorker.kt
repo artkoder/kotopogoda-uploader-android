@@ -12,6 +12,7 @@ import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.api.UploadStatusDto
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -37,12 +38,16 @@ class PollStatusWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted params: WorkerParameters,
     private val uploadApi: UploadApi,
+    private val uploadQueueRepository: UploadQueueRepository,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         summaryStarter.ensureRunning()
+        val itemId = inputData.getLong(UploadEnqueuer.KEY_ITEM_ID, -1L)
+            .takeIf { it >= 0 }
+            ?: return@withContext Result.failure()
         val uploadId = inputData.getString(UploadEnqueuer.KEY_UPLOAD_ID)
             ?: return@withContext Result.failure()
         val uriString = inputData.getString(UploadEnqueuer.KEY_URI)
@@ -70,8 +75,9 @@ class PollStatusWorker @AssistedInject constructor(
                             maybeDelayForRetryAfter(response.headers())
                             Result.retry()
                         }
-                        RemoteState.DONE -> handleCompletion(uri, uriString, displayName)
+                        RemoteState.DONE -> handleCompletion(itemId, uri, uriString, displayName)
                         RemoteState.FAILED -> failureResult(
+                            itemId = itemId,
                             displayName = displayName,
                             uriString = uriString,
                             errorKind = UploadWorkErrorKind.REMOTE_FAILURE
@@ -79,6 +85,7 @@ class PollStatusWorker @AssistedInject constructor(
                     }
                 }
                 404 -> failureResult(
+                    itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
                     errorKind = UploadWorkErrorKind.HTTP,
@@ -95,6 +102,7 @@ class PollStatusWorker @AssistedInject constructor(
                     Result.retry()
                 }
                 else -> failureResult(
+                    itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
                     errorKind = UploadWorkErrorKind.HTTP,
@@ -108,12 +116,14 @@ class PollStatusWorker @AssistedInject constructor(
     }
 
     private suspend fun handleCompletion(
+        itemId: Long,
         uri: Uri,
         uriString: String,
         displayName: String,
     ): Result {
         val completionState = deleteDocument(uri)
         recordCompletionState(completionState, displayName)
+        uploadQueueRepository.markSucceeded(itemId)
         val output = Data.Builder()
             .putString(UploadEnqueuer.KEY_URI, uriString)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
@@ -177,12 +187,19 @@ class PollStatusWorker @AssistedInject constructor(
     }
 
     private suspend fun failureResult(
+        itemId: Long,
         displayName: String,
         uriString: String,
         errorKind: UploadWorkErrorKind,
         httpCode: Int? = null
     ): Result {
         recordError(displayName, errorKind, httpCode)
+        uploadQueueRepository.markFailed(
+            id = itemId,
+            errorKind = errorKind,
+            httpCode = httpCode,
+            requeue = false,
+        )
         val builder = Data.Builder()
             .putString(UploadEnqueuer.KEY_URI, uriString)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)

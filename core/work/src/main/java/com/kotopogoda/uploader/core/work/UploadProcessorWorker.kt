@@ -54,9 +54,7 @@ class UploadProcessorWorker @AssistedInject constructor(
             val result = runCatching {
                 enqueueUploadWork(item)
             }
-            result.onSuccess {
-                repository.markSucceeded(item.id)
-            }.onFailure { error ->
+            result.onFailure { error ->
                 if (error is CancellationException) {
                     throw error
                 }
@@ -98,6 +96,7 @@ class UploadProcessorWorker @AssistedInject constructor(
     ) = OneTimeWorkRequestBuilder<UploadWorker>()
         .setInputData(
             androidx.work.workDataOf(
+                UploadEnqueuer.KEY_ITEM_ID to item.id,
                 UploadEnqueuer.KEY_URI to item.uri.toString(),
                 UploadEnqueuer.KEY_IDEMPOTENCY_KEY to item.idempotencyKey,
                 UploadEnqueuer.KEY_DISPLAY_NAME to item.displayName,
@@ -119,6 +118,7 @@ class UploadProcessorWorker @AssistedInject constructor(
     ) = OneTimeWorkRequestBuilder<PollStatusWorker>()
         .setInputData(
             androidx.work.workDataOf(
+                UploadEnqueuer.KEY_ITEM_ID to item.id,
                 UploadEnqueuer.KEY_URI to item.uri.toString(),
                 UploadEnqueuer.KEY_DISPLAY_NAME to item.displayName,
             )
