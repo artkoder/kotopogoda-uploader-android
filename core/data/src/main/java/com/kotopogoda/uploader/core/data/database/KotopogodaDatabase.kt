@@ -9,10 +9,11 @@ import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderEntity
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoEntity
+import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
-    entities = [FolderEntity::class, PhotoEntity::class],
-    version = 4,
+    entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -73,6 +74,21 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE `folder` ADD COLUMN `flags` INTEGER NOT NULL DEFAULT ${Intent.FLAG_GRANT_READ_URI_PERMISSION}"
                 )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `upload_items` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`photo_id` TEXT NOT NULL, " +
+                        "`state` TEXT NOT NULL, " +
+                        "`created_at` INTEGER NOT NULL" +
+                        ")"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_state` ON `upload_items` (`state`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_created_at` ON `upload_items` (`created_at`)")
             }
         }
     }
