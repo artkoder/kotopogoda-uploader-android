@@ -209,15 +209,6 @@ class UploadQueueRepository @Inject constructor(
 
     private fun currentTimeMillis(): Long = clock.instant().toEpochMilli()
 
-    private suspend fun recoverStuckProcessingInternal(now: Long): Int {
-        return uploadItemDao.requeueProcessingToQueued(
-            processingState = UploadItemState.PROCESSING.rawValue,
-            queuedState = UploadItemState.QUEUED.rawValue,
-            stuckBefore = now - PROCESSING_RECOVERY_TIMEOUT_MS,
-            updatedAt = now,
-        )
-    }
-
     private fun String?.toUriOrNull(): Uri? {
         if (isNullOrBlank()) return null
         return runCatching { Uri.parse(this) }.getOrNull()

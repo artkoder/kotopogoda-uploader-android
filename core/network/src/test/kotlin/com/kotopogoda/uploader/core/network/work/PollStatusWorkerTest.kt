@@ -16,6 +16,7 @@ import androidx.work.WorkerParameters
 import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
@@ -37,6 +38,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import io.mockk.mockk
 import androidx.work.ForegroundUpdater
 import org.robolectric.RobolectricTestRunner
 import androidx.work.Configuration
@@ -48,6 +50,7 @@ class PollStatusWorkerTest {
     private lateinit var mockWebServer: MockWebServer
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
+    private lateinit var uploadQueueRepository: UploadQueueRepository
 
     @Before
     fun setUp() {
@@ -58,6 +61,7 @@ class PollStatusWorkerTest {
         WorkManagerTestInitHelper.initializeTestWorkManager(context, configuration)
         TestForegroundDelegate.ensureChannel(context)
         mockWebServer = MockWebServer().apply { start() }
+        uploadQueueRepository = mockk(relaxed = true)
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
@@ -77,6 +81,7 @@ class PollStatusWorkerTest {
                         appContext,
                         workerParameters,
                         uploadApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                     )
@@ -167,6 +172,7 @@ class PollStatusWorkerTest {
         val workId = UUID.randomUUID()
         ensureWorkSpec(workId)
         val inputData = Data.Builder()
+            .putLong(UploadEnqueuer.KEY_ITEM_ID, 1L)
             .putString(UploadEnqueuer.KEY_UPLOAD_ID, "upload-id")
             .putString(UploadEnqueuer.KEY_URI, mediaStoreUri())
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, "photo.jpg")
@@ -302,6 +308,7 @@ class PollStatusWorkerTest {
                         appContext,
                         workerParameters,
                         failingApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                     )
@@ -340,6 +347,7 @@ class PollStatusWorkerTest {
 
     private fun pollInputData(file: File): Data {
         return Data.Builder()
+            .putLong(UploadEnqueuer.KEY_ITEM_ID, 1L)
             .putString(UploadEnqueuer.KEY_UPLOAD_ID, "upload-id")
             .putString(UploadEnqueuer.KEY_URI, Uri.fromFile(file).toString())
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, "photo.jpg")

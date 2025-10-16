@@ -14,6 +14,7 @@ import androidx.work.ListenableWorker.Result.Success
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -44,6 +45,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowContentResolver
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import io.mockk.mockk
 
 @RunWith(RobolectricTestRunner::class)
 class UploadWorkerTest {
@@ -52,12 +54,14 @@ class UploadWorkerTest {
     private lateinit var mockWebServer: MockWebServer
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
+    private lateinit var uploadQueueRepository: UploadQueueRepository
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         TestForegroundDelegate.ensureChannel(context)
         mockWebServer = MockWebServer().apply { start() }
+        uploadQueueRepository = mockk(relaxed = true)
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
@@ -87,6 +91,7 @@ class UploadWorkerTest {
                         appContext,
                         workerParameters,
                         uploadApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                     )
@@ -246,6 +251,7 @@ class UploadWorkerTest {
                         appContext,
                         workerParameters,
                         failingApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                     )
@@ -299,6 +305,7 @@ class UploadWorkerTest {
         idempotencyKey: String = "key"
     ): Data {
         return Data.Builder()
+            .putLong(UploadEnqueuer.KEY_ITEM_ID, 1L)
             .putString(UploadEnqueuer.KEY_URI, Uri.fromFile(file).toString())
             .putString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY, idempotencyKey)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
@@ -311,6 +318,7 @@ class UploadWorkerTest {
         idempotencyKey: String = "key",
     ): Data {
         return Data.Builder()
+            .putLong(UploadEnqueuer.KEY_ITEM_ID, 1L)
             .putString(UploadEnqueuer.KEY_URI, uri.toString())
             .putString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY, idempotencyKey)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)

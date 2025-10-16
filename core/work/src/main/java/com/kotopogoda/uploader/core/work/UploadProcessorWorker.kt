@@ -104,6 +104,59 @@ class UploadProcessorWorker @AssistedInject constructor(
         workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
+    private fun enqueueUploadWork(item: UploadQueueItem) {
+        val uniqueName = uniqueName(item.uri)
+        val uploadRequest = createUploadRequest(uniqueName, item)
+        val pollRequest = createPollRequest(uniqueName, item)
+        workManager.beginUniqueWork(UPLOAD_QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, uploadRequest)
+            .then(pollRequest)
+            .enqueue()
+    }
+
+    private fun createUploadRequest(
+        uniqueName: String,
+        item: UploadQueueItem,
+    ) = OneTimeWorkRequestBuilder<UploadWorker>()
+        .setInputData(
+            androidx.work.workDataOf(
+                UploadEnqueuer.KEY_ITEM_ID to item.id,
+                UploadEnqueuer.KEY_URI to item.uri.toString(),
+                UploadEnqueuer.KEY_IDEMPOTENCY_KEY to item.idempotencyKey,
+                UploadEnqueuer.KEY_DISPLAY_NAME to item.displayName,
+            )
+        )
+        .setConstraints(constraintsHelper.buildConstraints())
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, INITIAL_BACKOFF_SECONDS, TimeUnit.SECONDS)
+        .addTag(UploadTags.TAG_UPLOAD)
+        .addTag(UploadTags.kindTag(UploadWorkKind.UPLOAD))
+        .addTag(UploadTags.uniqueTag(uniqueName))
+        .addTag(UploadTags.uriTag(item.uri.toString()))
+        .addTag(UploadTags.displayNameTag(item.displayName))
+        .addTag(UploadTags.keyTag(item.idempotencyKey))
+        .build()
+
+    private fun createPollRequest(
+        uniqueName: String,
+        item: UploadQueueItem,
+    ) = OneTimeWorkRequestBuilder<PollStatusWorker>()
+        .setInputData(
+            androidx.work.workDataOf(
+                UploadEnqueuer.KEY_ITEM_ID to item.id,
+                UploadEnqueuer.KEY_URI to item.uri.toString(),
+                UploadEnqueuer.KEY_DISPLAY_NAME to item.displayName,
+            )
+        )
+        .setInputMerger(OverwritingInputMerger::class.java)
+        .setConstraints(constraintsHelper.buildConstraints())
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, POLL_INITIAL_BACKOFF_SECONDS, TimeUnit.SECONDS)
+        .addTag(UploadTags.TAG_POLL)
+        .addTag(UploadTags.kindTag(UploadWorkKind.POLL))
+        .addTag(UploadTags.uniqueTag(uniqueName))
+        .addTag(UploadTags.uriTag(item.uri.toString()))
+        .addTag(UploadTags.displayNameTag(item.displayName))
+        .addTag(UploadTags.keyTag(item.idempotencyKey))
+        .build()
+
     companion object {
         const val WORK_NAME = UPLOAD_PROCESSOR_WORK_NAME
         private const val BATCH_SIZE = 5

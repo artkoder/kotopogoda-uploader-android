@@ -6,7 +6,6 @@ import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.WorkQuery
 import androidx.work.getWorkInfosByTagFlow
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import java.security.MessageDigest
@@ -58,13 +57,6 @@ class UploadEnqueuer @Inject constructor(
         ensureUploadRunning()
     }
 
-    fun getAllUploadsFlow(): Flow<List<WorkInfo>> {
-        val query = WorkQuery.Builder
-            .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL))
-            .build()
-        return workManager.getWorkInfosFlow(query)
-    }
-
     fun isEnqueued(uri: Uri): Flow<Boolean> =
         workManager.getWorkInfosByTagFlow(UploadTags.uniqueTag(uniqueName(uri)))
             .map { infos ->
@@ -77,6 +69,7 @@ class UploadEnqueuer @Inject constructor(
 
     companion object {
         const val KEY_URI = "uri"
+        const val KEY_ITEM_ID = "itemId"
         const val KEY_IDEMPOTENCY_KEY = "idempotencyKey"
         const val KEY_UPLOAD_ID = "uploadId"
         const val KEY_DISPLAY_NAME = "displayName"
