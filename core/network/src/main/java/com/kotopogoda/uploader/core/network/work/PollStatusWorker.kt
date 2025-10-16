@@ -19,7 +19,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.File
@@ -61,10 +61,10 @@ class PollStatusWorker @AssistedInject constructor(
             val response = try {
                 uploadApi.getStatus(uploadId)
             } catch (io: UnknownHostException) {
-                recordError(displayName, UploadWorkErrorKind.NETWORK)
+                recordError(displayName, UploadErrorKind.NETWORK)
                 return@withContext Result.retry()
             } catch (io: IOException) {
-                recordError(displayName, UploadWorkErrorKind.NETWORK)
+                recordError(displayName, UploadErrorKind.NETWORK)
                 return@withContext Result.retry()
             }
             when (response.code()) {
@@ -80,7 +80,7 @@ class PollStatusWorker @AssistedInject constructor(
                             itemId = itemId,
                             displayName = displayName,
                             uriString = uriString,
-                            errorKind = UploadWorkErrorKind.REMOTE_FAILURE
+                            errorKind = UploadErrorKind.REMOTE_FAILURE
                         )
                     }
                 }
@@ -88,16 +88,16 @@ class PollStatusWorker @AssistedInject constructor(
                     itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
-                    errorKind = UploadWorkErrorKind.HTTP,
+                    errorKind = UploadErrorKind.HTTP,
                     httpCode = response.code()
                 )
                 429 -> {
-                    recordError(displayName, UploadWorkErrorKind.HTTP, response.code())
+                    recordError(displayName, UploadErrorKind.HTTP, response.code())
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
                 in 500..599 -> {
-                    recordError(displayName, UploadWorkErrorKind.HTTP, response.code())
+                    recordError(displayName, UploadErrorKind.HTTP, response.code())
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
@@ -105,12 +105,12 @@ class PollStatusWorker @AssistedInject constructor(
                     itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
-                    errorKind = UploadWorkErrorKind.HTTP,
+                    errorKind = UploadErrorKind.HTTP,
                     httpCode = response.code()
                 )
             }
         } catch (io: IOException) {
-            recordError(displayName, UploadWorkErrorKind.NETWORK)
+            recordError(displayName, UploadErrorKind.NETWORK)
             Result.retry()
         }
     }
@@ -175,7 +175,7 @@ class PollStatusWorker @AssistedInject constructor(
 
     private suspend fun recordError(
         displayName: String,
-        errorKind: UploadWorkErrorKind,
+        errorKind: UploadErrorKind,
         httpCode: Int? = null
     ) {
         val builder = Data.Builder()
@@ -190,7 +190,7 @@ class PollStatusWorker @AssistedInject constructor(
         itemId: Long,
         displayName: String,
         uriString: String,
-        errorKind: UploadWorkErrorKind,
+        errorKind: UploadErrorKind,
         httpCode: Int? = null
     ): Result {
         recordError(displayName, errorKind, httpCode)

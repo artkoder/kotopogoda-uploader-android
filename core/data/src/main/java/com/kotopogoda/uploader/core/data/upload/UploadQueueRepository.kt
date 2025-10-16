@@ -2,7 +2,7 @@ package com.kotopogoda.uploader.core.data.upload
 
 import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import java.time.Clock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -27,7 +27,7 @@ class UploadQueueRepository @Inject constructor(
                         entity = entity,
                         uri = entity.uri.toUriOrNull(),
                         state = state,
-                        lastErrorKind = UploadWorkErrorKind.fromRawValue(entity.lastErrorKind),
+                        lastErrorKind = UploadErrorKind.fromRawValue(entity.lastErrorKind),
                         lastErrorHttpCode = entity.httpCode,
                     )
                 }
@@ -115,7 +115,7 @@ class UploadQueueRepository @Inject constructor(
                     uploadItemDao.updateStateWithError(
                         id = entity.id,
                         state = UploadItemState.FAILED.rawValue,
-                        lastErrorKind = UploadWorkErrorKind.UNEXPECTED.rawValue,
+                        lastErrorKind = UploadErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
                         updatedAt = updateTimestamp,
                     )
@@ -126,7 +126,7 @@ class UploadQueueRepository @Inject constructor(
                     uploadItemDao.updateStateWithError(
                         id = entity.id,
                         state = UploadItemState.FAILED.rawValue,
-                        lastErrorKind = UploadWorkErrorKind.UNEXPECTED.rawValue,
+                        lastErrorKind = UploadErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
                         updatedAt = updateTimestamp,
                     )
@@ -167,7 +167,7 @@ class UploadQueueRepository @Inject constructor(
 
     suspend fun markFailed(
         id: Long,
-        errorKind: UploadWorkErrorKind,
+        errorKind: UploadErrorKind,
         httpCode: Int? = null,
         requeue: Boolean = false,
     ) = withContext(Dispatchers.IO) {
@@ -233,7 +233,7 @@ data class UploadQueueEntry(
     val entity: UploadItemEntity,
     val uri: Uri?,
     val state: UploadItemState,
-    val lastErrorKind: UploadWorkErrorKind?,
+    val lastErrorKind: UploadErrorKind?,
     val lastErrorHttpCode: Int?,
 )
 

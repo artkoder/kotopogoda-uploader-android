@@ -19,7 +19,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
@@ -326,7 +326,7 @@ class PollStatusWorkerTest {
 
             assertTrue(result is Retry)
             val progress = worker.progress.get(1, TimeUnit.SECONDS)
-            assertEquals(UploadWorkErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
+            assertEquals(UploadErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
         } finally {
             workerFactory = previousFactory
         }

@@ -9,7 +9,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -82,7 +82,7 @@ data class QueueItemUiModel(
     val highlightWarning: Boolean,
     val bytesSent: Long?,
     val totalBytes: Long?,
-    val lastErrorKind: UploadWorkErrorKind?,
+    val lastErrorKind: UploadErrorKind?,
     val lastErrorHttpCode: Int?,
 ) {
     val isIndeterminate: Boolean get() = progressPercent == null
@@ -107,7 +107,7 @@ internal fun UploadQueueEntry.toQueueItemUiModel(): QueueItemUiModel {
     }
     val canCancel = state == UploadItemState.QUEUED || state == UploadItemState.PROCESSING
     val canRetry = state == UploadItemState.FAILED
-    val highlightWarning = state == UploadItemState.FAILED && lastErrorKind == UploadWorkErrorKind.REMOTE_FAILURE
+    val highlightWarning = state == UploadItemState.FAILED && lastErrorKind == UploadErrorKind.REMOTE_FAILURE
 
     return QueueItemUiModel(
         id = entity.id,

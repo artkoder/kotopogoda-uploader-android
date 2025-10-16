@@ -41,7 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.feature.queue.R
 
 const val QUEUE_ROUTE = "queue"
@@ -187,7 +187,7 @@ private fun QueueItemCard(
             )
             val errorMessage = item.lastErrorKind?.let { kind ->
                 when (kind) {
-                    UploadWorkErrorKind.HTTP -> {
+                    UploadErrorKind.HTTP -> {
                         val code = item.lastErrorHttpCode
                         if (code != null) {
                             stringResource(id = R.string.queue_error_http_with_code, code)
@@ -195,10 +195,10 @@ private fun QueueItemCard(
                             stringResource(id = R.string.queue_error_http)
                         }
                     }
-                    UploadWorkErrorKind.NETWORK -> stringResource(id = R.string.queue_error_network)
-                    UploadWorkErrorKind.IO -> stringResource(id = R.string.queue_error_io)
-                    UploadWorkErrorKind.REMOTE_FAILURE -> stringResource(id = R.string.queue_error_remote_failure)
-                    UploadWorkErrorKind.UNEXPECTED -> stringResource(id = R.string.queue_error_unexpected)
+                    UploadErrorKind.NETWORK -> stringResource(id = R.string.queue_error_network)
+                    UploadErrorKind.IO -> stringResource(id = R.string.queue_error_io)
+                    UploadErrorKind.REMOTE_FAILURE -> stringResource(id = R.string.queue_error_remote_failure)
+                    UploadErrorKind.UNEXPECTED -> stringResource(id = R.string.queue_error_unexpected)
                 }
             }
             if (!errorMessage.isNullOrBlank()) {

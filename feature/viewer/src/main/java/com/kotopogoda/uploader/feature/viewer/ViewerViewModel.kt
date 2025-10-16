@@ -21,7 +21,7 @@ import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -185,7 +185,7 @@ class ViewerViewModel @Inject constructor(
                 items.forEach { item ->
                     if (
                         item.state == UploadItemState.FAILED &&
-                        item.lastErrorKind == UploadWorkErrorKind.REMOTE_FAILURE &&
+                        item.lastErrorKind == UploadErrorKind.REMOTE_FAILURE &&
                         handledDeletionWarnings.add(item.entity.id)
                     ) {
                         _events.emit(
