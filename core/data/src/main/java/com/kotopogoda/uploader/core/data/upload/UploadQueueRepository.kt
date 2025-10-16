@@ -230,7 +230,6 @@ class UploadQueueRepository @Inject constructor(
         return uploadItemDao.requeueProcessingToQueued(
             processingState = UploadItemState.PROCESSING.rawValue,
             queuedState = UploadItemState.QUEUED.rawValue,
-            stuckBefore = now - PROCESSING_RECOVERY_TIMEOUT_MS,
             updatedAt = now,
         )
     }
@@ -242,7 +241,6 @@ class UploadQueueRepository @Inject constructor(
 
     companion object {
         private const val DEFAULT_DISPLAY_NAME = "photo.jpg"
-        internal const val PROCESSING_RECOVERY_TIMEOUT_MS = 5 * 60 * 1000L
     }
 }
 
