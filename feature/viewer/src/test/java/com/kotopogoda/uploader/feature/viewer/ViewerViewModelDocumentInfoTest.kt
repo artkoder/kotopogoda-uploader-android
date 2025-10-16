@@ -286,6 +286,7 @@ class ViewerViewModelDocumentInfoTest {
         val folderRepository = mockk<FolderRepository>()
         val saFileRepository = mockk<SaFileRepository>()
         val uploadEnqueuer = mockk<UploadEnqueuer>()
+        val uploadQueueRepository = mockk<UploadQueueRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
 
@@ -294,7 +295,7 @@ class ViewerViewModelDocumentInfoTest {
         coEvery { folderRepository.getFolder() } returns folder
         coEvery { reviewProgressStore.loadPosition(any()) } returns storedPosition
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
-        every { uploadEnqueuer.getAllUploadsFlow() } returns flowOf(emptyList())
+        every { uploadQueueRepository.observeQueue() } returns flowOf(emptyList())
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
 
         val viewModel = ViewerViewModel(
@@ -302,6 +303,7 @@ class ViewerViewModelDocumentInfoTest {
             folderRepository = folderRepository,
             saFileRepository = saFileRepository,
             uploadEnqueuer = uploadEnqueuer,
+            uploadQueueRepository = uploadQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
             savedStateHandle = savedStateHandle
