@@ -10,6 +10,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
 import io.mockk.clearMocks
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.match
@@ -59,16 +60,40 @@ class UploadEnqueuerTest {
     }
 
     @Test
-    fun cancel_cancelsWorkAndUpdatesRepository() = runBlocking {
+    fun cancel_cancelsProcessorWhenItemProcessing() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
         val uri = Uri.parse("content://example/2")
+        coEvery { uploadItemsRepository.markCancelled(uri) } returns true
 
         enqueuer.cancel(uri)
 
         val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
         verify { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
+        coVerify { uploadItemsRepository.markCancelled(uri) }
+        verify { constraintsProvider.buildConstraints() }
+        verify {
+            workManager.enqueueUniqueWork(
+                UPLOAD_PROCESSOR_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                match { it.workSpec.constraints == Constraints.NONE }
+            )
+        }
+    }
+
+    @Test
+    fun cancel_skipsProcessorCancellationWhenItemNotProcessing() = runBlocking {
+        val enqueuer = createEnqueuer()
+        clearMocks(workManager, constraintsProvider, answers = false)
+        val uri = Uri.parse("content://example/20")
+        coEvery { uploadItemsRepository.markCancelled(uri) } returns false
+
+        enqueuer.cancel(uri)
+
+        val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
+        verify { workManager.cancelAllWorkByTag(uniqueTag) }
+        verify(exactly = 0) { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
         coVerify { uploadItemsRepository.markCancelled(uri) }
         verify { constraintsProvider.buildConstraints() }
         verify {
