@@ -157,7 +157,7 @@ private fun QueueItemCard(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
                 LinearProgressIndicator(
-                    progress = item.progress / 100f,
+                    progress = (item.progressPercent ?: 0) / 100f,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -171,12 +171,12 @@ private fun QueueItemCard(
                     val totalLabel = Formatter.formatShortFileSize(context, totalBytes.coerceAtLeast(0))
                     stringResource(
                         id = R.string.queue_progress_with_total,
-                        item.progress,
+                        item.progressPercent ?: 0,
                         sentLabel,
                         totalLabel
                     )
                 } else {
-                    stringResource(id = R.string.queue_progress_percent, item.progress)
+                    stringResource(id = R.string.queue_progress_percent, item.progressPercent ?: 0)
                 }
             }
             Text(
@@ -185,10 +185,10 @@ private fun QueueItemCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
-            val errorMessage = item.errorKind?.let { kind ->
+            val errorMessage = item.lastErrorKind?.let { kind ->
                 when (kind) {
                     UploadWorkErrorKind.HTTP -> {
-                        val code = item.errorHttpCode
+                        val code = item.lastErrorHttpCode
                         if (code != null) {
                             stringResource(id = R.string.queue_error_http_with_code, code)
                         } else {
