@@ -1,8 +1,7 @@
-package com.kotopogoda.uploader.core.work
+package com.kotopogoda.uploader.core.network.upload
 
 import androidx.work.Constraints
 import androidx.work.NetworkType
-import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
 import com.kotopogoda.uploader.core.settings.WifiOnlyUploadsFlow
 import javax.inject.Inject
 import javax.inject.Singleton

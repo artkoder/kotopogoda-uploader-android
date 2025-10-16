@@ -1,6 +1,4 @@
-package com.kotopogoda.uploader.core.work
-
-import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
+package com.kotopogoda.uploader.core.network.upload
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn

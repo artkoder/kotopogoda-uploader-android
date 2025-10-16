@@ -1,4 +1,4 @@
-package com.kotopogoda.uploader.core.work
+package com.kotopogoda.uploader.core.network.upload
 
 import android.content.Context
 import android.net.Uri
