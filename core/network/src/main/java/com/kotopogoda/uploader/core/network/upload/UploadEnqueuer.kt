@@ -86,7 +86,10 @@ class UploadEnqueuer @Inject constructor(
         val request = OneTimeWorkRequestBuilder<UploadProcessorWorker>()
             .setConstraints(constraintsProvider.buildConstraints())
             .build()
-        workManager.enqueueUniqueWork(UPLOAD_PROCESSOR_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        val workName = runCatching {
+            workerClass.getField("WORK_NAME").get(null) as? String
+        }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
+        workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.KEEP, request)
     }
 
     private fun cancelUploadProcessorWork() {
