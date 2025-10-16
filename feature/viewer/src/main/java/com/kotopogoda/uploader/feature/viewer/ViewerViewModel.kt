@@ -1,7 +1,10 @@
 package com.kotopogoda.uploader.feature.viewer
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.IntentSender
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.annotation.StringRes
@@ -23,6 +26,7 @@ import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import java.io.Serializable
 import java.security.MessageDigest
 import java.time.Instant
@@ -46,6 +50,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.collections.ArrayDeque
 import kotlin.text.Charsets
+import kotlin.math.max
+import timber.log.Timber
 
 @HiltViewModel
 class ViewerViewModel @Inject constructor(
@@ -100,6 +106,8 @@ class ViewerViewModel @Inject constructor(
 
     private val _events = MutableSharedFlow<ViewerEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<ViewerEvent> = _events.asSharedFlow()
+
+    private var pendingDelete: PendingDelete? = null
 
     init {
         restoreUndoStack()
@@ -301,6 +309,126 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
+    fun onDelete(photo: PhotoItem?) {
+        if (_actionInProgress.value != null) {
+            return
+        }
+        val current = photo ?: return
+        viewModelScope.launch {
+            _actionInProgress.value = ViewerActionInProgress.Delete
+            try {
+                val documentInfo = loadDocumentInfo(current.uri)
+                val fromIndex = currentIndex.value
+                val toIndex = computeNextIndex(fromIndex)
+                val backup = runCatching { createDeleteBackup(documentInfo) }.getOrNull()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val pendingIntent = withContext(Dispatchers.IO) {
+                        MediaStore.createDeleteRequest(
+                            context.contentResolver,
+                            listOf(documentInfo.uri)
+                        )
+                    }
+                    pendingDelete = PendingDelete(
+                        photo = current,
+                        documentInfo = documentInfo,
+                        backup = backup,
+                        fromIndex = fromIndex,
+                        toIndex = toIndex
+                    )
+                    _events.emit(
+                        ViewerEvent.RequestDelete(intentSender = pendingIntent.intentSender)
+                    )
+                } else {
+                    val pending = PendingDelete(
+                        photo = current,
+                        documentInfo = documentInfo,
+                        backup = backup,
+                        fromIndex = fromIndex,
+                        toIndex = toIndex
+                    )
+                    val deleted = withContext(Dispatchers.IO) {
+                        context.contentResolver.delete(documentInfo.uri, null, null) > 0
+                    }
+                    if (deleted) {
+                        try {
+                            finalizeDeletion(pending)
+                        } catch (error: Exception) {
+                            pending.backup?.delete()
+                            Timber.e(error, "Failed to finalize delete for %s", documentInfo.uri)
+                            _events.emit(
+                                ViewerEvent.ShowSnackbar(
+                                    messageRes = R.string.viewer_snackbar_delete_failed
+                                )
+                            )
+                            _actionInProgress.value = null
+                        }
+                    } else {
+                        backup?.delete()
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_delete_failed
+                            )
+                        )
+                        _actionInProgress.value = null
+                    }
+                }
+            } catch (error: Exception) {
+                pendingDelete?.backup?.delete()
+                pendingDelete = null
+                Timber.e(error, "Failed to request delete for %s", current.uri)
+                _events.emit(
+                    ViewerEvent.ShowSnackbar(
+                        messageRes = R.string.viewer_snackbar_delete_failed
+                    )
+                )
+                _actionInProgress.value = null
+            }
+        }
+    }
+
+    fun onDeleteResult(result: DeleteResult) {
+        val pending = pendingDelete
+        if (pending == null) {
+            _actionInProgress.value = null
+            return
+        }
+        pendingDelete = null
+        viewModelScope.launch {
+            when (result) {
+                DeleteResult.Success -> {
+                    try {
+                        finalizeDeletion(pending)
+                    } catch (error: Exception) {
+                        pending.backup?.delete()
+                        Timber.e(error, "Failed to finalize delete")
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_delete_failed
+                            )
+                        )
+                        _actionInProgress.value = null
+                    }
+                }
+                DeleteResult.Cancelled -> {
+                    pending.backup?.delete()
+                    Timber.i("Delete cancelled for %s", pending.documentInfo.uri)
+                    _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_delete_cancelled))
+                    _actionInProgress.value = null
+                }
+                DeleteResult.Failed -> {
+                    pending.backup?.delete()
+                    Timber.w("Delete request failed for %s", pending.documentInfo.uri)
+                    _events.emit(
+                        ViewerEvent.ShowSnackbar(
+                            messageRes = R.string.viewer_snackbar_delete_failed
+                        )
+                    )
+                    _actionInProgress.value = null
+                }
+            }
+        }
+    }
+
     fun onUndo() {
         if (_actionInProgress.value != null) {
             return
@@ -364,10 +492,212 @@ class ViewerViewModel @Inject constructor(
                     }
                 }
             }
+            is UserAction.Deleted -> {
+                viewModelScope.launch {
+                    _actionInProgress.value = ViewerActionInProgress.Delete
+                    val restored = runCatching { restoreDeleted(action) }.getOrDefault(false)
+                    if (restored) {
+                        val targetIndex = clampIndex(action.fromIndex)
+                        setCurrentIndex(targetIndex)
+                        persistProgress(targetIndex, action.takenAt)
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_delete_undone
+                            )
+                        )
+                        _events.emit(ViewerEvent.RefreshPhotos)
+                        Timber.i("Restored deleted photo %s", action.uri)
+                    } else {
+                        pushAction(action)
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_undo_failed
+                            )
+                        )
+                    }
+                    _actionInProgress.value = null
+                }
+            }
         }
     }
 
     fun observeUploadEnqueued(uri: Uri) = uploadEnqueuer.isEnqueued(uri)
+
+    private suspend fun finalizeDeletion(pending: PendingDelete) {
+        val backup = pending.backup
+        if (backup != null) {
+            pushAction(
+                UserAction.Deleted(
+                    uri = pending.documentInfo.uri,
+                    originalParent = pending.documentInfo.parentUri,
+                    displayName = pending.documentInfo.displayName,
+                    mimeType = pending.documentInfo.mimeType,
+                    backupPath = backup.path,
+                    fromIndex = pending.fromIndex,
+                    toIndex = pending.toIndex,
+                    takenAt = pending.photo.takenAt
+                )
+            )
+        }
+        val targetIndex = if (pending.toIndex != pending.fromIndex) {
+            pending.toIndex
+        } else {
+            clampIndex(pending.fromIndex)
+        }
+        setCurrentIndex(targetIndex)
+        persistProgress(targetIndex, pending.photo.takenAt)
+        _events.emit(
+            ViewerEvent.ShowSnackbar(
+                messageRes = R.string.viewer_snackbar_delete_success,
+                withUndo = backup != null
+            )
+        )
+        _events.emit(ViewerEvent.RefreshPhotos)
+        Timber.i("Deleted photo %s", pending.documentInfo.uri)
+        _actionInProgress.value = null
+    }
+
+    private suspend fun createDeleteBackup(info: DocumentInfo): DeleteBackup? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val resolver = context.contentResolver
+                val inputStream = resolver.openInputStream(info.uri) ?: return@runCatching null
+                val directory = File(context.cacheDir, "viewer-delete-backups")
+                if (!directory.exists() && !directory.mkdirs()) {
+                    inputStream.close()
+                    return@runCatching null
+                }
+                val sanitizedName = info.displayName.replace('/', '_')
+                val backupFile = File(directory, "${UUID.randomUUID()}_$sanitizedName")
+                inputStream.use { source ->
+                    backupFile.outputStream().use { target ->
+                        source.copyTo(target)
+                    }
+                }
+                DeleteBackup(file = backupFile)
+            }.getOrNull()
+        }
+
+    private suspend fun restoreDeleted(action: UserAction.Deleted): Boolean =
+        withContext(Dispatchers.IO) {
+            val backupPath = action.backupPath ?: return@withContext false
+            val backupFile = File(backupPath)
+            if (!backupFile.exists()) {
+                return@withContext false
+            }
+            val parent = DocumentFile.fromTreeUri(context, action.originalParent)
+                ?: return@withContext false
+            val mimeType = action.mimeType ?: DEFAULT_MIME
+            val displayName = generateUniqueDisplayName(parent, action.displayName)
+            val destination = parent.createFile(mimeType, displayName) ?: return@withContext false
+            val resolver = context.contentResolver
+            resolver.openOutputStream(destination.uri)?.use { output ->
+                backupFile.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            } ?: return@withContext false
+            backupFile.delete()
+            true
+        }
+
+    private fun generateUniqueDisplayName(
+        destinationDirectory: DocumentFile,
+        originalDisplayName: String
+    ): String {
+        val originalComponents = parseDisplayName(originalDisplayName)
+
+        val usedSuffixes = mutableSetOf<Int>()
+        var hasExactMatch = false
+
+        destinationDirectory.listFiles().forEach { existing ->
+            if (!existing.isFile) {
+                return@forEach
+            }
+            val existingName = existing.name ?: return@forEach
+            val existingComponents = parseDisplayName(existingName)
+            if (!existingComponents.sharesRootWith(originalComponents)) {
+                return@forEach
+            }
+
+            if (existingName == originalDisplayName) {
+                hasExactMatch = true
+            }
+
+            usedSuffixes += existingComponents.suffix ?: 0
+        }
+
+        if (!hasExactMatch) {
+            return originalDisplayName
+        }
+
+        var candidateSuffix = max(originalComponents.nextSuffixCandidate, 1)
+        while (usedSuffixes.contains(candidateSuffix)) {
+            candidateSuffix += 1
+        }
+
+        return buildDisplayName(originalComponents.baseRoot, originalComponents.extension, candidateSuffix)
+    }
+
+    private fun parseDisplayName(displayName: String): DisplayNameComponents {
+        val (baseName, extension) = splitExtension(displayName)
+        val lastHyphenIndex = baseName.lastIndexOf('-')
+        if (lastHyphenIndex > 0 && lastHyphenIndex + 1 < baseName.length) {
+            val suffixCandidate = baseName.substring(lastHyphenIndex + 1)
+            val suffix = suffixCandidate.toIntOrNull()
+            if (suffix != null) {
+                val baseRoot = baseName.substring(0, lastHyphenIndex)
+                if (baseRoot.isNotEmpty()) {
+                    return DisplayNameComponents(
+                        baseRoot = baseRoot,
+                        extension = extension,
+                        suffix = suffix,
+                        nextSuffixCandidate = suffix + 1
+                    )
+                }
+            }
+        }
+
+        return DisplayNameComponents(
+            baseRoot = baseName,
+            extension = extension,
+            suffix = null,
+            nextSuffixCandidate = 1
+        )
+    }
+
+    private fun splitExtension(displayName: String): Pair<String, String?> {
+        val lastDot = displayName.lastIndexOf('.')
+        if (lastDot > 0 && lastDot + 1 < displayName.length) {
+            val base = displayName.substring(0, lastDot)
+            val extension = displayName.substring(lastDot + 1)
+            return base to extension
+        }
+        return displayName to null
+    }
+
+    private fun buildDisplayName(base: String, extension: String?, suffix: Int?): String {
+        val baseWithSuffix = when (suffix) {
+            null -> base
+            0 -> base
+            else -> "$base-$suffix"
+        }
+        return if (extension.isNullOrEmpty()) {
+            baseWithSuffix
+        } else {
+            "$baseWithSuffix.$extension"
+        }
+    }
+
+    private data class DisplayNameComponents(
+        val baseRoot: String,
+        val extension: String?,
+        val suffix: Int?,
+        val nextSuffixCandidate: Int
+    ) {
+        fun sharesRootWith(other: DisplayNameComponents): Boolean {
+            return baseRoot == other.baseRoot && extension == other.extension
+        }
+    }
 
     private suspend fun loadDocumentInfo(uri: Uri): DocumentInfo = withContext(Dispatchers.IO) {
         val folder = folderRepository.getFolder()
@@ -391,6 +721,7 @@ class ViewerViewModel @Inject constructor(
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_SIZE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
             DocumentsContract.Document.COLUMN_DOCUMENT_ID
         )
         val cursor = resolver.query(uri, projection, null, null, null)
@@ -402,6 +733,7 @@ class ViewerViewModel @Inject constructor(
             val displayNameIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val sizeIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
             val lastModifiedIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val mimeIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
             val documentIdIndex = result.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
 
             val name = result.getString(displayNameIndex) ?: DEFAULT_FILE_NAME
@@ -415,6 +747,11 @@ class ViewerViewModel @Inject constructor(
             } else {
                 result.getLong(lastModifiedIndex)
             }
+            val mimeType = if (result.isNull(mimeIndex)) {
+                null
+            } else {
+                result.getString(mimeIndex)
+            }
             val documentId = result.getString(documentIdIndex)
             val parentDocumentId = resolveSafParentDocumentId(treeUri, documentId)
             val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
@@ -423,7 +760,8 @@ class ViewerViewModel @Inject constructor(
                 displayName = name,
                 parentUri = parentUri,
                 size = size,
-                lastModified = lastModified
+                lastModified = lastModified,
+                mimeType = mimeType
             )
         }
     }
@@ -438,7 +776,8 @@ class ViewerViewModel @Inject constructor(
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DATE_MODIFIED,
             MediaStore.MediaColumns.DATE_TAKEN,
-            MediaStore.MediaColumns.RELATIVE_PATH
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            MediaStore.MediaColumns.MIME_TYPE
         )
         val cursor = resolver.query(uri, projection, null, null, null)
             ?: throw IllegalStateException("Unable to query document $uri")
@@ -451,6 +790,7 @@ class ViewerViewModel @Inject constructor(
             val dateModifiedIndex = result.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
             val dateTakenIndex = result.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
             val relativePathIndex = result.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+            val mimeIndex = result.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
 
             val name = result.getString(displayNameIndex) ?: DEFAULT_FILE_NAME
             val size = if (sizeIndex >= 0 && !result.isNull(sizeIndex)) {
@@ -486,7 +826,12 @@ class ViewerViewModel @Inject constructor(
                 displayName = name,
                 parentUri = parentUri,
                 size = size,
-                lastModified = lastModified
+                lastModified = lastModified,
+                mimeType = if (mimeIndex >= 0 && !result.isNull(mimeIndex)) {
+                    result.getString(mimeIndex)
+                } else {
+                    null
+                }
             )
         }
     }
@@ -602,6 +947,9 @@ class ViewerViewModel @Inject constructor(
             @StringRes val messageRes: Int,
             val withUndo: Boolean = false
         ) : ViewerEvent
+        data class ShowToast(@StringRes val messageRes: Int) : ViewerEvent
+        data class RequestDelete(val intentSender: IntentSender) : ViewerEvent
+        data object RefreshPhotos : ViewerEvent
     }
 
     sealed interface UserAction {
@@ -619,11 +967,28 @@ class ViewerViewModel @Inject constructor(
             val fromIndex: Int,
             val toIndex: Int
         ) : UserAction
+        data class Deleted(
+            val uri: Uri,
+            val originalParent: Uri,
+            val displayName: String,
+            val mimeType: String?,
+            val backupPath: String?,
+            val fromIndex: Int,
+            val toIndex: Int,
+            val takenAt: Instant?
+        ) : UserAction
     }
 
     enum class ViewerActionInProgress {
         Processing,
-        Upload
+        Upload,
+        Delete
+    }
+
+    enum class DeleteResult {
+        Success,
+        Cancelled,
+        Failed
     }
 
     private data class DocumentInfo(
@@ -631,8 +996,27 @@ class ViewerViewModel @Inject constructor(
         val displayName: String,
         val parentUri: Uri,
         val size: Long?,
-        val lastModified: Long?
+        val lastModified: Long?,
+        val mimeType: String?
     )
+
+    private data class PendingDelete(
+        val photo: PhotoItem,
+        val documentInfo: DocumentInfo,
+        val backup: DeleteBackup?,
+        val fromIndex: Int,
+        val toIndex: Int
+    )
+
+    private data class DeleteBackup(val file: File) {
+        val path: String = file.absolutePath
+
+        fun delete() {
+            if (file.exists()) {
+                file.delete()
+            }
+        }
+    }
 
     private data class UndoEntryState(
         val type: UserActionType,
@@ -641,13 +1025,17 @@ class ViewerViewModel @Inject constructor(
         val fromUri: String?,
         val toUri: String?,
         val originalParent: String?,
-        val displayName: String?
+        val displayName: String?,
+        val mimeType: String?,
+        val backupPath: String?,
+        val takenAt: Long?
     ) : Serializable
 
     private enum class UserActionType : Serializable {
         Skip,
         MovedToProcessing,
-        EnqueuedUpload
+        EnqueuedUpload,
+        Deleted
     }
 
     private fun UserAction.toState(): UndoEntryState = when (this) {
@@ -658,7 +1046,10 @@ class ViewerViewModel @Inject constructor(
             fromUri = null,
             toUri = null,
             originalParent = null,
-            displayName = null
+            displayName = null,
+            mimeType = null,
+            backupPath = null,
+            takenAt = null
         )
         is UserAction.MovedToProcessing -> UndoEntryState(
             type = UserActionType.MovedToProcessing,
@@ -667,7 +1058,10 @@ class ViewerViewModel @Inject constructor(
             fromUri = fromUri.toString(),
             toUri = toUri.toString(),
             originalParent = originalParent.toString(),
-            displayName = displayName
+            displayName = displayName,
+            mimeType = null,
+            backupPath = null,
+            takenAt = null
         )
         is UserAction.EnqueuedUpload -> UndoEntryState(
             type = UserActionType.EnqueuedUpload,
@@ -676,7 +1070,22 @@ class ViewerViewModel @Inject constructor(
             fromUri = uri.toString(),
             toUri = null,
             originalParent = null,
-            displayName = null
+            displayName = null,
+            mimeType = null,
+            backupPath = null,
+            takenAt = null
+        )
+        is UserAction.Deleted -> UndoEntryState(
+            type = UserActionType.Deleted,
+            fromIndex = fromIndex,
+            toIndex = toIndex,
+            fromUri = uri.toString(),
+            toUri = null,
+            originalParent = originalParent.toString(),
+            displayName = displayName,
+            mimeType = mimeType,
+            backupPath = backupPath,
+            takenAt = takenAt?.toEpochMilli()
         )
     }
 
@@ -698,9 +1107,20 @@ class ViewerViewModel @Inject constructor(
             fromIndex = fromIndex,
             toIndex = toIndex
         )
+        UserActionType.Deleted -> UserAction.Deleted(
+            uri = Uri.parse(requireNotNull(fromUri)),
+            originalParent = Uri.parse(requireNotNull(originalParent)),
+            displayName = requireNotNull(displayName),
+            mimeType = mimeType,
+            backupPath = backupPath,
+            fromIndex = fromIndex,
+            toIndex = toIndex,
+            takenAt = takenAt?.let(Instant::ofEpochMilli)
+        )
     }
 
     companion object {
         private const val DEFAULT_FILE_NAME = "photo.jpg"
+        private const val DEFAULT_MIME = "image/jpeg"
     }
 }

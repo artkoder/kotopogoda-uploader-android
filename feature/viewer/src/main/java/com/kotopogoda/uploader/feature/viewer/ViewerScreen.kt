@@ -6,8 +6,10 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -19,17 +21,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material3.Badge
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -43,7 +47,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallTopAppBar
 import androidx.compose.material3.SnackbarHost
@@ -189,6 +192,8 @@ fun ViewerRoute(
         onMoveToProcessing = viewModel::onMoveToProcessing,
         onEnqueueUpload = viewModel::onEnqueueUpload,
         onUndo = viewModel::onUndo,
+        onDelete = viewModel::onDelete,
+        onDeleteResult = viewModel::onDeleteResult,
         onJumpToDate = viewModel::jumpToDate,
         onSelectFolder = {
             launchFolderPicker(currentFolderUri?.let(Uri::parse))
@@ -224,6 +229,8 @@ internal fun ViewerScreen(
     onMoveToProcessing: (PhotoItem?) -> Unit,
     onEnqueueUpload: (PhotoItem?) -> Unit,
     onUndo: () -> Unit,
+    onDelete: (PhotoItem?) -> Unit,
+    onDeleteResult: (ViewerViewModel.DeleteResult) -> Unit,
     onJumpToDate: (Instant) -> Unit,
     onSelectFolder: () -> Unit
 ) {
@@ -323,7 +330,18 @@ internal fun ViewerScreen(
 
     val context = LocalContext.current
 
-    LaunchedEffect(events, context) {
+    val deleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val outcome = when (result.resultCode) {
+            Activity.RESULT_OK -> ViewerViewModel.DeleteResult.Success
+            Activity.RESULT_CANCELED -> ViewerViewModel.DeleteResult.Cancelled
+            else -> ViewerViewModel.DeleteResult.Failed
+        }
+        onDeleteResult(outcome)
+    }
+
+    LaunchedEffect(events, context, photos) {
         events.collectLatest { event ->
             when (event) {
                 is ViewerViewModel.ViewerEvent.ShowSnackbar -> {
@@ -340,6 +358,17 @@ internal fun ViewerScreen(
                     if (result == SnackbarResult.ActionPerformed && event.withUndo) {
                         onUndo()
                     }
+                }
+                is ViewerViewModel.ViewerEvent.ShowToast -> {
+                    Toast.makeText(context, event.messageRes, Toast.LENGTH_SHORT).show()
+                }
+                is ViewerViewModel.ViewerEvent.RequestDelete -> {
+                    val request = IntentSenderRequest.Builder(event.intentSender).build()
+                    runCatching { deleteLauncher.launch(request) }
+                        .onFailure { onDeleteResult(ViewerViewModel.DeleteResult.Failed) }
+                }
+                ViewerViewModel.ViewerEvent.RefreshPhotos -> {
+                    photos.refresh()
                 }
             }
         }
@@ -363,14 +392,17 @@ internal fun ViewerScreen(
                 skipEnabled = !isBusy && currentIndex < itemCount - 1,
                 processingEnabled = !isBusy && currentPhoto != null,
                 publishEnabled = !isBusy && currentPhoto != null && !isCurrentQueued,
+                deleteEnabled = !isBusy && currentPhoto != null,
                 processingBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing,
                 publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
+                deleteBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Delete,
                 canUndo = canUndo && !isBusy,
                 undoCount = undoCount,
                 onSkip = { onSkip(currentPhoto) },
                 onMoveToProcessing = { onMoveToProcessing(currentPhoto) },
                 onEnqueueUpload = { onEnqueueUpload(currentPhoto) },
-                onUndo = onUndo
+                onUndo = onUndo,
+                onDelete = { onDelete(currentPhoto) }
             )
         }
     ) { paddingValues ->
@@ -588,33 +620,32 @@ private fun ViewerActionBar(
     skipEnabled: Boolean,
     processingEnabled: Boolean,
     publishEnabled: Boolean,
+    deleteEnabled: Boolean,
     processingBusy: Boolean,
     publishBusy: Boolean,
+    deleteBusy: Boolean,
     canUndo: Boolean,
     undoCount: Int,
     onSkip: () -> Unit,
     onMoveToProcessing: () -> Unit,
     onEnqueueUpload: () -> Unit,
-    onUndo: () -> Unit
+    onUndo: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Surface(
         tonalElevation = 3.dp
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val buttonModifier = Modifier
+            val buttonHeight = 48.dp
+            val primaryModifier = Modifier
                 .weight(1f)
-                .height(44.dp)
-            val skipColors = ButtonDefaults.filledTonalButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                .height(buttonHeight)
             val processingColors = ButtonDefaults.filledTonalButtonColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -623,77 +654,140 @@ private fun ViewerActionBar(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
-            FilledTonalButton(
-                onClick = onSkip,
-                enabled = skipEnabled,
-                modifier = buttonModifier,
-                colors = skipColors
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ActionButtonContent(text = stringResource(id = R.string.viewer_action_skip))
-            }
-            FilledTonalButton(
-                onClick = onMoveToProcessing,
-                enabled = processingEnabled,
-                modifier = buttonModifier,
-                colors = processingColors
-            ) {
-                ActionButtonContent(
-                    text = stringResource(id = R.string.viewer_action_processing),
-                    busy = processingBusy
-                )
-            }
-            Button(
-                onClick = onEnqueueUpload,
-                enabled = publishEnabled,
-                modifier = buttonModifier,
-                colors = publishColors
-            ) {
-                ActionButtonContent(
-                    text = stringResource(id = R.string.viewer_action_publish),
-                    busy = publishBusy
-                )
-            }
-            val undoTooltipText = stringResource(id = R.string.viewer_action_undo_tooltip)
-            val undoContentDescription = stringResource(id = R.string.viewer_action_undo)
-            OutlinedButton(
-                onClick = onUndo,
-                enabled = canUndo,
-                modifier = buttonModifier
-                    .semantics {
-                        contentDescription = undoContentDescription
-                        if (!canUndo) {
-                            stateDescription = undoTooltipText
-                        }
-                    }
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+                FilledTonalButton(
+                    onClick = onMoveToProcessing,
+                    enabled = processingEnabled,
+                    modifier = primaryModifier,
+                    colors = processingColors
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                    ActionButtonContent(
+                        text = stringResource(id = R.string.viewer_action_processing),
+                        busy = processingBusy
+                    )
+                }
+                Button(
+                    onClick = onEnqueueUpload,
+                    enabled = publishEnabled,
+                    modifier = primaryModifier,
+                    colors = publishColors
+                ) {
+                    ActionButtonContent(
+                        text = stringResource(id = R.string.viewer_action_publish),
+                        busy = publishBusy
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                UndoActionButton(
+                    enabled = canUndo,
+                    count = undoCount,
+                    onUndo = onUndo
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val skipColors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FilledTonalButton(
+                        onClick = onSkip,
+                        enabled = skipEnabled,
+                        modifier = Modifier.height(buttonHeight),
+                        colors = skipColors
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = undoContentDescription
+                        ActionButtonContent(text = stringResource(id = R.string.viewer_action_skip))
+                    }
+
+                    val deleteColors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    FilledTonalButton(
+                        onClick = onDelete,
+                        enabled = deleteEnabled,
+                        modifier = Modifier.height(buttonHeight),
+                        colors = deleteColors
+                    ) {
+                        ActionButtonContent(
+                            text = stringResource(id = R.string.viewer_action_delete),
+                            busy = deleteBusy
                         )
-                        ActionButtonLabel(text = stringResource(id = R.string.viewer_action_undo))
-                        if (undoCount > 0) {
-                            Badge(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                            ) {
-                                Text(
-                                    text = undoCount.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Clip
-                                )
-                            }
-                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UndoActionButton(
+    enabled: Boolean,
+    count: Int,
+    onUndo: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val undoTooltipText = stringResource(id = R.string.viewer_action_undo_tooltip)
+    val undoContentDescription = stringResource(id = R.string.viewer_action_undo)
+    Box(
+        modifier = modifier
+            .semantics {
+                contentDescription = undoContentDescription
+                if (!enabled) {
+                    stateDescription = undoTooltipText
+                }
+            }
+    ) {
+        Surface(
+            modifier = Modifier.size(56.dp),
+            shape = CircleShape,
+            color = if (enabled) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = if (enabled) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        ) {
+            IconButton(
+                onClick = onUndo,
+                enabled = enabled,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Undo,
+                    contentDescription = undoContentDescription
+                )
+            }
+        }
+        if (count > 0) {
+            Badge(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 2.dp, y = (-2).dp),
+                containerColor = MaterialTheme.colorScheme.secondary,
+                contentColor = MaterialTheme.colorScheme.onSecondary
+            ) {
+                Text(
+                    text = count.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip
+                )
             }
         }
     }
@@ -744,14 +838,17 @@ private fun ViewerActionBarPreview() {
             skipEnabled = true,
             processingEnabled = true,
             publishEnabled = true,
+            deleteEnabled = true,
             processingBusy = true,
             publishBusy = false,
+            deleteBusy = false,
             canUndo = true,
             undoCount = 3,
             onSkip = {},
             onMoveToProcessing = {},
             onEnqueueUpload = {},
-            onUndo = {}
+            onUndo = {},
+            onDelete = {}
         )
     }
 }

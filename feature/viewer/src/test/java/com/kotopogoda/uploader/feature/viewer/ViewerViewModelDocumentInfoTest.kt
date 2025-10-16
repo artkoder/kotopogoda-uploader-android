@@ -289,16 +289,18 @@ class ViewerViewModelDocumentInfoTest {
         documentId: String,
         displayName: String,
         size: Long,
-        lastModified: Long
+        lastModified: Long,
+        mimeType: String = "image/jpeg"
     ): Cursor {
         val columns = arrayOf(
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_SIZE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
             DocumentsContract.Document.COLUMN_DOCUMENT_ID
         )
         return MatrixCursor(columns).apply {
-            addRow(arrayOf(displayName, size, lastModified, documentId))
+            addRow(arrayOf(displayName, size, lastModified, mimeType, documentId))
         }
     }
 
@@ -307,17 +309,19 @@ class ViewerViewModelDocumentInfoTest {
         size: Long,
         dateModifiedSeconds: Long,
         dateTaken: Long,
-        relativePath: String
+        relativePath: String,
+        mimeType: String = "image/jpeg"
     ): Cursor {
         val columns = arrayOf(
             MediaStore.MediaColumns.DISPLAY_NAME,
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DATE_MODIFIED,
             MediaStore.MediaColumns.DATE_TAKEN,
-            MediaStore.MediaColumns.RELATIVE_PATH
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            MediaStore.MediaColumns.MIME_TYPE
         )
         return MatrixCursor(columns).apply {
-            addRow(arrayOf(displayName, size, dateModifiedSeconds, dateTaken, relativePath))
+            addRow(arrayOf(displayName, size, dateModifiedSeconds, dateTaken, relativePath, mimeType))
         }
     }
 
