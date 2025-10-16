@@ -85,7 +85,7 @@ class UploadEnqueuer @Inject constructor(
 
     private fun ensureUploadRunning() {
         val workerClass = runCatching {
-            Class.forName("com.kotopogoda.uploader.core.work.UploadProcessorWorker")
+            Class.forName("com.kotopogoda.uploader.core.network.upload.UploadProcessorWorker")
                 .asSubclass(ListenableWorker::class.java)
         }.getOrNull() ?: return
         val constraints = constraintsProvider.buildConstraints()
@@ -95,12 +95,12 @@ class UploadEnqueuer @Inject constructor(
         val workName = runCatching {
             workerClass.getField("WORK_NAME").get(null) as? String
         }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
-        workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.KEEP, request)
+        workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
     }
 
     private fun cancelUploadProcessorWork() {
         val workerClass = runCatching {
-            Class.forName("com.kotopogoda.uploader.core.work.UploadProcessorWorker")
+            Class.forName("com.kotopogoda.uploader.core.network.upload.UploadProcessorWorker")
                 .asSubclass(ListenableWorker::class.java)
         }.getOrNull() ?: return
         val workName = runCatching {

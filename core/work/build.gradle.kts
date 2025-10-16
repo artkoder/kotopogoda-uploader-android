@@ -1,8 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.kapt)
-    alias(libs.plugins.hilt)
 }
 
 android {
@@ -26,20 +24,5 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:data"))
-    implementation(project(":core:network"))
-    implementation(project(":core:settings"))
-
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.androidx.hilt.work)
-    kapt(libs.androidx.hilt.compiler)
-    implementation(libs.dagger.hilt.android)
-    kapt(libs.dagger.hilt.compiler)
-    implementation("javax.inject:javax.inject:1")
-
     testImplementation(libs.junit)
-    testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.mockk)
-    testImplementation("androidx.test:core-ktx:1.5.0")
 }

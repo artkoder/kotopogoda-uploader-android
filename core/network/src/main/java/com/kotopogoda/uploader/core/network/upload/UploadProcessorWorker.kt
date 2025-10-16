@@ -1,4 +1,4 @@
-package com.kotopogoda.uploader.core.work
+package com.kotopogoda.uploader.core.network.upload
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
@@ -9,8 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
-import com.kotopogoda.uploader.core.network.upload.UPLOAD_PROCESSOR_WORK_NAME
-import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskParams
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult
 import dagger.assisted.Assisted
