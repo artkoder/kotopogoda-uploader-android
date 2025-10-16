@@ -34,7 +34,7 @@
     <string name="settings_version_app">Версия приложения: %1$s</string>
     <string name="settings_version_contract">Версия контракта: %1$s</string>
     <string name="settings_open_docs">Документация API</string>
-    <string name="settings_logs_directory">Каталог логов приложения: %1$s</string>
+    <string name="settings_logs_directory">Каталог экспорта логов: %1$s</string>
     <string name="settings_snackbar_base_url_invalid">Некорректный URL</string>
     <string name="settings_snackbar_base_url_saved">База URL обновлена</string>
     <string name="settings_snackbar_action_failed">Не удалось выполнить действие</string>

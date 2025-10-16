@@ -26,10 +26,10 @@ class LogsExporter @Inject constructor(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
-    private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+    private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm")
 
     suspend fun export(): LogsExportResult = withContext(ioDispatcher) {
-        val displayName = "kotopogoda-logs-${LocalDateTime.now().format(timestampFormatter)}.zip"
+        val displayName = "logs-${LocalDateTime.now().format(timestampFormatter)}.zip"
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 exportWithMediaStore(displayName)
@@ -43,7 +43,7 @@ class LogsExporter @Inject constructor(
 
     private suspend fun exportWithMediaStore(displayName: String): LogsExportResult {
         val resolver = context.contentResolver
-        val relativePath = "Download/Kotopogoda"
+        val relativePath = PUBLIC_LOGS_RELATIVE_PATH
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
             put(MediaStore.MediaColumns.MIME_TYPE, ZIP_MIME_TYPE)
@@ -62,7 +62,7 @@ class LogsExporter @Inject constructor(
             } ?: return LogsExportResult.Error(IllegalStateException("Unable to open export destination"))
             ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
                 .also { resolver.update(uri, it, null, null) }
-            LogsExportResult.Success(uri, "$relativePath/$displayName")
+            LogsExportResult.Success(uri, "${publicDirectoryDisplayPath()}$displayName")
         } catch (error: Throwable) {
             resolver.delete(uri, null, null)
             LogsExportResult.Error(error)
@@ -87,8 +87,10 @@ class LogsExporter @Inject constructor(
             null,
         )
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outputFile)
-        return LogsExportResult.Success(uri, "Download/Kotopogoda/$displayName")
+        return LogsExportResult.Success(uri, "${publicDirectoryDisplayPath()}$displayName")
     }
+
+    fun publicDirectoryDisplayPath(): String = "$PUBLIC_LOGS_RELATIVE_PATH/"
 }
 
 sealed interface LogsExportResult {
@@ -98,3 +100,4 @@ sealed interface LogsExportResult {
 }
 
 private const val ZIP_MIME_TYPE = "application/zip"
+private const val PUBLIC_LOGS_RELATIVE_PATH = "Download/Kotopogoda"
