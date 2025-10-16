@@ -7,6 +7,8 @@ import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 @Singleton
@@ -15,6 +17,22 @@ class UploadQueueRepository @Inject constructor(
     private val photoDao: PhotoDao,
     private val clock: Clock,
 ) {
+
+    fun observeQueue(): Flow<List<UploadQueueEntry>> {
+        return uploadItemDao.observeAll()
+            .map { entities ->
+                entities.mapNotNull { entity ->
+                    val state = UploadItemState.fromRawValue(entity.state) ?: return@mapNotNull null
+                    UploadQueueEntry(
+                        entity = entity,
+                        uri = entity.uri.toUriOrNull(),
+                        state = state,
+                        lastErrorKind = UploadWorkErrorKind.fromRawValue(entity.lastErrorKind),
+                        lastErrorHttpCode = entity.httpCode,
+                    )
+                }
+            }
+    }
 
     suspend fun enqueue(uri: Uri) = withContext(Dispatchers.IO) {
         val photo = photoDao.getByUri(uri.toString())
@@ -173,10 +191,23 @@ class UploadQueueRepository @Inject constructor(
 
     private fun currentTimeMillis(): Long = clock.instant().toEpochMilli()
 
+    private fun String?.toUriOrNull(): Uri? {
+        if (isNullOrBlank()) return null
+        return runCatching { Uri.parse(this) }.getOrNull()
+    }
+
     companion object {
         private const val DEFAULT_DISPLAY_NAME = "photo.jpg"
     }
 }
+
+data class UploadQueueEntry(
+    val entity: UploadItemEntity,
+    val uri: Uri?,
+    val state: UploadItemState,
+    val lastErrorKind: UploadWorkErrorKind?,
+    val lastErrorHttpCode: Int?,
+)
 
 data class UploadQueueItem(
     val id: Long,

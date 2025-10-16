@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.data.upload
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface UploadItemDao {
@@ -15,6 +16,12 @@ interface UploadItemDao {
 
     @Query("SELECT * FROM upload_items WHERE state = :state ORDER BY created_at LIMIT :limit")
     suspend fun getByState(state: String, limit: Int): List<UploadItemEntity>
+
+    @Query("SELECT * FROM upload_items ORDER BY created_at DESC")
+    fun observeAll(): Flow<List<UploadItemEntity>>
+
+    @Query("SELECT * FROM upload_items WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): UploadItemEntity?
 
     @Query(
         "UPDATE upload_items SET state = :state, uri = :uri, display_name = :displayName, size = :size, " +

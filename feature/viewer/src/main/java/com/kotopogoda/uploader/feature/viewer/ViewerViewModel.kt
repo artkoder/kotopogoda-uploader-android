@@ -19,9 +19,9 @@ import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
-import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
-import com.kotopogoda.uploader.core.network.uploadqueue.UploadQueueItemState
-import com.kotopogoda.uploader.core.network.uploadqueue.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -88,7 +88,7 @@ class ViewerViewModel @Inject constructor(
 
     private val undoStack = ArrayDeque<UserAction>()
     private val undoStackKey = "viewer_undo_stack"
-    private val handledDeletionWarnings = mutableSetOf<UUID>()
+    private val handledDeletionWarnings = mutableSetOf<Long>()
 
     private val _undoCount = MutableStateFlow(0)
     val undoCount: StateFlow<Int> = _undoCount.asStateFlow()
@@ -184,10 +184,9 @@ class ViewerViewModel @Inject constructor(
             uploadQueueRepository.observeQueue().collect { items ->
                 items.forEach { item ->
                     if (
-                        item.kind == UploadWorkKind.POLL &&
-                        item.state == UploadQueueItemState.SUCCEEDED &&
-                        item.deleted == false &&
-                        handledDeletionWarnings.add(item.id)
+                        item.state == UploadItemState.FAILED &&
+                        item.lastErrorKind == UploadWorkErrorKind.REMOTE_FAILURE &&
+                        handledDeletionWarnings.add(item.entity.id)
                     ) {
                         _events.emit(
                             ViewerEvent.ShowSnackbar(
