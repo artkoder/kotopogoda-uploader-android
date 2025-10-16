@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus
 import com.kotopogoda.uploader.feature.status.R
 import java.time.ZoneId
@@ -173,7 +174,11 @@ private fun HealthCard(state: StatusUiState, onRefresh: () -> Unit, modifier: Mo
             }
             Text(text = stringResource(id = statusText), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             state.health.message?.takeIf { it.isNotBlank() }?.let { message ->
-                Text(text = message, style = MaterialTheme.typography.bodyMedium)
+                val displayMessage = when (message) {
+                    HealthState.MESSAGE_PARSE_ERROR -> stringResource(id = R.string.status_health_parse_error)
+                    else -> message
+                }
+                Text(text = displayMessage, style = MaterialTheme.typography.bodyMedium)
             }
             val lastChecked = state.health.lastCheckedAt
             val latency = state.health.latencyMillis

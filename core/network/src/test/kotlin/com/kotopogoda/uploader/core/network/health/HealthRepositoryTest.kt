@@ -1,10 +1,10 @@
 package com.kotopogoda.uploader.core.network.health
 
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
+import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus.DEGRADED
 import com.kotopogoda.uploader.core.network.health.HealthStatus.OFFLINE
 import com.kotopogoda.uploader.core.network.health.HealthStatus.ONLINE
-import com.kotopogoda.uploader.core.network.health.HealthStatus.UNKNOWN
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -13,7 +13,6 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.Clock
@@ -92,7 +91,7 @@ class HealthRepositoryTest {
     }
 
     @Test
-    fun `check falls back to UNKNOWN for unparsable status`() = runTest {
+    fun `check falls back to DEGRADED with parse error for unparsable status`() = runTest {
         enqueueResponse("""{"status":{"unexpected":{}}}""")
 
         val repository = repository(
@@ -102,8 +101,8 @@ class HealthRepositoryTest {
 
         val result = repository.check()
 
-        assertEquals(UNKNOWN, result.status)
-        assertTrue(result.message?.contains("unexpected") == true)
+        assertEquals(DEGRADED, result.status)
+        assertEquals(HealthState.MESSAGE_PARSE_ERROR, result.message)
     }
 
     private fun repository(clock: Clock, dispatcher: StandardTestDispatcher): HealthRepository {
