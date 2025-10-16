@@ -18,7 +18,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import com.squareup.moshi.Moshi
@@ -176,7 +176,7 @@ class UploadWorkerTest {
 
         assertTrue(result is Failure)
         val outputData = (result as Failure).outputData
-        assertEquals(UploadWorkErrorKind.HTTP.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        assertEquals(UploadErrorKind.HTTP.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
         assertEquals(413, outputData.getInt(UploadEnqueuer.KEY_HTTP_CODE, -1))
     }
 
@@ -192,7 +192,7 @@ class UploadWorkerTest {
 
         assertTrue(result is Failure)
         val outputData = (result as Failure).outputData
-        assertEquals(UploadWorkErrorKind.HTTP.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        assertEquals(UploadErrorKind.HTTP.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
         assertEquals(415, outputData.getInt(UploadEnqueuer.KEY_HTTP_CODE, -1))
     }
 
@@ -269,7 +269,7 @@ class UploadWorkerTest {
 
             assertTrue(result is Retry)
             val progress = worker.progress.get(1, TimeUnit.SECONDS)
-            assertEquals(UploadWorkErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
+            assertEquals(UploadErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
         } finally {
             workerFactory = previousFactory
         }
@@ -288,7 +288,7 @@ class UploadWorkerTest {
 
         assertTrue(result is Failure)
         val outputData = (result as Failure).outputData
-        assertEquals(UploadWorkErrorKind.IO.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        assertEquals(UploadErrorKind.IO.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
     }
 
     private fun createWorker(inputData: Data): UploadWorker {

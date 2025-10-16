@@ -4,7 +4,7 @@ import android.net.Uri
 import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.feature.queue.R
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -53,20 +53,20 @@ class QueueViewModelMappingTest {
             state = UploadItemState.FAILED.rawValue,
             createdAt = 1L,
             updatedAt = 2L,
-            lastErrorKind = UploadWorkErrorKind.HTTP.rawValue,
+            lastErrorKind = UploadErrorKind.HTTP.rawValue,
             httpCode = 413,
         )
         val entry = UploadQueueEntry(
             entity = entity,
             uri = Uri.parse(entity.uri),
             state = UploadItemState.FAILED,
-            lastErrorKind = UploadWorkErrorKind.HTTP,
+            lastErrorKind = UploadErrorKind.HTTP,
             lastErrorHttpCode = 413,
         )
 
         val uiModel = entry.toQueueItemUiModel()
 
-        assertEquals(UploadWorkErrorKind.HTTP, uiModel.lastErrorKind)
+        assertEquals(UploadErrorKind.HTTP, uiModel.lastErrorKind)
         assertEquals(413, uiModel.lastErrorHttpCode)
         assertEquals(0, uiModel.progressPercent)
         assertEquals(R.string.queue_status_failed, uiModel.statusResId)

@@ -15,7 +15,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
-import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.ByteArrayOutputStream
@@ -112,16 +112,16 @@ class UploadWorker @AssistedInject constructor(
                     size = payload.size.toString().toPlainRequestBody(),
                 )
             } catch (io: UnknownHostException) {
-                return@withContext retryResult(displayName, UploadWorkErrorKind.NETWORK)
+                return@withContext retryResult(displayName, UploadErrorKind.NETWORK)
             } catch (io: IOException) {
-                return@withContext retryResult(displayName, UploadWorkErrorKind.NETWORK)
+                return@withContext retryResult(displayName, UploadErrorKind.NETWORK)
             }
 
             when (response.code()) {
                 202, 409 -> {
                     val uploadId = response.body()?.uploadId
                     if (uploadId.isNullOrBlank()) {
-                        recordError(displayName, UploadWorkErrorKind.UNEXPECTED)
+                        recordError(displayName, UploadErrorKind.UNEXPECTED)
                         Result.retry()
                     } else {
                         updateProgress(
@@ -145,37 +145,37 @@ class UploadWorker @AssistedInject constructor(
                     itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
-                    errorKind = UploadWorkErrorKind.HTTP,
+                    errorKind = UploadErrorKind.HTTP,
                     httpCode = response.code()
                 )
                 429 -> retryResult(
                     displayName = displayName,
-                    errorKind = UploadWorkErrorKind.HTTP,
+                    errorKind = UploadErrorKind.HTTP,
                     httpCode = response.code()
                 )
                 in 500..599 -> retryResult(
                     displayName = displayName,
-                    errorKind = UploadWorkErrorKind.HTTP,
+                    errorKind = UploadErrorKind.HTTP,
                     httpCode = response.code()
                 )
                 else -> failureResult(
                     itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
-                    errorKind = UploadWorkErrorKind.HTTP,
+                    errorKind = UploadErrorKind.HTTP,
                     httpCode = response.code()
                 )
             }
         } catch (security: RecoverableSecurityException) {
-            failureResult(itemId, displayName, uriString, UploadWorkErrorKind.IO)
+            failureResult(itemId, displayName, uriString, UploadErrorKind.IO)
         } catch (security: SecurityException) {
-            failureResult(itemId, displayName, uriString, UploadWorkErrorKind.IO)
+            failureResult(itemId, displayName, uriString, UploadErrorKind.IO)
         } catch (io: IOException) {
-            retryResult(displayName, UploadWorkErrorKind.IO)
+            retryResult(displayName, UploadErrorKind.IO)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            failureResult(itemId, displayName, uriString, UploadWorkErrorKind.UNEXPECTED)
+            failureResult(itemId, displayName, uriString, UploadErrorKind.UNEXPECTED)
         }
     }
 
@@ -236,7 +236,7 @@ class UploadWorker @AssistedInject constructor(
         progress: Int,
         bytesSent: Long? = lastProgressSnapshot.bytesSent,
         totalBytes: Long? = lastProgressSnapshot.totalBytes,
-        errorKind: UploadWorkErrorKind? = null,
+        errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
     ) {
         lastProgressSnapshot = ProgressSnapshot(
@@ -257,7 +257,7 @@ class UploadWorker @AssistedInject constructor(
 
     private suspend fun recordError(
         displayName: String,
-        errorKind: UploadWorkErrorKind,
+        errorKind: UploadErrorKind,
         httpCode: Int? = null
     ) {
         val snapshot = lastProgressSnapshot
@@ -273,7 +273,7 @@ class UploadWorker @AssistedInject constructor(
 
     private suspend fun retryResult(
         displayName: String,
-        errorKind: UploadWorkErrorKind,
+        errorKind: UploadErrorKind,
         httpCode: Int? = null
     ): Result {
         recordError(displayName, errorKind, httpCode)
@@ -284,7 +284,7 @@ class UploadWorker @AssistedInject constructor(
         itemId: Long,
         displayName: String,
         uriString: String,
-        errorKind: UploadWorkErrorKind,
+        errorKind: UploadErrorKind,
         httpCode: Int? = null
     ): Result {
         recordError(displayName, errorKind, httpCode)
@@ -312,7 +312,7 @@ class UploadWorker @AssistedInject constructor(
         uploadId: String? = null,
         bytesSent: Long? = null,
         totalBytes: Long? = null,
-        errorKind: UploadWorkErrorKind? = null,
+        errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
     ): Data {
         val builder = Data.Builder()

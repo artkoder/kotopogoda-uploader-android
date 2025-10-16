@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:work"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

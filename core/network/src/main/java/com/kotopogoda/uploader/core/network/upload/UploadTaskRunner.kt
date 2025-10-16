@@ -37,6 +37,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskRe
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult.Failure
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult.Success
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskState
+import com.kotopogoda.uploader.core.work.UploadErrorKind
 
 @Singleton
 class UploadTaskRunner @Inject constructor(
@@ -66,49 +67,49 @@ class UploadTaskRunner @Inject constructor(
                     size = payload.size.toString().toPlainRequestBody(),
                 )
             } catch (unknown: UnknownHostException) {
-                return@withContext Failure(UploadWorkErrorKind.NETWORK, httpCode = null, retryable = true)
+                return@withContext Failure(UploadErrorKind.NETWORK, httpCode = null, retryable = true)
             } catch (io: IOException) {
-                return@withContext Failure(UploadWorkErrorKind.NETWORK, httpCode = null, retryable = true)
+                return@withContext Failure(UploadErrorKind.NETWORK, httpCode = null, retryable = true)
             }
             when (response.code()) {
                 202, 409 -> {
                     val uploadId = response.body()?.uploadId
                     if (uploadId.isNullOrBlank()) {
-                        return@withContext Failure(UploadWorkErrorKind.UNEXPECTED, httpCode = null, retryable = true)
+                        return@withContext Failure(UploadErrorKind.UNEXPECTED, httpCode = null, retryable = true)
                     }
                     return@withContext pollUntilComplete(uploadId, params, payload.size)
                 }
                 413, 415 -> return@withContext Failure(
-                    UploadWorkErrorKind.HTTP,
+                    UploadErrorKind.HTTP,
                     httpCode = response.code(),
                     retryable = false
                 )
                 429 -> return@withContext Failure(
-                    UploadWorkErrorKind.HTTP,
+                    UploadErrorKind.HTTP,
                     httpCode = response.code(),
                     retryable = true
                 )
                 in 500..599 -> return@withContext Failure(
-                    UploadWorkErrorKind.HTTP,
+                    UploadErrorKind.HTTP,
                     httpCode = response.code(),
                     retryable = true
                 )
                 else -> return@withContext Failure(
-                    UploadWorkErrorKind.HTTP,
+                    UploadErrorKind.HTTP,
                     httpCode = response.code(),
                     retryable = false
                 )
             }
         } catch (security: RecoverableSecurityException) {
-            Failure(UploadWorkErrorKind.IO, httpCode = null, retryable = false)
+            Failure(UploadErrorKind.IO, httpCode = null, retryable = false)
         } catch (security: SecurityException) {
-            Failure(UploadWorkErrorKind.IO, httpCode = null, retryable = false)
+            Failure(UploadErrorKind.IO, httpCode = null, retryable = false)
         } catch (io: IOException) {
-            Failure(UploadWorkErrorKind.IO, httpCode = null, retryable = true)
+            Failure(UploadErrorKind.IO, httpCode = null, retryable = true)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            Failure(UploadWorkErrorKind.UNEXPECTED, httpCode = null, retryable = false)
+            Failure(UploadErrorKind.UNEXPECTED, httpCode = null, retryable = false)
         }
     }
 
@@ -151,11 +152,11 @@ class UploadTaskRunner @Inject constructor(
                             )
                         }
                         UploadTaskState.FAILED -> {
-                            return Failure(UploadWorkErrorKind.REMOTE_FAILURE, httpCode = null, retryable = false)
+                            return Failure(UploadErrorKind.REMOTE_FAILURE, httpCode = null, retryable = false)
                         }
                     }
                 }
-                404 -> return Failure(UploadWorkErrorKind.HTTP, httpCode = response.code(), retryable = false)
+                404 -> return Failure(UploadErrorKind.HTTP, httpCode = response.code(), retryable = false)
                 429 -> {
                     val delayed = maybeDelayForRetryAfter(response.headers())
                     if (!delayed) {
@@ -170,7 +171,7 @@ class UploadTaskRunner @Inject constructor(
                     }
                     continue
                 }
-                else -> return Failure(UploadWorkErrorKind.HTTP, httpCode = response.code(), retryable = false)
+                else -> return Failure(UploadErrorKind.HTTP, httpCode = response.code(), retryable = false)
             }
         }
     }
@@ -302,7 +303,7 @@ class UploadTaskRunner @Inject constructor(
         ) : UploadTaskResult()
 
         data class Failure(
-            val errorKind: UploadWorkErrorKind,
+            val errorKind: UploadErrorKind,
             val httpCode: Int?,
             val retryable: Boolean,
         ) : UploadTaskResult()

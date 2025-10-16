@@ -105,6 +105,7 @@ tasks.withType<KaptGenerateStubsTask>().configureEach {
 
 dependencies {
     implementation(project(":core:data"))
+    implementation(project(":core:work"))
     implementation(project(":core:logging"))
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
