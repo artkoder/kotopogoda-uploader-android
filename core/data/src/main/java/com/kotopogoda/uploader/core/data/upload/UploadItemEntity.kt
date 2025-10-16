@@ -21,5 +21,11 @@ data class UploadItemEntity(
     @ColumnInfo(name = "state")
     val state: String,
     @ColumnInfo(name = "created_at")
-    val createdAt: Long
+    val createdAt: Long,
+    @ColumnInfo(name = "updated_at")
+    val updatedAt: Long? = null,
+    @ColumnInfo(name = "last_error_kind")
+    val lastErrorKind: String? = null,
+    @ColumnInfo(name = "http_code")
+    val httpCode: Int? = null,
 )

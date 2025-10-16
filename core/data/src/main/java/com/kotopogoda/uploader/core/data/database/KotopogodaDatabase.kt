@@ -9,17 +9,20 @@ import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderEntity
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoEntity
+import com.kotopogoda.uploader.core.data.upload.UploadItemDao
 import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
     abstract fun folderDao(): FolderDao
 
     abstract fun photoDao(): PhotoDao
+
+    abstract fun uploadItemDao(): UploadItemDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -89,6 +92,14 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_state` ON `upload_items` (`state`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_created_at` ON `upload_items` (`created_at`)")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `updated_at` INTEGER")
+                db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `last_error_kind` TEXT")
+                db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `http_code` INTEGER")
             }
         }
     }

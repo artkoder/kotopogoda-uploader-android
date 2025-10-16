@@ -120,6 +120,7 @@ dependencies {
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
     implementation(project(":core:logging"))
+    implementation(project(":core:work"))
     implementation(project(":feature:onboarding"))
     implementation(project(":feature:pairing"))
     implementation(project(":feature:viewer"))
