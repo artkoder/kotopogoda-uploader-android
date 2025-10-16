@@ -73,6 +73,7 @@ class UploadEnqueuer @Inject constructor(
 
     companion object {
         const val KEY_URI = "uri"
+        const val KEY_ITEM_ID = "itemId"
         const val KEY_IDEMPOTENCY_KEY = "idempotencyKey"
         const val KEY_UPLOAD_ID = "uploadId"
         const val KEY_DISPLAY_NAME = "displayName"

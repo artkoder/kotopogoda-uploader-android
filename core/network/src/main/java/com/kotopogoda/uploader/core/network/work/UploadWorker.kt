@@ -8,6 +8,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -35,6 +36,7 @@ class UploadWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted params: WorkerParameters,
     private val uploadApi: UploadApi,
+    private val uploadQueueRepository: UploadQueueRepository,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
 ) : CoroutineWorker(appContext, params) {
@@ -43,6 +45,9 @@ class UploadWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         summaryStarter.ensureRunning()
+        val itemId = inputData.getLong(UploadEnqueuer.KEY_ITEM_ID, -1L)
+            .takeIf { it >= 0 }
+            ?: return@withContext Result.failure()
         val uriString = inputData.getString(UploadEnqueuer.KEY_URI)
             ?: return@withContext Result.failure()
         val idempotencyKey = inputData.getString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY)
@@ -137,6 +142,7 @@ class UploadWorker @AssistedInject constructor(
                     }
                 }
                 413, 415 -> failureResult(
+                    itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
                     errorKind = UploadWorkErrorKind.HTTP,
@@ -153,6 +159,7 @@ class UploadWorker @AssistedInject constructor(
                     httpCode = response.code()
                 )
                 else -> failureResult(
+                    itemId = itemId,
                     displayName = displayName,
                     uriString = uriString,
                     errorKind = UploadWorkErrorKind.HTTP,
@@ -160,15 +167,15 @@ class UploadWorker @AssistedInject constructor(
                 )
             }
         } catch (security: RecoverableSecurityException) {
-            failureResult(displayName, uriString, UploadWorkErrorKind.IO)
+            failureResult(itemId, displayName, uriString, UploadWorkErrorKind.IO)
         } catch (security: SecurityException) {
-            failureResult(displayName, uriString, UploadWorkErrorKind.IO)
+            failureResult(itemId, displayName, uriString, UploadWorkErrorKind.IO)
         } catch (io: IOException) {
             retryResult(displayName, UploadWorkErrorKind.IO)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            failureResult(displayName, uriString, UploadWorkErrorKind.UNEXPECTED)
+            failureResult(itemId, displayName, uriString, UploadWorkErrorKind.UNEXPECTED)
         }
     }
 
@@ -274,12 +281,19 @@ class UploadWorker @AssistedInject constructor(
     }
 
     private suspend fun failureResult(
+        itemId: Long,
         displayName: String,
         uriString: String,
         errorKind: UploadWorkErrorKind,
         httpCode: Int? = null
     ): Result {
         recordError(displayName, errorKind, httpCode)
+        uploadQueueRepository.markFailed(
+            id = itemId,
+            errorKind = errorKind,
+            httpCode = httpCode,
+            requeue = false,
+        )
         return Result.failure(
             buildResultData(
                 displayName = displayName,
