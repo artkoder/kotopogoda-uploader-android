@@ -2,8 +2,7 @@ package com.kotopogoda.uploader.core.network.upload
 
 import android.net.Uri
 import androidx.work.ExistingWorkPolicy
-import androidx.work.ListenableWorker
-import androidx.work.OneTimeWorkRequest
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import java.security.MessageDigest
@@ -83,29 +82,14 @@ class UploadEnqueuer @Inject constructor(
         }
     }
 
-    private fun ensureUploadRunning() {
-        val workerClass = runCatching {
-            Class.forName("com.kotopogoda.uploader.core.network.upload.UploadProcessorWorker")
-                .asSubclass(ListenableWorker::class.java)
-        }.getOrNull() ?: return
-        val constraints = constraintsProvider.buildConstraints()
-        val request = OneTimeWorkRequest.Builder(workerClass)
-            .setConstraints(constraints)
+    fun ensureUploadRunning() {
+        val request = OneTimeWorkRequestBuilder<UploadProcessorWorker>()
+            .setConstraints(constraintsProvider.buildConstraints())
             .build()
-        val workName = runCatching {
-            workerClass.getField("WORK_NAME").get(null) as? String
-        }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
-        workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
+        workManager.enqueueUniqueWork(UPLOAD_PROCESSOR_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
     }
 
     private fun cancelUploadProcessorWork() {
-        val workerClass = runCatching {
-            Class.forName("com.kotopogoda.uploader.core.network.upload.UploadProcessorWorker")
-                .asSubclass(ListenableWorker::class.java)
-        }.getOrNull() ?: return
-        val workName = runCatching {
-            workerClass.getField("WORK_NAME").get(null) as? String
-        }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
-        workManager.cancelUniqueWork(workName)
+        workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME)
     }
 }

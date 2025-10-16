@@ -55,6 +55,7 @@ fun QueueRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
         viewModel.ensureSummaryRunning()
+        viewModel.startUploadProcessing()
     }
     QueueScreen(
         state = state,

@@ -62,6 +62,26 @@ class QueueViewModel @Inject constructor(
         summaryStarter.ensureRunning()
     }
 
+    fun startUploadProcessing() {
+        uploadEnqueuer.ensureUploadRunning()
+    }
+
+    private fun buildMetadata(item: QueueItemUiModel): UploadWorkMetadata? {
+        val uri = item.uri ?: return null
+        val entity = item.source.entity
+        val displayName = entity.displayName.takeIf { it.isNotBlank() } ?: item.title
+        val idempotencyKey = entity.photoId
+        if (idempotencyKey.isBlank()) {
+            return null
+        }
+        return UploadWorkMetadata(
+            uniqueName = uploadEnqueuer.uniqueName(uri),
+            uri = uri,
+            displayName = displayName,
+            idempotencyKey = idempotencyKey,
+            kind = UploadWorkKind.UPLOAD,
+        )
+    }
 }
 
 data class QueueUiState(
@@ -125,22 +145,4 @@ internal fun UploadQueueEntry.toQueueItemUiModel(): QueueItemUiModel {
         lastErrorHttpCode = lastErrorHttpCode,
     )
 }
-
-private fun QueueViewModel.buildMetadata(item: QueueItemUiModel): UploadWorkMetadata? {
-    val uri = item.uri ?: return null
-    val entity = item.source.entity
-    val displayName = entity.displayName.takeIf { it.isNotBlank() } ?: item.title
-    val idempotencyKey = entity.photoId
-    if (idempotencyKey.isBlank()) {
-        return null
-    }
-    return UploadWorkMetadata(
-        uniqueName = uploadEnqueuer.uniqueName(uri),
-        uri = uri,
-        displayName = displayName,
-        idempotencyKey = idempotencyKey,
-        kind = UploadWorkKind.UPLOAD,
-    )
-}
-
 private const val DEFAULT_TITLE = "Загрузка"
