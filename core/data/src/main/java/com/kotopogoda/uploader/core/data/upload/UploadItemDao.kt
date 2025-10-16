@@ -95,12 +95,11 @@ interface UploadItemDao {
 
     @Query(
         "UPDATE upload_items SET state = :queuedState, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt " +
-            "WHERE state = :processingState AND (updated_at IS NULL OR updated_at < :stuckBefore)"
+            "WHERE state = :processingState"
     )
     suspend fun requeueProcessingToQueued(
         processingState: String,
         queuedState: String,
-        stuckBefore: Long,
         updatedAt: Long,
     ): Int
 }
