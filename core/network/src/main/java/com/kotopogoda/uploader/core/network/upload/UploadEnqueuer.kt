@@ -1,82 +1,56 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import android.net.Uri
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
+import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequest
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OverwritingInputMerger
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkQuery
-import androidx.work.workDataOf
-import com.kotopogoda.uploader.core.network.work.PollStatusWorker
-import com.kotopogoda.uploader.core.network.work.UploadWorker
-import com.kotopogoda.uploader.core.settings.WifiOnlyUploadsFlow
+import androidx.work.getWorkInfosByTagFlow
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import java.security.MessageDigest
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlin.text.Charsets
 
 @Singleton
 class UploadEnqueuer @Inject constructor(
     private val workManager: WorkManager,
     private val summaryStarter: UploadSummaryStarter,
-    @WifiOnlyUploadsFlow wifiOnlyUploadsFlow: Flow<Boolean>,
+    private val uploadItemsRepository: UploadItemsRepository,
 ) {
 
-    private val wifiOnlyUploadsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val wifiOnlyUploadsState = wifiOnlyUploadsFlow.stateIn(
-        scope = wifiOnlyUploadsScope,
-        started = SharingStarted.Eagerly,
-        initialValue = false,
-    )
-
-    fun enqueue(uri: Uri, idempotencyKey: String, displayName: String) {
-        val uniqueName = uniqueName(uri)
-        val upload = createUploadRequest(uniqueName, uri, idempotencyKey, displayName)
-        val poll = createPollRequest(uniqueName, uri, idempotencyKey, displayName)
-
-        enqueueChain(upload, poll)
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun enqueue(uri: Uri, idempotencyKey: String, displayName: String) {
+        uploadItemsRepository.enqueue(uri)
         summaryStarter.ensureRunning()
+        ensureUploadRunning()
     }
 
-    fun cancel(uri: Uri) {
-        cancel(uniqueName(uri))
-    }
-
-    fun cancel(uniqueName: String) {
+    suspend fun cancel(uri: Uri) {
+        val uniqueName = uniqueName(uri)
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
+        uploadItemsRepository.markCancelled(uri)
+        ensureUploadRunning()
     }
 
-    fun cancelAllUploads() {
+    suspend fun cancelAllUploads() {
         workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD)
         workManager.cancelAllWorkByTag(UploadTags.TAG_POLL)
+        uploadItemsRepository.cancelAll()
+        ensureUploadRunning()
     }
 
-    fun retry(metadata: UploadWorkMetadata) {
-        val uniqueName = metadata.uniqueName ?: return
+    suspend fun retry(metadata: UploadWorkMetadata) {
         val uri = metadata.uri ?: return
-        val displayName = metadata.displayName ?: DEFAULT_FILE_NAME
-        val idempotencyKey = metadata.idempotencyKey ?: return
-
-        cancel(uniqueName)
-
-        val upload = createUploadRequest(uniqueName, uri, idempotencyKey, displayName)
-        val poll = createPollRequest(uniqueName, uri, idempotencyKey, displayName)
-
-        enqueueChain(upload, poll)
+        val uniqueName = uniqueName(uri)
+        workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
+        uploadItemsRepository.enqueue(uri)
         summaryStarter.ensureRunning()
+        ensureUploadRunning()
     }
 
     fun getAllUploadsFlow(): Flow<List<WorkInfo>> {
@@ -87,7 +61,7 @@ class UploadEnqueuer @Inject constructor(
     }
 
     fun isEnqueued(uri: Uri): Flow<Boolean> =
-        workManager.getWorkInfosForUniqueWorkFlow(uniqueName(uri))
+        workManager.getWorkInfosByTagFlow(UploadTags.uniqueTag(uniqueName(uri)))
             .map { infos ->
                 infos.any { info ->
                     info.state == WorkInfo.State.ENQUEUED || info.state == WorkInfo.State.RUNNING
@@ -111,11 +85,6 @@ class UploadEnqueuer @Inject constructor(
         const val STATE_UPLOADED_DELETED = "uploadedDeleted"
         const val STATE_UPLOADED_AWAITING_DELETE = "uploadedAwaitingDelete"
         const val STATE_UPLOAD_COMPLETED_UNKNOWN = "uploadCompletedUnknown"
-        private const val INITIAL_BACKOFF_SECONDS = 10L
-        private const val POLL_INITIAL_BACKOFF_SECONDS = 30L
-        private const val DEFAULT_FILE_NAME = "photo.jpg"
-
-        private const val UPLOAD_QUEUE_NAME = "upload-queue"
 
         fun sha256(value: String): String {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -124,73 +93,12 @@ class UploadEnqueuer @Inject constructor(
         }
     }
 
-    private fun enqueueChain(
-        upload: OneTimeWorkRequest,
-        poll: OneTimeWorkRequest,
-    ) {
-        workManager.beginUniqueWork(UPLOAD_QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, upload)
-            .then(poll)
-            .enqueue()
-    }
-
-    private fun createUploadRequest(
-        uniqueName: String,
-        uri: Uri,
-        idempotencyKey: String,
-        displayName: String
-    ): OneTimeWorkRequest {
-        val inputData = workDataOf(
-            KEY_URI to uri.toString(),
-            KEY_IDEMPOTENCY_KEY to idempotencyKey,
-            KEY_DISPLAY_NAME to displayName
-        )
-
-        return OneTimeWorkRequestBuilder<UploadWorker>()
-            .setInputData(inputData)
-            .setConstraints(networkConstraints())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, INITIAL_BACKOFF_SECONDS, TimeUnit.SECONDS)
-            .addTag(UploadTags.TAG_UPLOAD)
-            .addTag(UploadTags.kindTag(UploadWorkKind.UPLOAD))
-            .addTag(UploadTags.uniqueTag(uniqueName))
-            .addTag(UploadTags.uriTag(uri.toString()))
-            .addTag(UploadTags.displayNameTag(displayName))
-            .addTag(UploadTags.keyTag(idempotencyKey))
-            .build()
-    }
-
-    private fun createPollRequest(
-        uniqueName: String,
-        uri: Uri,
-        idempotencyKey: String,
-        displayName: String
-    ): OneTimeWorkRequest {
-        val inputData = workDataOf(
-            KEY_URI to uri.toString(),
-            KEY_DISPLAY_NAME to displayName
-        )
-
-        return OneTimeWorkRequestBuilder<PollStatusWorker>()
-            .setInputData(inputData)
-            .setInputMerger(OverwritingInputMerger::class.java)
-            .setConstraints(networkConstraints())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, POLL_INITIAL_BACKOFF_SECONDS, TimeUnit.SECONDS)
-            .addTag(UploadTags.TAG_POLL)
-            .addTag(UploadTags.kindTag(UploadWorkKind.POLL))
-            .addTag(UploadTags.uniqueTag(uniqueName))
-            .addTag(UploadTags.uriTag(uri.toString()))
-            .addTag(UploadTags.displayNameTag(displayName))
-            .addTag(UploadTags.keyTag(idempotencyKey))
-            .build()
-    }
-
-    internal fun networkConstraints(): Constraints {
-        val requiredNetworkType = if (wifiOnlyUploadsState.value) {
-            NetworkType.UNMETERED
-        } else {
-            NetworkType.CONNECTED
-        }
-        return Constraints.Builder()
-            .setRequiredNetworkType(requiredNetworkType)
-            .build()
+    private fun ensureUploadRunning() {
+        val workerClass = runCatching {
+            Class.forName("com.kotopogoda.uploader.core.work.UploadProcessorWorker")
+                .asSubclass(ListenableWorker::class.java)
+        }.getOrNull() ?: return
+        val request = OneTimeWorkRequest.Builder(workerClass).build()
+        workManager.enqueueUniqueWork(UPLOAD_QUEUE_NAME, ExistingWorkPolicy.KEEP, request)
     }
 }

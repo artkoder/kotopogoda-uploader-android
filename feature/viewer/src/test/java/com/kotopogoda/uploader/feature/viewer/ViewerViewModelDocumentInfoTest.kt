@@ -187,7 +187,7 @@ class ViewerViewModelDocumentInfoTest {
 
         val idempotencySlot = slot<String>()
         val displayNameSlot = slot<String>()
-        every {
+        coEvery {
             environment.uploadEnqueuer.enqueue(eq(fileUri), capture(idempotencySlot), capture(displayNameSlot))
         } just Runs
 
@@ -197,7 +197,7 @@ class ViewerViewModelDocumentInfoTest {
         environment.viewModel.onEnqueueUpload(photo)
         advanceUntilIdle()
 
-        verify(exactly = 1) {
+        coVerify(exactly = 1) {
             environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any())
         }
         assertEquals("saf.jpg", displayNameSlot.captured)
@@ -236,7 +236,7 @@ class ViewerViewModelDocumentInfoTest {
 
         val idempotencySlot = slot<String>()
         val displayNameSlot = slot<String>()
-        every {
+        coEvery {
             environment.uploadEnqueuer.enqueue(eq(fileUri), capture(idempotencySlot), capture(displayNameSlot))
         } just Runs
 
@@ -246,7 +246,7 @@ class ViewerViewModelDocumentInfoTest {
         environment.viewModel.onEnqueueUpload(photo)
         advanceUntilIdle()
 
-        verify(exactly = 1) {
+        coVerify(exactly = 1) {
             environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any())
         }
         assertEquals("media.jpg", displayNameSlot.captured)

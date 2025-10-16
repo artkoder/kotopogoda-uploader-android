@@ -1,10 +1,17 @@
 package com.kotopogoda.uploader.core.data.upload
 
 import androidx.room.Dao
+import androidx.room.Insert
 import androidx.room.Query
 
 @Dao
 interface UploadItemDao {
+
+    @Query("SELECT * FROM upload_items WHERE photo_id = :photoId LIMIT 1")
+    suspend fun getByPhotoId(photoId: String): UploadItemEntity?
+
+    @Insert
+    suspend fun insert(entity: UploadItemEntity): Long
 
     @Query("SELECT * FROM upload_items WHERE state = :state ORDER BY created_at LIMIT :limit")
     suspend fun getByState(state: String, limit: Int): List<UploadItemEntity>
@@ -27,4 +34,9 @@ interface UploadItemDao {
 
     @Query("SELECT COUNT(*) FROM upload_items WHERE state = :state")
     suspend fun countByState(state: String): Int
+
+    @Query(
+        "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE state IN (:states)"
+    )
+    suspend fun updateStatesClearingError(states: List<String>, state: String, updatedAt: Long)
 }

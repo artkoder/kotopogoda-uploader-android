@@ -24,6 +24,9 @@ interface PhotoDao {
     @Query("SELECT * FROM photos WHERE sha256 = :sha LIMIT 1")
     suspend fun getBySha256(sha: String): PhotoEntity?
 
+    @Query("SELECT * FROM photos WHERE uri = :uri LIMIT 1")
+    suspend fun getByUri(uri: String): PhotoEntity?
+
     @Query("SELECT COUNT(*) FROM photos")
     suspend fun countAll(): Int
 

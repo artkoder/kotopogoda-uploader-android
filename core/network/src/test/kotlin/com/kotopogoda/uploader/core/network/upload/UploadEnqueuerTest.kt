@@ -2,122 +2,114 @@ package com.kotopogoda.uploader.core.network.upload
 
 import android.net.Uri
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
-import androidx.work.WorkContinuation
 import androidx.work.WorkManager
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.network.upload.UploadTags
+import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
+import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UploadEnqueuerTest {
 
-    private val continuation = mockk<WorkContinuation>(relaxed = true)
-    private val workManager = mockk<WorkManager>(relaxed = true) {
-        every { beginUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns continuation
-        every { continuation.then(any<OneTimeWorkRequest>()) } returns continuation
-    }
+    private val workManager = mockk<WorkManager>(relaxed = true)
     private val summaryStarter = mockk<UploadSummaryStarter>(relaxed = true)
+    private val uploadItemsRepository = mockk<UploadQueueRepository>(relaxed = true)
 
-    @Test
-    fun networkConstraints_connected_whenWifiOnlyDisabled() = runBlocking {
-        val wifiOnlyFlow = MutableStateFlow(false)
-        val enqueuer = UploadEnqueuer(workManager, summaryStarter, wifiOnlyFlow)
-
-        assertNetworkTypeEventually(enqueuer, NetworkType.CONNECTED)
+    init {
+        every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
     }
 
-    @Test
-    fun networkConstraints_unmetered_whenWifiOnlyEnabled() = runBlocking {
-        val wifiOnlyFlow = MutableStateFlow(true)
-        val enqueuer = UploadEnqueuer(workManager, summaryStarter, wifiOnlyFlow)
-
-        assertNetworkTypeEventually(enqueuer, NetworkType.UNMETERED)
-    }
+    private fun createEnqueuer(): UploadEnqueuer = UploadEnqueuer(
+        workManager = workManager,
+        summaryStarter = summaryStarter,
+        uploadItemsRepository = uploadItemsRepository,
+    )
 
     @Test
-    fun enqueue_multipleItems_shareQueueNameAndPolicy() {
-        val wifiOnlyFlow = MutableStateFlow(false)
-        val enqueuer = UploadEnqueuer(workManager, summaryStarter, wifiOnlyFlow)
-        val queueNames = mutableListOf<String>()
-        val policies = mutableListOf<ExistingWorkPolicy>()
-        val uploads = mutableListOf<OneTimeWorkRequest>()
-        every {
-            workManager.beginUniqueWork(capture(queueNames), capture(policies), capture(uploads))
-        } returns continuation
-
-        enqueuer.enqueue(Uri.parse("content://example/1"), "key-1", "file-1")
-        enqueuer.enqueue(Uri.parse("content://example/2"), "key-2", "file-2")
-
-        assertEquals(listOf("upload-queue", "upload-queue"), queueNames)
-        assertEquals(
-            listOf(ExistingWorkPolicy.APPEND_OR_REPLACE, ExistingWorkPolicy.APPEND_OR_REPLACE),
-            policies,
-        )
-        assertEquals(2, uploads.size)
-    }
-
-    @Test
-    fun enqueue_preservesUniqueTagsForEachRequest() {
-        val wifiOnlyFlow = MutableStateFlow(false)
-        val enqueuer = UploadEnqueuer(workManager, summaryStarter, wifiOnlyFlow)
-        val uploadRequests = mutableListOf<OneTimeWorkRequest>()
-        val pollRequests = mutableListOf<OneTimeWorkRequest>()
-        every {
-            workManager.beginUniqueWork(any(), any(), capture(uploadRequests))
-        } returns continuation
-        every { continuation.then(capture(pollRequests)) } returns continuation
-
+    fun enqueue_persistsItemAndStartsWorker() = runBlocking {
+        val enqueuer = createEnqueuer()
         val uri = Uri.parse("content://example/1")
+
         enqueuer.enqueue(uri, "key-1", "file-1")
 
-        val uniqueName = enqueuer.uniqueName(uri)
-        val uniqueTag = UploadTags.uniqueTag(uniqueName)
-
-        assertTrue(uploadRequests.single().tags.contains(uniqueTag))
-        assertTrue(pollRequests.single().tags.contains(uniqueTag))
+        coVerify { uploadItemsRepository.enqueue(uri) }
+        verify { summaryStarter.ensureRunning() }
+        verify {
+            workManager.enqueueUniqueWork(
+                UPLOAD_QUEUE_NAME,
+                ExistingWorkPolicy.KEEP,
+                any<OneTimeWorkRequest>()
+            )
+        }
     }
 
     @Test
-    fun retry_cancelsExistingWorkByUniqueTag() {
-        val wifiOnlyFlow = MutableStateFlow(false)
-        val enqueuer = UploadEnqueuer(workManager, summaryStarter, wifiOnlyFlow)
-        val uniqueName = "upload:abc"
-        val uri = Uri.parse("content://example/1")
+    fun cancel_cancelsWorkAndUpdatesRepository() = runBlocking {
+        val enqueuer = createEnqueuer()
+        val uri = Uri.parse("content://example/2")
+
+        enqueuer.cancel(uri)
+
+        val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
+        verify { workManager.cancelAllWorkByTag(uniqueTag) }
+        coVerify { uploadItemsRepository.markCancelled(uri) }
+        verify {
+            workManager.enqueueUniqueWork(
+                UPLOAD_QUEUE_NAME,
+                ExistingWorkPolicy.KEEP,
+                any<OneTimeWorkRequest>()
+            )
+        }
+    }
+
+    @Test
+    fun retry_requeuesItemAndStartsWorker() = runBlocking {
+        val enqueuer = createEnqueuer()
+        val uri = Uri.parse("content://example/3")
         val metadata = UploadWorkMetadata(
-            uniqueName = uniqueName,
+            uniqueName = enqueuer.uniqueName(uri),
             uri = uri,
-            displayName = "file-1",
-            idempotencyKey = "key-1",
+            displayName = "file-3",
+            idempotencyKey = "key-3",
             kind = UploadWorkKind.UPLOAD,
         )
 
         enqueuer.retry(metadata)
 
-        verify { workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName)) }
+        val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
+        verify { workManager.cancelAllWorkByTag(uniqueTag) }
+        coVerify { uploadItemsRepository.enqueue(uri) }
+        verify { summaryStarter.ensureRunning() }
+        verify {
+            workManager.enqueueUniqueWork(
+                UPLOAD_QUEUE_NAME,
+                ExistingWorkPolicy.KEEP,
+                any<OneTimeWorkRequest>()
+            )
+        }
     }
 
-    private suspend fun assertNetworkTypeEventually(
-        enqueuer: UploadEnqueuer,
-        expected: NetworkType,
-    ) {
-        withTimeout(TimeUnit.SECONDS.toMillis(1)) {
-            while (true) {
-                val constraints = enqueuer.networkConstraints()
-                if (constraints.requiredNetworkType == expected) {
-                    return@withTimeout
-                }
-                delay(10)
-            }
+    @Test
+    fun cancelAllUploads_cancelsTagsAndUpdatesRepository() = runBlocking {
+        val enqueuer = createEnqueuer()
+
+        enqueuer.cancelAllUploads()
+
+        verify { workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD) }
+        verify { workManager.cancelAllWorkByTag(UploadTags.TAG_POLL) }
+        coVerify { uploadItemsRepository.cancelAll() }
+        verify {
+            workManager.enqueueUniqueWork(
+                UPLOAD_QUEUE_NAME,
+                ExistingWorkPolicy.KEEP,
+                any<OneTimeWorkRequest>()
+            )
         }
-        throw AssertionError("Expected network type $expected")
     }
 }
