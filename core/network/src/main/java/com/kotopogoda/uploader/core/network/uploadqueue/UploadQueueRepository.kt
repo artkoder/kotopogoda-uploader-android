@@ -24,12 +24,7 @@ class UploadQueueRepository @Inject constructor(
 
     suspend fun cancel(item: UploadQueueItem) {
         val metadata = item.metadata
-        val uniqueName = metadata.uniqueName
-        if (uniqueName != null) {
-            uploadEnqueuer.cancel(uniqueName)
-        } else {
-            metadata.uri?.let(uploadEnqueuer::cancel)
-        }
+        metadata.uri?.let(uploadEnqueuer::cancel)
     }
 
     suspend fun retry(item: UploadQueueItem) {
@@ -41,9 +36,7 @@ class UploadQueueRepository @Inject constructor(
         get() {
             val metadata = this.metadata
             return state == UploadQueueItemState.FAILED &&
-                metadata.uniqueName != null &&
                 metadata.uri != null &&
-                metadata.idempotencyKey != null &&
                 metadata.kind == UploadWorkKind.UPLOAD
         }
 

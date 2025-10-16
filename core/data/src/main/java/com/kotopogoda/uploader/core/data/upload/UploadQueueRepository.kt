@@ -16,6 +16,60 @@ class UploadQueueRepository @Inject constructor(
     private val clock: Clock,
 ) {
 
+    suspend fun enqueue(uri: Uri) = withContext(Dispatchers.IO) {
+        val photo = photoDao.getByUri(uri.toString())
+            ?: throw IllegalStateException("Photo not found for uri=$uri")
+        val now = currentTimeMillis()
+        val existing = uploadItemDao.getByPhotoId(photo.id)
+        if (existing == null) {
+            uploadItemDao.insert(
+                UploadItemEntity(
+                    photoId = photo.id,
+                    state = UploadItemState.QUEUED.rawValue,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+        } else {
+            uploadItemDao.updateState(
+                id = existing.id,
+                state = UploadItemState.QUEUED.rawValue,
+                updatedAt = now,
+            )
+        }
+    }
+
+    suspend fun markQueued(uri: Uri) = withContext(Dispatchers.IO) {
+        val photo = photoDao.getByUri(uri.toString()) ?: return@withContext
+        val existing = uploadItemDao.getByPhotoId(photo.id) ?: return@withContext
+        uploadItemDao.updateState(
+            id = existing.id,
+            state = UploadItemState.QUEUED.rawValue,
+            updatedAt = currentTimeMillis(),
+        )
+    }
+
+    suspend fun markCancelled(uri: Uri) = withContext(Dispatchers.IO) {
+        val photo = photoDao.getByUri(uri.toString()) ?: return@withContext
+        val existing = uploadItemDao.getByPhotoId(photo.id) ?: return@withContext
+        uploadItemDao.updateState(
+            id = existing.id,
+            state = UploadItemState.FAILED.rawValue,
+            updatedAt = currentTimeMillis(),
+        )
+    }
+
+    suspend fun cancelAll() = withContext(Dispatchers.IO) {
+        uploadItemDao.updateStatesClearingError(
+            states = listOf(
+                UploadItemState.QUEUED.rawValue,
+                UploadItemState.PROCESSING.rawValue,
+            ),
+            state = UploadItemState.FAILED.rawValue,
+            updatedAt = currentTimeMillis(),
+        )
+    }
+
     suspend fun fetchQueued(limit: Int): List<UploadQueueItem> = withContext(Dispatchers.IO) {
         val queued = uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, limit)
         val now = currentTimeMillis()
