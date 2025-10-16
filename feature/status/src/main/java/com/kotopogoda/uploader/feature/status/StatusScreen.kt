@@ -1,7 +1,9 @@
 package com.kotopogoda.uploader.feature.status
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -65,14 +67,32 @@ fun StatusRoute(
     val context = LocalContext.current
 
     val folderPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, flags)
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null) {
+            val mask = maskPersistableFlags(result.data?.flags ?: 0)
+            if (mask != 0) {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri, mask)
+                }
             }
             viewModel.onStorageRefresh()
+        }
+    }
+
+    val launchFolderPicker = remember(folderPermissionLauncher) {
+        { initialUri: Uri? ->
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                if (initialUri != null) {
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+                }
+            }
+            folderPermissionLauncher.launch(intent)
         }
     }
 
@@ -82,7 +102,7 @@ fun StatusRoute(
                 StatusEvent.OpenQueue -> onOpenQueue()
                 StatusEvent.OpenPairingSettings -> onOpenPairingSettings()
                 is StatusEvent.RequestFolderAccess -> {
-                    folderPermissionLauncher.launch(event.treeUri)
+                    launchFolderPicker(event.treeUri)
                 }
             }
         }
@@ -98,6 +118,11 @@ fun StatusRoute(
         onCheckFolderAccess = viewModel::onRequestFolderCheck,
         modifier = modifier,
     )
+}
+
+private fun maskPersistableFlags(flags: Int): Int {
+    val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    return flags and mask
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

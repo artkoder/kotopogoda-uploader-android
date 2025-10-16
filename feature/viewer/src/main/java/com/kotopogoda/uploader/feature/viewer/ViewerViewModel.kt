@@ -179,9 +179,9 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
-    fun onFolderSelected(treeUri: String) {
+    fun onFolderSelected(treeUri: String, flags: Int) {
         viewModelScope.launch {
-            folderRepository.setFolder(treeUri)
+            folderRepository.setFolder(treeUri, flags)
         }
     }
 

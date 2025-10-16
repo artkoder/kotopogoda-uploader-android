@@ -15,9 +15,9 @@ class FolderRepository @Inject constructor(
 
     suspend fun getFolder(): Folder? = folderDao.getFolder()?.toFolder()
 
-    suspend fun setFolder(treeUri: String) {
+    suspend fun setFolder(treeUri: String, flags: Int) {
         folderDao.clear()
-        folderDao.insert(FolderEntity(treeUri = treeUri))
+        folderDao.insert(FolderEntity(treeUri = treeUri, flags = flags))
     }
 
     suspend fun clearFolder() {
@@ -28,6 +28,7 @@ class FolderRepository @Inject constructor(
 private fun FolderEntity.toFolder(): Folder = Folder(
     id = id,
     treeUri = treeUri,
+    flags = flags,
     lastScanAt = lastScanAt,
     lastViewedPhotoId = lastViewedPhotoId,
     lastViewedAt = lastViewedAt

@@ -37,6 +37,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import android.content.Intent
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -59,7 +60,14 @@ class ViewerViewModelDocumentInfoTest {
     @Test
     fun moveToProcessingWithSafUriUsesDocumentsContractParent() = runTest(context = dispatcher) {
         val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
-        val folder = Folder(id = 1, treeUri = treeUri.toString(), lastScanAt = null, lastViewedPhotoId = null, lastViewedAt = null)
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
         val documentId = "primary:Kotopogoda/Sub/saf.jpg"
         val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2FSub%2Fsaf.jpg")
         val resolver = TestContentResolver { uri, _ ->
@@ -101,7 +109,14 @@ class ViewerViewModelDocumentInfoTest {
     @Test
     fun moveToProcessingWithMediaStoreUriUsesRelativePath() = runTest(context = dispatcher) {
         val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
-        val folder = Folder(id = 1, treeUri = treeUri.toString(), lastScanAt = null, lastViewedPhotoId = null, lastViewedAt = null)
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
         val fileUri = Uri.parse("content://media/external/images/media/42")
         val resolver = TestContentResolver { uri, _ ->
             if (uri == fileUri) {
@@ -148,7 +163,14 @@ class ViewerViewModelDocumentInfoTest {
     @Test
     fun enqueueUploadWithSafUriUsesDocumentsContractMetadata() = runTest(context = dispatcher) {
         val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
-        val folder = Folder(id = 1, treeUri = treeUri.toString(), lastScanAt = null, lastViewedPhotoId = null, lastViewedAt = null)
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
         val documentId = "primary:Kotopogoda/saf.jpg"
         val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2Fsaf.jpg")
         val resolver = TestContentResolver { uri, _ ->
@@ -185,7 +207,14 @@ class ViewerViewModelDocumentInfoTest {
     @Test
     fun enqueueUploadWithMediaStoreUriUsesMediaStoreMetadata() = runTest(context = dispatcher) {
         val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
-        val folder = Folder(id = 1, treeUri = treeUri.toString(), lastScanAt = null, lastViewedPhotoId = null, lastViewedAt = null)
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
         val fileUri = Uri.parse("content://media/external/images/media/99")
         val resolver = TestContentResolver { uri, _ ->
             if (uri == fileUri) {
