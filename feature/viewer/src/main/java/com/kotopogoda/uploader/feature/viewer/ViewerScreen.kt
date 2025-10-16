@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,8 +27,11 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Badge
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,9 +50,13 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.tooltipAnchor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,7 +72,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.network.health.HealthState
@@ -572,17 +582,34 @@ private fun ViewerActionBar(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val buttonModifier = Modifier
+                .weight(1f)
+                .height(44.dp)
+            val skipColors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            val processingColors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            val publishColors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
             FilledTonalButton(
                 onClick = onSkip,
                 enabled = skipEnabled,
-                modifier = Modifier.weight(1f)
+                modifier = buttonModifier,
+                colors = skipColors
             ) {
-                Text(text = stringResource(id = R.string.viewer_action_skip))
+                ActionButtonContent(text = stringResource(id = R.string.viewer_action_skip))
             }
             FilledTonalButton(
                 onClick = onMoveToProcessing,
                 enabled = processingEnabled,
-                modifier = Modifier.weight(1f)
+                modifier = buttonModifier,
+                colors = processingColors
             ) {
                 ActionButtonContent(
                     text = stringResource(id = R.string.viewer_action_processing),
@@ -592,24 +619,55 @@ private fun ViewerActionBar(
             Button(
                 onClick = onEnqueueUpload,
                 enabled = publishEnabled,
-                modifier = Modifier.weight(1f)
+                modifier = buttonModifier,
+                colors = publishColors
             ) {
                 ActionButtonContent(
                     text = stringResource(id = R.string.viewer_action_publish),
                     busy = publishBusy
                 )
             }
-            OutlinedButton(
-                onClick = onUndo,
-                enabled = canUndo,
-                modifier = Modifier.weight(1f)
+            val undoTooltipState = rememberTooltipState()
+            PlainTooltipBox(
+                tooltip = {
+                    Text(text = stringResource(id = R.string.viewer_action_undo_tooltip))
+                },
+                state = undoTooltipState
             ) {
-                val label = if (undoCount > 0) {
-                    stringResource(id = R.string.viewer_action_undo_with_count, undoCount)
-                } else {
-                    stringResource(id = R.string.viewer_action_undo)
+                OutlinedButton(
+                    onClick = onUndo,
+                    enabled = canUndo,
+                    modifier = buttonModifier.tooltipAnchor()
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = null
+                            )
+                            ActionButtonLabel(text = stringResource(id = R.string.viewer_action_undo))
+                            if (undoCount > 0) {
+                                Badge(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ) {
+                                    Text(
+                                        text = undoCount.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
-                Text(text = label)
             }
         }
     }
@@ -618,13 +676,13 @@ private fun ViewerActionBar(
 @Composable
 private fun ActionButtonContent(
     text: String,
-    busy: Boolean
+    busy: Boolean = false
 ) {
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text)
+        ActionButtonLabel(text = text)
         if (busy) {
             CircularProgressIndicator(
                 modifier = Modifier
@@ -634,6 +692,41 @@ private fun ActionButtonContent(
                 strokeWidth = 2.dp
             )
         }
+    }
+}
+
+@Composable
+private fun ActionButtonLabel(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = text,
+        modifier = modifier,
+        style = MaterialTheme.typography.labelLarge,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center
+    )
+}
+
+@Preview(showBackground = true, widthDp = 360)
+@Composable
+private fun ViewerActionBarPreview() {
+    MaterialTheme(colorScheme = lightColorScheme()) {
+        ViewerActionBar(
+            skipEnabled = true,
+            processingEnabled = true,
+            publishEnabled = true,
+            processingBusy = true,
+            publishBusy = false,
+            canUndo = true,
+            undoCount = 3,
+            onSkip = {},
+            onMoveToProcessing = {},
+            onEnqueueUpload = {},
+            onUndo = {}
+        )
     }
 }
 
