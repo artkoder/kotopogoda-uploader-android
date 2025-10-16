@@ -16,6 +16,7 @@ data class HealthState(
     val latencyMillis: Long? = null,
 ) {
     companion object {
+        const val MESSAGE_PARSE_ERROR: String = "parse_error"
         val Unknown = HealthState(status = HealthStatus.UNKNOWN, lastCheckedAt = null)
     }
 }

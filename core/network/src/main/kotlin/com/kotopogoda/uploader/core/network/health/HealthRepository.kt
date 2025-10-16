@@ -28,12 +28,14 @@ class HealthRepository @Inject constructor(
 
         callResult.fold(
             onSuccess = { response ->
-                val status = parseStatus(response.status)
+                val parsedStatus = parseStatus(response.status)
                 Result(
-                    status = status,
+                    status = parsedStatus.status,
                     checkedAt = end,
                     latencyMillis = latencyMillis,
-                    message = response.message ?: status.messageOrNull(response.status),
+                    message = response.message
+                        ?: parsedStatus.message
+                        ?: parsedStatus.status.messageOrNull(response.status),
                 )
             },
             onFailure = { error ->
@@ -47,12 +49,20 @@ class HealthRepository @Inject constructor(
         )
     }
 
-    private fun parseStatus(rawStatus: Any?): HealthStatus {
-        return when (val value = extractStatusValue(rawStatus)) {
-            is String -> value.toHealthStatus()
-            is Number -> value.toHealthStatus()
-            else -> HealthStatus.UNKNOWN
+    private fun parseStatus(rawStatus: Any?): ParsedStatus {
+        val extracted = extractStatusValue(rawStatus)
+        val status = when (extracted) {
+            is String -> extracted.toHealthStatus()
+            is Number -> extracted.toHealthStatus()
+            else -> null
         }
+        if (status == null || status == HealthStatus.UNKNOWN) {
+            return ParsedStatus(
+                status = HealthStatus.DEGRADED,
+                message = HealthState.MESSAGE_PARSE_ERROR,
+            )
+        }
+        return ParsedStatus(status = status, message = null)
     }
 
     private fun extractStatusValue(value: Any?): Any? {
@@ -112,6 +122,11 @@ class HealthRepository @Inject constructor(
         val status: HealthStatus,
         val checkedAt: Instant,
         val latencyMillis: Long,
+        val message: String?,
+    )
+
+    private data class ParsedStatus(
+        val status: HealthStatus,
         val message: String?,
     )
 }
