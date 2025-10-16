@@ -76,9 +76,35 @@ ${{ steps.guard.outputs.failing }}
         with:
           script: |
             const pr = context.payload.check_suite.pull_requests[0];
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sha = context.payload.check_suite.head_sha;
+
+            const { data: combined } = await github.rest.repos.getCombinedStatusForRef({
+              owner, repo, ref: sha
+            });
+            if (combined.state !== 'success') {
+              return;
+            }
+
+            const failureStates = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'stale']);
+            const { data: runs } = await github.rest.checks.listForRef({
+              owner, repo, ref: sha
+            });
+
+            const hasProblems = runs.check_runs.some(run => {
+              if (!run.completed_at) return true;
+              if (failureStates.has(run.conclusion)) return true;
+              if (!run.conclusion) return true;
+              return false;
+            });
+            if (hasProblems) {
+              return;
+            }
+
             try {
               await github.rest.issues.removeLabel({
-                owner: context.repo.owner, repo: context.repo.repo,
+                owner, repo,
                 issue_number: pr.number, name: 'codex:ci-fix-requested'
               });
             } catch {}
