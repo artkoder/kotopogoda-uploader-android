@@ -30,10 +30,13 @@ class UploadEnqueuer @Inject constructor(
         val uniqueName = uniqueName(uri)
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
         val cancelledWhileProcessing = uploadItemsRepository.markCancelled(uri)
-        if (cancelledWhileProcessing) {
+        val forceReplace = if (cancelledWhileProcessing) {
             cancelUploadProcessorWork()
+            true
+        } else {
+            false
         }
-        ensureUploadRunning()
+        ensureUploadRunning(forceReplace)
     }
 
     suspend fun cancelAllUploads() {
@@ -41,7 +44,7 @@ class UploadEnqueuer @Inject constructor(
         workManager.cancelAllWorkByTag(UploadTags.TAG_POLL)
         cancelUploadProcessorWork()
         uploadItemsRepository.cancelAll()
-        ensureUploadRunning()
+        ensureUploadRunning(forceReplace = true)
     }
 
     suspend fun retry(metadata: UploadWorkMetadata) {
@@ -82,14 +85,15 @@ class UploadEnqueuer @Inject constructor(
         }
     }
 
-    fun ensureUploadRunning() {
+    fun ensureUploadRunning(forceReplace: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<UploadProcessorWorker>()
             .setConstraints(constraintsProvider.buildConstraints())
             .build()
         val workName = runCatching {
             workerClass.getField("WORK_NAME").get(null) as? String
         }.getOrNull() ?: UPLOAD_PROCESSOR_WORK_NAME
-        workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.KEEP, request)
+        val policy = if (forceReplace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
+        workManager.enqueueUniqueWork(workName, policy, request)
     }
 
     private fun cancelUploadProcessorWork() {
