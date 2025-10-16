@@ -7,6 +7,7 @@
     <string name="viewer_action_undo">Отменить</string>
     <string name="viewer_action_undo_with_count">Отменить (%1$d)</string>
     <string name="viewer_action_undo_tooltip">Отменить выбор</string>
+    <string name="viewer_action_delete">Удалить</string>
     <string name="viewer_snackbar_action_undo">Отменить</string>
     <string name="viewer_snackbar_skip_success">Фотография пропущена</string>
     <string name="viewer_snackbar_processing_success">Перенесено в «На обработку»</string>
@@ -17,6 +18,9 @@
     <string name="viewer_snackbar_publish_undone">Публикация отменена</string>
     <string name="viewer_snackbar_undo_failed">Не удалось отменить действие</string>
     <string name="viewer_snackbar_delete_failed">Не удалось удалить файл — проверьте доступ к папке</string>
+    <string name="viewer_snackbar_delete_success">Файл удалён</string>
+    <string name="viewer_snackbar_delete_undone">Удаление отменено</string>
+    <string name="viewer_toast_delete_cancelled">Удаление отменено</string>
     <string name="viewer_badge_enqueued">В очереди</string>
     <string name="viewer_error_title">Не удалось загрузить фотографии</string>
     <string name="viewer_error_body">Попробуйте обновить экран или проверить доступ к медиа.</string>
