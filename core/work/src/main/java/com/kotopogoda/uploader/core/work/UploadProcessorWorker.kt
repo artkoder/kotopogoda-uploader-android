@@ -45,7 +45,10 @@ class UploadProcessorWorker @AssistedInject constructor(
         var shouldRetry = false
 
         for (item in queued) {
-            repository.markProcessing(item.id)
+            val markedProcessing = repository.markProcessing(item.id)
+            if (!markedProcessing) {
+                continue
+            }
             val outcome = try {
                 taskRunner.run(
                     UploadTaskParams(
@@ -63,9 +66,13 @@ class UploadProcessorWorker @AssistedInject constructor(
                     retryable = error.isRetryable(),
                 )
             }
-            result.onFailure { error ->
-                if (error is CancellationException) {
-                    throw error
+
+            val isProcessing = repository.getState(item.id) == UploadItemState.PROCESSING
+            when (outcome) {
+                is UploadTaskResult.Success -> {
+                    if (isProcessing) {
+                        repository.markSucceeded(item.id)
+                    }
                 }
                 is UploadTaskResult.Failure -> {
                     if (isProcessing) {
