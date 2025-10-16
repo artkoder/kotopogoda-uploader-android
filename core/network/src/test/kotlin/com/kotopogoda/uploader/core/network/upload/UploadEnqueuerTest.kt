@@ -27,6 +27,7 @@ class UploadEnqueuerTest {
 
     init {
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
+        every { workManager.cancelUniqueWork(any()) } returns mockk(relaxed = true)
         every { constraintsProvider.buildConstraints() } returns Constraints.NONE
     }
 
@@ -67,6 +68,7 @@ class UploadEnqueuerTest {
 
         val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
+        verify { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
         coVerify { uploadItemsRepository.markCancelled(uri) }
         verify { constraintsProvider.buildConstraints() }
         verify {
@@ -116,6 +118,7 @@ class UploadEnqueuerTest {
 
         verify { workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD) }
         verify { workManager.cancelAllWorkByTag(UploadTags.TAG_POLL) }
+        verify { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
         coVerify { uploadItemsRepository.cancelAll() }
         verify { constraintsProvider.buildConstraints() }
         verify {

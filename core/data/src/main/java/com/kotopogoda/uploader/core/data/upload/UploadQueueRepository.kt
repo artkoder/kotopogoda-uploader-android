@@ -181,6 +181,11 @@ class UploadQueueRepository @Inject constructor(
         uploadItemDao.countByState(UploadItemState.QUEUED.rawValue) > 0
     }
 
+    suspend fun getState(id: Long): UploadItemState? = withContext(Dispatchers.IO) {
+        val entity = uploadItemDao.getById(id) ?: return@withContext null
+        UploadItemState.fromRawValue(entity.state)
+    }
+
     private fun buildDisplayName(relPath: String?, uri: Uri): String {
         val fromRelPath = relPath?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
         val fromUri = uri.lastPathSegment?.takeIf { it.isNotBlank() }
