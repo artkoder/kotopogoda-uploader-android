@@ -2,8 +2,10 @@
 
 package com.kotopogoda.uploader.feature.viewer
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -110,12 +112,16 @@ fun ViewerRoute(
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null) {
+            val resultFlags = result.data?.flags ?: 0
+            val mask = maskPersistableFlags(resultFlags)
             try {
-                contentResolver.takePersistableUriPermission(uri, flags)
+                if (mask != 0) {
+                    contentResolver.takePersistableUriPermission(uri, mask)
+                }
                 currentFolderUri?.let { previousUriString ->
                     val previousUri = Uri.parse(previousUriString)
                     contentResolver.persistedUriPermissions
@@ -140,10 +146,25 @@ fun ViewerRoute(
                             }
                         }
                 }
-                viewModel.onFolderSelected(uri.toString())
+                viewModel.onFolderSelected(uri.toString(), mask)
             } catch (_: SecurityException) {
                 // ignore and leave the state unchanged
             }
+        }
+    }
+
+    val launchFolderPicker = remember(folderPickerLauncher) {
+        { initialUri: Uri? ->
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                if (initialUri != null) {
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+                }
+            }
+            folderPickerLauncher.launch(intent)
         }
     }
 
@@ -170,9 +191,14 @@ fun ViewerRoute(
         onUndo = viewModel::onUndo,
         onJumpToDate = viewModel::jumpToDate,
         onSelectFolder = {
-            folderPickerLauncher.launch(currentFolderUri?.let(Uri::parse))
+            launchFolderPicker(currentFolderUri?.let(Uri::parse))
         }
     )
+}
+
+private fun maskPersistableFlags(flags: Int): Int {
+    val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    return flags and mask
 }
 
 @VisibleForTesting
