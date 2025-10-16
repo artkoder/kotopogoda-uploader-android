@@ -1,0 +1,77 @@
+name: Issue → Draft PR → Codex
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  kick:
+    if: startsWith(github.event.comment.body, '/codex')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract message for Codex
+        id: msg
+        run: |
+          body='${{ github.event.comment.body }}'
+          msg="${body#/codex }"
+          echo "msg<<EOF" >> $GITHUB_OUTPUT
+          echo "$msg" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Create branch with empty commit
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -e
+          BRANCH="codex/issue-${ISSUE_NUMBER}"
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git commit --allow-empty -m "chore: start Codex task for issue #${ISSUE_NUMBER}"
+          git push -u origin "$BRANCH"
+
+      - name: Open draft PR
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = process.env.BRANCH;
+            const base = context.payload.repository.default_branch;
+            const issue = context.payload.issue;
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Codex] ${issue.title}`,
+              head: branch,
+              base,
+              draft: true,
+              body: `Closes #${issue.number}\n\nCreated automatically for Codex task.`,
+            });
+            core.setOutput('number', pr.data.number);
+
+      - name: Post @codex comment to PR (starts cloud task)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = Number('${{ steps.pr.outputs.number }}');
+            const msg = `${{ steps.msg.outputs.msg }}`.trim();
+            const body = `@codex ${msg}
+
+Context: started from issue #${{ github.event.issue.number }}. 
+Please work on this branch and keep commits small.`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body
+            });
