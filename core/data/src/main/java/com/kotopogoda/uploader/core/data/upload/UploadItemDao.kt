@@ -59,4 +59,15 @@ interface UploadItemDao {
         "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE state IN (:states)"
     )
     suspend fun updateStatesClearingError(states: List<String>, state: String, updatedAt: Long)
+
+    @Query(
+        "UPDATE upload_items SET state = :queuedState, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt " +
+            "WHERE state = :processingState AND (updated_at IS NULL OR updated_at < :stuckBefore)"
+    )
+    suspend fun requeueProcessingToQueued(
+        processingState: String,
+        queuedState: String,
+        stuckBefore: Long,
+        updatedAt: Long,
+    ): Int
 }

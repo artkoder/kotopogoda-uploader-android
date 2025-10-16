@@ -32,7 +32,8 @@ class UploadProcessorWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val queued = repository.fetchQueued(BATCH_SIZE)
+        repository.recoverStuckProcessing()
+        val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
         if (queued.isEmpty()) {
             if (repository.hasQueued()) {
                 enqueueSelf()
