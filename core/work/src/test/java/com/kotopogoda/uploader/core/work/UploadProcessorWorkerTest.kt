@@ -2,7 +2,6 @@ package com.kotopogoda.uploader.core.work
 
 import android.content.Context
 import android.net.Uri
-import androidx.test.core.app.ApplicationProvider
 import androidx.work.Constraints
 import androidx.work.ListenableWorker.Result
 import androidx.work.Operation
@@ -23,7 +22,11 @@ import org.junit.Test
 
 class UploadProcessorWorkerTest {
 
-    private val context: Context = ApplicationProvider.getApplicationContext()
+    private val context: Context = mockk(relaxed = true)
+
+    init {
+        every { context.applicationContext } returns context
+    }
 
     @Test
     fun `worker recovers stuck processing before fetching batch`() = runTest {
