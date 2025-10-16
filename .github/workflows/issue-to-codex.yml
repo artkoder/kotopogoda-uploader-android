@@ -16,11 +16,19 @@ jobs:
       - name: Extract message for Codex
         id: msg
         run: |
-          body='${{ github.event.comment.body }}'
-          msg="${body#/codex }"
-          echo "msg<<EOF" >> $GITHUB_OUTPUT
-          echo "$msg" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          python <<'PY'
+          import os
+
+          body = ${{ toJson(github.event.comment.body) }}
+          prefix = '/codex'
+          msg = body[len(prefix):].lstrip() if body.startswith(prefix) else body
+
+          output = os.environ['GITHUB_OUTPUT']
+          with open(output, 'a', encoding='utf-8') as fh:
+              fh.write('msg<<EOF\n')
+              fh.write(msg)
+              fh.write('\nEOF\n')
+          PY
 
       - name: Checkout default branch
         uses: actions/checkout@v4
