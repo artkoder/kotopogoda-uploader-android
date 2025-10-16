@@ -60,6 +60,8 @@ class QueueViewModel @Inject constructor(
         summaryStarter.ensureRunning()
     }
 
+}
+
 data class QueueUiState(
     val items: List<QueueItemUiModel> = emptyList()
 ) {
