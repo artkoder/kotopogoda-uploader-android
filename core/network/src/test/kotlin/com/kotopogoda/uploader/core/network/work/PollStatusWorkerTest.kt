@@ -81,9 +81,9 @@ class PollStatusWorkerTest {
                         appContext,
                         workerParameters,
                         uploadApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
-                        uploadQueueRepository,
                     )
                 }
                 return null
@@ -308,6 +308,7 @@ class PollStatusWorkerTest {
                         appContext,
                         workerParameters,
                         failingApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                     )

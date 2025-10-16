@@ -91,9 +91,9 @@ class UploadWorkerTest {
                         appContext,
                         workerParameters,
                         uploadApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
-                        uploadQueueRepository,
                     )
                 }
                 return null
@@ -251,9 +251,9 @@ class UploadWorkerTest {
                         appContext,
                         workerParameters,
                         failingApi,
+                        uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
-                        uploadQueueRepository,
                     )
                 }
                 return null
