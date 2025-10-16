@@ -6,7 +6,6 @@ import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.WorkQuery
 import androidx.work.getWorkInfosByTagFlow
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import java.security.MessageDigest
@@ -54,13 +53,6 @@ class UploadEnqueuer @Inject constructor(
         uploadItemsRepository.enqueue(uri)
         summaryStarter.ensureRunning()
         ensureUploadRunning()
-    }
-
-    fun getAllUploadsFlow(): Flow<List<WorkInfo>> {
-        val query = WorkQuery.Builder
-            .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL))
-            .build()
-        return workManager.getWorkInfosFlow(query)
     }
 
     fun isEnqueued(uri: Uri): Flow<Boolean> =

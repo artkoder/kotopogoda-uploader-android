@@ -278,8 +278,8 @@ private fun QueueCard(summary: QueueSummary, onOpenQueue: () -> Unit, modifier: 
             if (summary.total == 0) {
                 Text(text = stringResource(id = R.string.status_queue_empty), style = MaterialTheme.typography.bodyMedium)
             } else {
-                Text(text = stringResource(id = R.string.status_queue_running, summary.running, summary.total), style = MaterialTheme.typography.bodyMedium)
-                Text(text = stringResource(id = R.string.status_queue_enqueued, summary.enqueued), style = MaterialTheme.typography.bodyMedium)
+                Text(text = stringResource(id = R.string.status_queue_running, summary.processing, summary.total), style = MaterialTheme.typography.bodyMedium)
+                Text(text = stringResource(id = R.string.status_queue_enqueued, summary.queued), style = MaterialTheme.typography.bodyMedium)
                 Text(text = stringResource(id = R.string.status_queue_failed, summary.failed), style = MaterialTheme.typography.bodyMedium)
             }
             Spacer(modifier = Modifier.height(8.dp))

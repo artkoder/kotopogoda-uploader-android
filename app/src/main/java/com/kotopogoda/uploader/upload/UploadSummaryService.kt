@@ -13,22 +13,19 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import androidx.work.WorkQuery
-import androidx.lifecycle.Observer
 import com.kotopogoda.uploader.MainActivity
 import com.kotopogoda.uploader.R
-import com.kotopogoda.uploader.core.network.upload.UploadTags
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.notifications.UploadNotif
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -36,6 +33,12 @@ class UploadSummaryService : LifecycleService() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var uploadQueueRepository: UploadQueueRepository
+
+    @Inject
+    lateinit var uploadEnqueuer: UploadEnqueuer
 
     private var observerJob: Job? = null
 
@@ -58,17 +61,12 @@ class UploadSummaryService : LifecycleService() {
     }
 
     private suspend fun observeQueue() {
-        val workManager = WorkManager.getInstance(this)
-        val query = WorkQuery.Builder
-            .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL))
-            .build()
-        val workFlow = workManager.workInfosFlow(query)
-        combine(settingsRepository.flow, workFlow) { settings, infos ->
-            settings to infos
-        }.collect { (settings, infos) ->
-            val summary = infos.toSummary()
-            val hasActivePoll = infos.any { it.tags.contains(UploadTags.TAG_POLL) && it.state.isActive() }
-            val shouldKeepForeground = summary.hasActive || hasActivePoll || settings.persistentQueueNotification
+        val queueFlow = uploadQueueRepository.observeQueue()
+            .map { entries -> entries.toSummary() }
+        combine(settingsRepository.flow, queueFlow) { settings, summary ->
+            settings to summary
+        }.collect { (settings, summary) ->
+            val shouldKeepForeground = summary.hasActive || settings.persistentQueueNotification
             if (!shouldKeepForeground) {
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -99,9 +97,9 @@ class UploadSummaryService : LifecycleService() {
         } else {
             getString(
                 R.string.upload_summary_notification_content,
-                summary.running,
+                summary.processing,
                 summary.total,
-                summary.enqueued
+                summary.queued
             )
         }
         return builder.setContentText(text).build()
@@ -117,9 +115,9 @@ class UploadSummaryService : LifecycleService() {
     }
 
     private fun cancelAllUploads() {
-        val workManager = WorkManager.getInstance(this)
-        workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD)
-        workManager.cancelAllWorkByTag(UploadTags.TAG_POLL)
+        lifecycleScope.launch {
+            uploadEnqueuer.cancelAllUploads()
+        }
     }
 
     private fun queuePendingIntent(): PendingIntent {
@@ -142,37 +140,42 @@ class UploadSummaryService : LifecycleService() {
         )
     }
 
-    private fun WorkInfo.State.isActive(): Boolean {
-        return this == WorkInfo.State.ENQUEUED || this == WorkInfo.State.RUNNING || this == WorkInfo.State.BLOCKED
-    }
-
-    private fun List<WorkInfo>.toSummary(): QueueSummary {
-        val activeUploads = filter { it.tags.contains(UploadTags.TAG_UPLOAD) && it.state.isActive() }
-        val running = activeUploads.count { it.state == WorkInfo.State.RUNNING }
-        val enqueued = activeUploads.count { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
-        val total = activeUploads.size
+    private fun List<UploadQueueEntry>.toSummary(): QueueSummary {
+        if (isEmpty()) {
+            return QueueSummary.Empty
+        }
+        var queued = 0
+        var processing = 0
+        var succeeded = 0
+        var failed = 0
+        for (entry in this) {
+            when (entry.state) {
+                UploadItemState.QUEUED -> queued += 1
+                UploadItemState.PROCESSING -> processing += 1
+                UploadItemState.SUCCEEDED -> succeeded += 1
+                UploadItemState.FAILED -> failed += 1
+            }
+        }
         return QueueSummary(
-            total = total,
-            running = running,
-            enqueued = enqueued,
+            queued = queued,
+            processing = processing,
+            succeeded = succeeded,
+            failed = failed,
         )
     }
 
-    private fun WorkManager.workInfosFlow(query: WorkQuery): Flow<List<WorkInfo>> = callbackFlow {
-        val liveData = getWorkInfosLiveData(query)
-        val observer = Observer<List<WorkInfo>> { infos ->
-            trySend(infos.orEmpty())
-        }
-        liveData.observeForever(observer)
-        awaitClose { liveData.removeObserver(observer) }
-    }
-
     data class QueueSummary(
-        val total: Int,
-        val running: Int,
-        val enqueued: Int,
+        val queued: Int,
+        val processing: Int,
+        val succeeded: Int,
+        val failed: Int,
     ) {
-        val hasActive: Boolean get() = total > 0
+        val total: Int get() = queued + processing + succeeded + failed
+        val hasActive: Boolean get() = queued + processing > 0
+
+        companion object {
+            val Empty = QueueSummary(0, 0, 0, 0)
+        }
     }
 
     companion object {
