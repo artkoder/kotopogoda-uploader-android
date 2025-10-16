@@ -4,12 +4,12 @@ import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import java.time.Clock
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class UploadQueueRepository @Inject constructor(
@@ -95,9 +95,18 @@ class UploadQueueRepository @Inject constructor(
         )
     }
 
-    suspend fun fetchQueued(limit: Int): List<UploadQueueItem> = withContext(Dispatchers.IO) {
-        val queued = uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, limit)
+    suspend fun recoverStuckProcessing(): Int = withContext(Dispatchers.IO) {
         val now = currentTimeMillis()
+        recoverStuckProcessingInternal(now)
+    }
+
+    suspend fun fetchQueued(limit: Int, recoverStuck: Boolean = true): List<UploadQueueItem> = withContext(Dispatchers.IO) {
+        val now = currentTimeMillis()
+        if (recoverStuck) {
+            recoverStuckProcessingInternal(now)
+        }
+        val queued = uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, limit)
+        val updateTimestamp = currentTimeMillis()
         buildList {
             for (entity in queued) {
                 if (entity.uri.isBlank()) {
@@ -106,7 +115,7 @@ class UploadQueueRepository @Inject constructor(
                         state = UploadItemState.FAILED.rawValue,
                         lastErrorKind = UploadWorkErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
-                        updatedAt = now,
+                        updatedAt = updateTimestamp,
                     )
                     continue
                 }
@@ -117,7 +126,7 @@ class UploadQueueRepository @Inject constructor(
                         state = UploadItemState.FAILED.rawValue,
                         lastErrorKind = UploadWorkErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
-                        updatedAt = now,
+                        updatedAt = updateTimestamp,
                     )
                     continue
                 }
@@ -191,6 +200,15 @@ class UploadQueueRepository @Inject constructor(
 
     private fun currentTimeMillis(): Long = clock.instant().toEpochMilli()
 
+    private suspend fun recoverStuckProcessingInternal(now: Long): Int {
+        return uploadItemDao.requeueProcessingToQueued(
+            processingState = UploadItemState.PROCESSING.rawValue,
+            queuedState = UploadItemState.QUEUED.rawValue,
+            stuckBefore = now - PROCESSING_RECOVERY_TIMEOUT_MS,
+            updatedAt = now,
+        )
+    }
+
     private fun String?.toUriOrNull(): Uri? {
         if (isNullOrBlank()) return null
         return runCatching { Uri.parse(this) }.getOrNull()
@@ -198,6 +216,7 @@ class UploadQueueRepository @Inject constructor(
 
     companion object {
         private const val DEFAULT_DISPLAY_NAME = "photo.jpg"
+        internal const val PROCESSING_RECOVERY_TIMEOUT_MS = 5 * 60 * 1000L
     }
 }
 
