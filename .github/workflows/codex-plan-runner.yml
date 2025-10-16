@@ -29,7 +29,11 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number
             });
             const stepLabel = labels.find(l => l.name.startsWith('codex:step-'));
-            const idx = stepLabel ? parseInt(stepLabel.name.split('-')[2],10) : 0;
+            let idx = 0;
+            if (stepLabel) {
+              const parsed = parseInt(stepLabel.name.replace('codex:step-', ''), 10);
+              idx = Number.isNaN(parsed) ? 0 : parsed;
+            }
 
             const lines = (prData.data.body || '').split('\n');
             const tasks = lines
