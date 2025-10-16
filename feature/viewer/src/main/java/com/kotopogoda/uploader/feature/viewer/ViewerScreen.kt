@@ -42,7 +42,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallTopAppBar
 import androidx.compose.material3.SnackbarHost
@@ -55,7 +54,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.tooltipAnchor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -72,6 +70,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -630,41 +629,41 @@ private fun ViewerActionBar(
             }
             val undoTooltipText = stringResource(id = R.string.viewer_action_undo_tooltip)
             val undoContentDescription = stringResource(id = R.string.viewer_action_undo)
-            PlainTooltipBox(
-                tooltip = { Text(text = undoTooltipText) }
+            OutlinedButton(
+                onClick = onUndo,
+                enabled = canUndo,
+                modifier = buttonModifier
+                    .semantics {
+                        contentDescription = undoContentDescription
+                        if (!canUndo) {
+                            stateDescription = undoTooltipText
+                        }
+                    }
             ) {
-                OutlinedButton(
-                    onClick = onUndo,
-                    enabled = canUndo,
-                    modifier = buttonModifier
-                        .tooltipAnchor()
-                        .semantics { contentDescription = undoContentDescription }
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = undoContentDescription
-                            )
-                            ActionButtonLabel(text = stringResource(id = R.string.viewer_action_undo))
-                            if (undoCount > 0) {
-                                Badge(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                ) {
-                                    Text(
-                                        text = undoCount.toString(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Clip
-                                    )
-                                }
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = undoContentDescription
+                        )
+                        ActionButtonLabel(text = stringResource(id = R.string.viewer_action_undo))
+                        if (undoCount > 0) {
+                            Badge(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ) {
+                                Text(
+                                    text = undoCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Clip
+                                )
                             }
                         }
                     }
