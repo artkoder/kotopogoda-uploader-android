@@ -13,16 +13,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import androidx.work.WorkInfo
-import androidx.documentfile.provider.DocumentFile
 import com.kotopogoda.uploader.feature.viewer.R
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
-import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
+import com.kotopogoda.uploader.core.network.uploadqueue.UploadQueueItemState
+import com.kotopogoda.uploader.core.network.uploadqueue.UploadQueueRepository
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -60,6 +59,7 @@ class ViewerViewModel @Inject constructor(
     private val folderRepository: FolderRepository,
     private val saFileRepository: SaFileRepository,
     private val uploadEnqueuer: UploadEnqueuer,
+    private val uploadQueueRepository: UploadQueueRepository,
     private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
     private val savedStateHandle: SavedStateHandle
@@ -148,20 +148,19 @@ class ViewerViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            uploadEnqueuer.getAllUploadsFlow().collect { infos ->
-                infos.forEach { info ->
-                    if (info.state == WorkInfo.State.SUCCEEDED) {
-                        val metadata = UploadTags.metadataFrom(info)
-                        if (metadata.kind == UploadWorkKind.POLL) {
-                            val deleted = info.outputData.keyValueMap[UploadEnqueuer.KEY_DELETED] as? Boolean
-                            if (deleted == false && handledDeletionWarnings.add(info.id)) {
-                                _events.emit(
-                                    ViewerEvent.ShowSnackbar(
-                                        messageRes = R.string.viewer_snackbar_delete_failed
-                                    )
-                                )
-                            }
-                        }
+            uploadQueueRepository.observeQueue().collect { items ->
+                items.forEach { item ->
+                    if (
+                        item.kind == UploadWorkKind.POLL &&
+                        item.state == UploadQueueItemState.SUCCEEDED &&
+                        item.deleted == false &&
+                        handledDeletionWarnings.add(item.id)
+                    ) {
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_delete_failed
+                            )
+                        )
                     }
                 }
             }
