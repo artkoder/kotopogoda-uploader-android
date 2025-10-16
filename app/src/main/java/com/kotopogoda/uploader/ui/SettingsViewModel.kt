@@ -46,7 +46,7 @@ class SettingsViewModel @Inject constructor(
             queueNotificationPermissionGranted = notificationPermissionChecker.canPostNotifications(),
             isQueueNotificationToggleEnabled = notificationPermissionChecker.canPostNotifications(),
             wifiOnlyUploadsEnabled = false,
-            logsDirectoryPath = logManager.logsDirectoryPath(),
+            logsDirectoryPath = logsExporter.publicDirectoryDisplayPath(),
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
