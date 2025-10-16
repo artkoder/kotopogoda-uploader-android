@@ -37,7 +37,6 @@ class UploadQueueRepositoryTest {
             uploadItemDao.requeueProcessingToQueued(
                 processingState = UploadItemState.PROCESSING.rawValue,
                 queuedState = UploadItemState.QUEUED.rawValue,
-                stuckBefore = any(),
                 updatedAt = any(),
             )
             uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, 10)
@@ -48,7 +47,6 @@ class UploadQueueRepositoryTest {
             uploadItemDao.requeueProcessingToQueued(
                 processingState = UploadItemState.PROCESSING.rawValue,
                 queuedState = UploadItemState.QUEUED.rawValue,
-                stuckBefore = expectedNow - UploadQueueRepository.PROCESSING_RECOVERY_TIMEOUT_MS,
                 updatedAt = expectedNow,
             )
         }
@@ -60,13 +58,13 @@ class UploadQueueRepositoryTest {
 
         repository.fetchQueued(limit = 3, recoverStuck = false)
 
-        coVerify(exactly = 0) { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { uploadItemDao.requeueProcessingToQueued(any(), any(), any()) }
         coVerify { uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, 3) }
     }
 
     @Test
     fun `recoverStuckProcessing returns affected rows`() = runTest {
-        coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) } returns 2
+        coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any()) } returns 2
 
         val affected = repository.recoverStuckProcessing()
 
@@ -76,7 +74,6 @@ class UploadQueueRepositoryTest {
             uploadItemDao.requeueProcessingToQueued(
                 processingState = UploadItemState.PROCESSING.rawValue,
                 queuedState = UploadItemState.QUEUED.rawValue,
-                stuckBefore = expectedNow - UploadQueueRepository.PROCESSING_RECOVERY_TIMEOUT_MS,
                 updatedAt = expectedNow,
             )
         }
