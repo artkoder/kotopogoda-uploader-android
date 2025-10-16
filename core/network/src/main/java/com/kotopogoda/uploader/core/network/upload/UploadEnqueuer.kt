@@ -33,8 +33,10 @@ class UploadEnqueuer @Inject constructor(
     suspend fun cancel(uri: Uri) {
         val uniqueName = uniqueName(uri)
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
-        cancelUploadProcessorWork()
-        uploadItemsRepository.markCancelled(uri)
+        val cancelledWhileProcessing = uploadItemsRepository.markCancelled(uri)
+        if (cancelledWhileProcessing) {
+            cancelUploadProcessorWork()
+        }
         ensureUploadRunning()
     }
 

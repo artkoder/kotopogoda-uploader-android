@@ -74,14 +74,16 @@ class UploadQueueRepository @Inject constructor(
         )
     }
 
-    suspend fun markCancelled(uri: Uri) = withContext(Dispatchers.IO) {
-        val photo = photoDao.getByUri(uri.toString()) ?: return@withContext
-        val existing = uploadItemDao.getByPhotoId(photo.id) ?: return@withContext
+    suspend fun markCancelled(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        val photo = photoDao.getByUri(uri.toString()) ?: return@withContext false
+        val existing = uploadItemDao.getByPhotoId(photo.id) ?: return@withContext false
+        val wasProcessing = existing.state == UploadItemState.PROCESSING.rawValue
         uploadItemDao.updateState(
             id = existing.id,
             state = UploadItemState.FAILED.rawValue,
             updatedAt = currentTimeMillis(),
         )
+        wasProcessing
     }
 
     suspend fun cancelAll() = withContext(Dispatchers.IO) {
