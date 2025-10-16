@@ -107,6 +107,7 @@ dependencies {
     implementation(project(":core:logging"))
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
+    implementation(project(":core:data"))
     implementation(libs.com.squareup.retrofit2.retrofit)
     implementation(libs.com.squareup.retrofit2.converter.moshi)
     implementation(libs.com.squareup.retrofit2.converter.scalars)

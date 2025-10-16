@@ -9,12 +9,13 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkInfo
 import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.network.health.HealthMonitor
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadQueueSnapshot
 import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -51,7 +52,7 @@ class StatusViewModel @Inject constructor(
     private val _uiState: StateFlow<StatusUiState> = combine(
         healthMonitor.state,
         deviceCredsStore.credsFlow,
-        uploadEnqueuer.getAllUploadsFlow().map { infos -> infos.toSummary() },
+        uploadEnqueuer.getAllUploadsFlow().map { snapshots -> snapshots.toSummary() },
         storageStateFlow(),
     ) { health, creds, queueSummary, storage ->
         StatusUiState(
@@ -167,16 +168,16 @@ class StatusViewModel @Inject constructor(
         return StatFs(path)
     }
 
-    private fun List<WorkInfo>.toSummary(): QueueSummary {
+    private fun List<UploadQueueSnapshot>.toSummary(): QueueSummary {
         if (isEmpty()) {
             return QueueSummary.Empty
         }
-        val running = count { it.state == WorkInfo.State.RUNNING }
-        val enqueued = count { it.state == WorkInfo.State.ENQUEUED }
-        val succeeded = count { it.state == WorkInfo.State.SUCCEEDED }
-        val failed = count { it.state == WorkInfo.State.FAILED }
-        val blocked = count { it.state == WorkInfo.State.BLOCKED }
-        val cancelled = count { it.state == WorkInfo.State.CANCELLED }
+        val running = count { it.state == UploadItemState.RUNNING }
+        val enqueued = count { it.state == UploadItemState.PENDING }
+        val succeeded = count { it.state == UploadItemState.SUCCEEDED }
+        val failed = count { it.state == UploadItemState.FAILED }
+        val cancelled = count { it.state == UploadItemState.CANCELLED }
+        val blocked = 0
         return QueueSummary(
             total = size,
             running = running,

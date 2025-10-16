@@ -9,17 +9,20 @@ import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderEntity
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoEntity
+import com.kotopogoda.uploader.core.data.upload.UploadItemDao
 import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
     abstract fun folderDao(): FolderDao
 
     abstract fun photoDao(): PhotoDao
+
+    abstract fun uploadItemDao(): UploadItemDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -82,13 +85,51 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `upload_items` (" +
                         "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
-                        "`photo_id` TEXT NOT NULL, " +
+                        "`unique_name` TEXT NOT NULL, " +
+                        "`uri` TEXT NOT NULL, " +
+                        "`idempotency_key` TEXT NOT NULL, " +
+                        "`display_name` TEXT NOT NULL, " +
                         "`state` TEXT NOT NULL, " +
-                        "`created_at` INTEGER NOT NULL" +
+                        "`error_kind` TEXT, " +
+                        "`error_http_code` INTEGER, " +
+                        "`created_at` INTEGER NOT NULL, " +
+                        "`updated_at` INTEGER NOT NULL" +
                         ")"
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_state` ON `upload_items` (`state`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_created_at` ON `upload_items` (`created_at`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_upload_items_unique_name` ON `upload_items` (`unique_name`)")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `upload_items_new` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`unique_name` TEXT NOT NULL, " +
+                        "`uri` TEXT NOT NULL, " +
+                        "`idempotency_key` TEXT NOT NULL, " +
+                        "`display_name` TEXT NOT NULL, " +
+                        "`state` TEXT NOT NULL, " +
+                        "`error_kind` TEXT, " +
+                        "`error_http_code` INTEGER, " +
+                        "`created_at` INTEGER NOT NULL, " +
+                        "`updated_at` INTEGER NOT NULL" +
+                        ")"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_new_state` ON `upload_items_new` (`state`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_new_created_at` ON `upload_items_new` (`created_at`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_upload_items_new_unique_name` ON `upload_items_new` (`unique_name`)")
+                db.execSQL(
+                    "INSERT INTO `upload_items_new`(" +
+                        "`id`, `unique_name`, `uri`, `idempotency_key`, `display_name`, `state`, `error_kind`, `error_http_code`, `created_at`, `updated_at`" +
+                        ") SELECT " +
+                        "`id`, `photo_id`, `photo_id`, `photo_id`, '', `state`, NULL, NULL, `created_at`, `created_at`" +
+                        " FROM `upload_items`"
+                )
+                db.execSQL("DROP TABLE `upload_items`")
+                db.execSQL("ALTER TABLE `upload_items_new` RENAME TO `upload_items`")
             }
         }
     }
