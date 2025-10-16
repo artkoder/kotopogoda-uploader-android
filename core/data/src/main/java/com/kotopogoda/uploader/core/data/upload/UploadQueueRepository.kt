@@ -168,7 +168,13 @@ class UploadQueueRepository @Inject constructor(
                 updatedAt = currentTimeMillis(),
             )
         } else {
-            uploadItemDao.deleteById(id)
+            uploadItemDao.updateStateWithError(
+                id = id,
+                state = UploadItemState.FAILED.rawValue,
+                lastErrorKind = errorKind.rawValue,
+                httpCode = httpCode,
+                updatedAt = currentTimeMillis(),
+            )
         }
     }
 
