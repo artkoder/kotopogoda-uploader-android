@@ -6,6 +6,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadWorkErrorKind
 import java.time.Clock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -32,6 +33,22 @@ class UploadQueueRepository @Inject constructor(
                     )
                 }
             }
+    }
+
+    fun observeQueuedOrProcessing(photoId: String): Flow<Boolean> {
+        return uploadItemDao.observeQueuedOrProcessingByPhotoId(
+            photoId = photoId,
+            queuedState = UploadItemState.QUEUED.rawValue,
+            processingState = UploadItemState.PROCESSING.rawValue,
+        ).distinctUntilChanged()
+    }
+
+    fun observeQueuedOrProcessing(uri: Uri): Flow<Boolean> {
+        return uploadItemDao.observeQueuedOrProcessingByUri(
+            uri = uri.toString(),
+            queuedState = UploadItemState.QUEUED.rawValue,
+            processingState = UploadItemState.PROCESSING.rawValue,
+        ).distinctUntilChanged()
     }
 
     suspend fun enqueue(uri: Uri) = withContext(Dispatchers.IO) {

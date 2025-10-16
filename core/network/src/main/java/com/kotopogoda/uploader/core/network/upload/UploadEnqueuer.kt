@@ -4,15 +4,12 @@ import android.net.Uri
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequest
-import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.getWorkInfosByTagFlow
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlin.text.Charsets
 
 @Singleton
@@ -58,12 +55,7 @@ class UploadEnqueuer @Inject constructor(
     }
 
     fun isEnqueued(uri: Uri): Flow<Boolean> =
-        workManager.getWorkInfosByTagFlow(UploadTags.uniqueTag(uniqueName(uri)))
-            .map { infos ->
-                infos.any { info ->
-                    info.state == WorkInfo.State.ENQUEUED || info.state == WorkInfo.State.RUNNING
-                }
-            }
+        uploadItemsRepository.observeQueuedOrProcessing(uri)
 
     fun uniqueName(uri: Uri): String = "upload:${sha256(uri.toString())}"
 

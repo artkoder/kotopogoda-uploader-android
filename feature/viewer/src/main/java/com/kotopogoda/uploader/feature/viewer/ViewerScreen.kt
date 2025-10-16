@@ -93,7 +93,6 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 @Composable
@@ -216,7 +215,7 @@ internal fun ViewerScreen(
     canUndo: Boolean,
     actionInProgress: ViewerViewModel.ViewerActionInProgress?,
     events: Flow<ViewerViewModel.ViewerEvent>,
-    observeUploadEnqueued: (Uri) -> Flow<Boolean>,
+    observeUploadEnqueued: (PhotoItem?) -> Flow<Boolean>,
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenStatus: () -> Unit,
@@ -278,8 +277,8 @@ internal fun ViewerScreen(
     } else {
         null
     }
-    val isQueuedFlow = remember(currentPhoto?.uri) {
-        currentPhoto?.let { observeUploadEnqueued(it.uri) } ?: flowOf(false)
+    val isQueuedFlow = remember(currentPhoto?.id, currentPhoto?.uri) {
+        observeUploadEnqueued(currentPhoto)
     }
     val isCurrentQueued by isQueuedFlow.collectAsState(initial = false)
     val isBusy = actionInProgress != null
