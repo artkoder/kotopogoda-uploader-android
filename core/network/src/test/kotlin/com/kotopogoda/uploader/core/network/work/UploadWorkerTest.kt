@@ -1,7 +1,10 @@
 package com.kotopogoda.uploader.core.network.work
 
+import android.content.ContentProvider
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Data
 import androidx.work.ForegroundUpdater
@@ -20,7 +23,10 @@ import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
+import java.io.FileNotFoundException
+import java.net.UnknownHostException
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.text.Charsets
@@ -35,6 +41,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.shadows.ShadowContentResolver
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
@@ -92,6 +99,7 @@ class UploadWorkerTest {
     @After
     fun tearDown() {
         mockWebServer.shutdown()
+        ShadowContentResolver.reset()
     }
 
     @Test
@@ -209,6 +217,74 @@ class UploadWorkerTest {
         assertTrue(result is Retry)
     }
 
+    @Test
+    fun networkFailureRetriesWithNetworkErrorKind() = runBlocking {
+        val previousFactory = workerFactory
+        val failingApi = object : UploadApi {
+            override suspend fun upload(
+                idempotencyKey: String,
+                file: okhttp3.MultipartBody.Part,
+                contentSha256Part: okhttp3.RequestBody,
+                mime: okhttp3.RequestBody,
+                size: okhttp3.RequestBody,
+                exifDate: okhttp3.RequestBody?,
+                originalRelpath: okhttp3.RequestBody?,
+            ): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadAcceptedDto> {
+                throw UnknownHostException("dns")
+            }
+
+            override suspend fun getStatus(uploadId: String) = throw UnsupportedOperationException()
+        }
+        workerFactory = object : WorkerFactory() {
+            override fun createWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters
+            ): UploadWorker? {
+                if (workerClassName == UploadWorker::class.qualifiedName) {
+                    return UploadWorker(
+                        appContext,
+                        workerParameters,
+                        failingApi,
+                        TestForegroundDelegate(appContext),
+                        NoopUploadSummaryStarter,
+                    )
+                }
+                return null
+            }
+        }
+
+        try {
+            val file = createTempFileWithContent("network")
+            val inputData = inputDataFor(file)
+
+            val worker = createWorker(inputData)
+            val result = worker.doWork()
+
+            assertTrue(result is Retry)
+            val progress = worker.progress.get(1, TimeUnit.SECONDS)
+            assertEquals(UploadWorkErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        } finally {
+            workerFactory = previousFactory
+        }
+    }
+
+    @Test
+    fun securityExceptionFailsWithoutRetry() = runBlocking {
+        val authority = "com.kotopogoda.test.secure"
+        val uri = Uri.parse("content://$authority/items/1")
+        ShadowContentResolver.registerProviderInternal(authority, ThrowingSecurityProvider(SecurityException("denied")))
+
+        val inputData = inputDataForUri(uri)
+        val worker = createWorker(inputData)
+
+        val result = worker.doWork()
+
+        assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals(UploadWorkErrorKind.IO.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+    }
+
     private fun createWorker(inputData: Data): UploadWorker {
         return TestListenableWorkerBuilder<UploadWorker>(context)
             .setWorkerFactory(workerFactory)
@@ -224,6 +300,18 @@ class UploadWorkerTest {
     ): Data {
         return Data.Builder()
             .putString(UploadEnqueuer.KEY_URI, Uri.fromFile(file).toString())
+            .putString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY, idempotencyKey)
+            .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
+            .build()
+    }
+
+    private fun inputDataForUri(
+        uri: Uri,
+        displayName: String = "photo.jpg",
+        idempotencyKey: String = "key",
+    ): Data {
+        return Data.Builder()
+            .putString(UploadEnqueuer.KEY_URI, uri.toString())
             .putString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY, idempotencyKey)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
             .build()
@@ -251,5 +339,40 @@ class UploadWorkerTest {
     private fun ByteArray.sha256Hex(): String {
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(this).joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+    private class ThrowingSecurityProvider(
+        private val throwable: SecurityException,
+    ) : ContentProvider() {
+        override fun onCreate(): Boolean = true
+
+        override fun query(
+            uri: Uri,
+            projection: Array<out String>?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+            sortOrder: String?
+        ): android.database.Cursor? = null
+
+        override fun getType(uri: Uri): String? = null
+
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+
+        override fun update(
+            uri: Uri,
+            values: ContentValues?,
+            selection: String?,
+            selectionArgs: Array<out String>?
+        ): Int = 0
+
+        override fun openAssetFile(uri: Uri, mode: String): android.content.res.AssetFileDescriptor {
+            throw throwable
+        }
+
+        override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+            throw FileNotFoundException("Denied")
+        }
     }
 }
