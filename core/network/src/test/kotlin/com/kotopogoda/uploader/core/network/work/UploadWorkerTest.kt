@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.network.work
 
 import android.content.ContentProvider
+import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -31,9 +32,11 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.InputStream
 import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import kotlin.math.min
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.text.Charsets
@@ -48,6 +51,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowContentResolver
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -155,6 +159,45 @@ class UploadWorkerTest {
         assertTrue(body.contains(file.length().toString()))
         assertTrue(body.contains("name=\"file\"; filename=\"photo.jpg\""))
         assertTrue(body.contains("hello upload"))
+    }
+
+    @Test
+    fun streamingPayloadReadsInChunksAndComputesDigest() = runBlocking {
+        val authority = "com.kotopogoda.test.stream"
+        val uri = Uri.parse("content://$authority/items/1")
+        val data = ByteArray(STREAMING_TEST_SIZE) { index -> (index % 251).toByte() }
+        val streamFactory = TrackingInputStreamFactory(uri, data, context.contentResolver)
+        streamFactory.prepare(streamCount = 2)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(202)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"upload_id":"stream","status":"accepted"}""")
+        )
+
+        val worker = createWorker(inputDataForUri(uri, displayName = "stream.bin", idempotencyKey = "stream-key"))
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        val outputData = result.outputData
+        assertEquals(STREAMING_TEST_SIZE.toLong(), outputData.getLong(UploadEnqueuer.KEY_BYTES_SENT, -1))
+        assertEquals(STREAMING_TEST_SIZE.toLong(), outputData.getLong(UploadEnqueuer.KEY_TOTAL_BYTES, -1))
+
+        val request = mockWebServer.takeRequest()
+        val bodyBytes = request.body.readByteArray()
+        val expectedFileSha = data.sha256Hex()
+        assertEquals(expectedFileSha, request.headers["X-Content-SHA256"])
+        val bodyString = String(bodyBytes, Charsets.UTF_8)
+        assertTrue(bodyString.contains(expectedFileSha))
+
+        val readHistory = streamFactory.readHistory
+        assertEquals(2, readHistory.size)
+        readHistory.forEach { reads ->
+            assertEquals(STREAMING_TEST_SIZE, reads.sum())
+            assertTrue(reads.size > 1, "Expected multiple chunk reads, got $reads")
+            assertTrue((reads.maxOrNull() ?: 0) < STREAMING_TEST_SIZE, "Chunks should be smaller than the whole payload")
+        }
     }
 
     @Test
@@ -404,6 +447,62 @@ class UploadWorkerTest {
     private fun ByteArray.sha256Hex(): String {
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(this).joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+    private class TrackingInputStreamFactory(
+        private val uri: Uri,
+        private val data: ByteArray,
+        private val resolver: ContentResolver,
+    ) {
+        val readHistory = mutableListOf<List<Int>>()
+        private var remainingStreams: Int = 0
+
+        fun prepare(streamCount: Int) {
+            readHistory.clear()
+            remainingStreams = streamCount
+            registerNextStream()
+        }
+
+        private fun registerNextStream() {
+            if (remainingStreams <= 0) return
+            shadowOf(resolver).registerInputStream(uri, createStream())
+        }
+
+        private fun createStream(): InputStream {
+            val reads = mutableListOf<Int>()
+            readHistory += reads
+            var position = 0
+            var closed = false
+            return object : InputStream() {
+                override fun read(): Int {
+                    val single = ByteArray(1)
+                    val read = read(single, 0, 1)
+                    return if (read == -1) -1 else single[0].toInt() and 0xFF
+                }
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    if (position >= data.size) {
+                        return -1
+                    }
+                    val toRead = min(length, data.size - position)
+                    System.arraycopy(data, position, buffer, offset, toRead)
+                    reads.add(toRead)
+                    position += toRead
+                    return toRead
+                }
+
+                override fun close() {
+                    if (closed) return
+                    closed = true
+                    remainingStreams -= 1
+                    registerNextStream()
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val STREAMING_TEST_SIZE = 256 * 1024 + 123
     }
 
     private class ThrowingSecurityProvider(

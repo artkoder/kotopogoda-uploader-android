@@ -24,7 +24,6 @@ import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.UnknownHostException
 import java.security.MessageDigest
@@ -32,10 +31,13 @@ import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 
 @HiltWorker
 class UploadWorker @AssistedInject constructor(
@@ -75,16 +77,16 @@ class UploadWorker @AssistedInject constructor(
                 totalBytes = totalBytes.takeIf { it > 0 }
             )
 
-            val payload = readDocumentPayload(uri, totalBytes, displayName)
             val mimeType = appContext.contentResolver.getType(uri)
                 ?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_MIME_TYPE
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
+            val payload = readDocumentPayload(uri, totalBytes, displayName, mediaType)
 
             var lastReportedPercent = -1
             var lastBytesSent: Long? = null
             val fileRequestBody = ProgressRequestBody(
-                payload.bytes.toRequestBody(mediaType),
+                payload.requestBody,
                 onProgress = { bytesSent: Long, _: Long ->
                 val percent = if (payload.size > 0) {
                     ((bytesSent * 100) / payload.size).toInt().coerceIn(0, 100)
@@ -196,14 +198,14 @@ class UploadWorker @AssistedInject constructor(
     private suspend fun readDocumentPayload(
         uri: Uri,
         totalBytes: Long,
-        displayName: String
+        displayName: String,
+        mediaType: MediaType,
     ): FilePayload {
         val resolver = appContext.contentResolver
         val inputStream = resolver.openInputStream(uri)
             ?: throw IOException("Unable to open input stream for $uri")
         var total = 0L
         val digest = MessageDigest.getInstance("SHA-256")
-        val output = ByteArrayOutputStream(if (totalBytes in 1..Int.MAX_VALUE) totalBytes.toInt() else DEFAULT_BUFFER_CAPACITY)
         inputStream.use { stream ->
             val buffer = ByteArray(BUFFER_SIZE)
             while (true) {
@@ -214,7 +216,6 @@ class UploadWorker @AssistedInject constructor(
                 if (read > 0) {
                     total += read
                     digest.update(buffer, 0, read)
-                    output.write(buffer, 0, read)
                     if (totalBytes > 0) {
                         val progress = ((total * 100) / totalBytes).toInt().coerceIn(0, 99)
                         updateProgress(
@@ -238,8 +239,31 @@ class UploadWorker @AssistedInject constructor(
             )
         }
         val sha256Hex = digest.digest().toHexString()
+        val contentLength = if (totalBytes > 0) totalBytes else total
+        val requestBody = object : RequestBody() {
+            override fun contentType(): MediaType = mediaType
+
+            override fun contentLength(): Long = contentLength
+
+            override fun writeTo(sink: BufferedSink) {
+                val stream = resolver.openInputStream(uri)
+                    ?: throw IOException("Unable to open input stream for $uri")
+                stream.use { input ->
+                    val buffer = ByteArray(BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) {
+                            break
+                        }
+                        if (read > 0) {
+                            sink.write(buffer, 0, read)
+                        }
+                    }
+                }
+            }
+        }
         return FilePayload(
-            bytes = output.toByteArray(),
+            requestBody = requestBody,
             size = total,
             sha256Hex = sha256Hex,
         )
@@ -386,7 +410,7 @@ class UploadWorker @AssistedInject constructor(
     }
 
     private data class FilePayload(
-        val bytes: ByteArray,
+        val requestBody: RequestBody,
         val size: Long,
         val sha256Hex: String,
     )
