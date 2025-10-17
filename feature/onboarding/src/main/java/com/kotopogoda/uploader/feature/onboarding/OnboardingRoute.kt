@@ -22,8 +22,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,13 +37,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.feature.onboarding.R
 import java.time.Instant
@@ -63,6 +67,8 @@ fun OnboardingRoute(
     val contentResolver = context.contentResolver
     val currentFolderUri = (uiState as? OnboardingUiState.FolderSelected)?.treeUri
     val currentFolderFlags = (uiState as? OnboardingUiState.FolderSelected)?.flags
+    val isScanInProgress =
+        (uiState as? OnboardingUiState.FolderSelected)?.scanState is OnboardingScanState.InProgress
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -155,7 +161,9 @@ fun OnboardingRoute(
     OnboardingScreen(
         uiState = uiState,
         onSelectFolder = {
-            launchFolderPicker(currentFolderUri?.let(Uri::parse))
+            if (!isScanInProgress) {
+                launchFolderPicker(currentFolderUri?.let(Uri::parse))
+            }
         },
         onStartReview = viewModel::onStartReview,
         onResetProgress = viewModel::onResetProgress,
@@ -214,11 +222,13 @@ private fun OnboardingScreen(
         }
 
         is OnboardingUiState.FolderSelected -> {
+            val canChangeFolder = uiState.scanState !is OnboardingScanState.InProgress
             FolderSelectedContent(
                 folderUri = uiState.treeUri,
                 progress = uiState.progress,
                 photoCount = uiState.photoCount,
                 scanState = uiState.scanState,
+                enabled = canChangeFolder,
                 onChangeFolder = onSelectFolder,
                 onStartReview = onStartReview,
                 onResetProgress = onResetProgress,
@@ -264,6 +274,7 @@ private fun FolderSelectedContent(
     progress: ReviewPosition?,
     photoCount: Int,
     scanState: OnboardingScanState,
+    enabled: Boolean,
     onChangeFolder: () -> Unit,
     onStartReview: (ReviewStartOption, Instant?) -> Unit,
     onResetProgress: () -> Unit,
@@ -286,7 +297,7 @@ private fun FolderSelectedContent(
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
-        OutlinedButton(onClick = onChangeFolder) {
+        OutlinedButton(onClick = onChangeFolder, enabled = enabled) {
             Text(text = stringResource(id = R.string.onboarding_change_folder))
         }
         ScanStatusIndicator(scanState = scanState)
@@ -555,3 +566,25 @@ private fun rememberDateFormatter(): DateTimeFormatter {
 
 private fun formatInstant(instant: Instant, formatter: DateTimeFormatter): String =
     formatter.format(instant)
+
+@Preview(showBackground = true)
+@Composable
+private fun FolderSelectedInProgressPreview() {
+    MaterialTheme(
+        colorScheme = lightColorScheme(),
+        typography = Typography(),
+        shapes = Shapes()
+    ) {
+        FolderSelectedContent(
+            folderUri = "content://example/folder",
+            progress = null,
+            photoCount = 12,
+            scanState = OnboardingScanState.InProgress(progress = null),
+            enabled = false,
+            onChangeFolder = {},
+            onStartReview = { _, _ -> },
+            onResetProgress = {},
+            onResetAnchor = {}
+        )
+    }
+}
