@@ -46,7 +46,7 @@ class HealthRepositoryTest {
 
     @Test
     fun `check maps string status`() = runTest {
-        enqueueResponse("""{"status":"online","message":"ok"}""")
+        enqueueResponse("""{"status":"ok","message":"ok"}""")
 
         val repository = repository(
             clock = sequenceClock(Instant.EPOCH, Instant.EPOCH.plusMillis(42)),
@@ -91,7 +91,37 @@ class HealthRepositoryTest {
     }
 
     @Test
-    fun `check falls back to DEGRADED with parse error for unparsable status`() = runTest {
+    fun `check maps http code statuses`() = runTest {
+        enqueueResponse("""{"status":200}""")
+
+        val repository = repository(
+            clock = sequenceClock(Instant.EPOCH, Instant.EPOCH.plusMillis(13)),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val result = repository.check()
+
+        assertEquals(ONLINE, result.status)
+        assertEquals(13L, result.latencyMillis)
+    }
+
+    @Test
+    fun `check maps boolean ok flag`() = runTest {
+        enqueueResponse("""{"ok":true}""")
+
+        val repository = repository(
+            clock = sequenceClock(Instant.EPOCH, Instant.EPOCH.plusMillis(15)),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val result = repository.check()
+
+        assertEquals(ONLINE, result.status)
+        assertEquals(15L, result.latencyMillis)
+    }
+
+    @Test
+    fun `check falls back to ONLINE with parse error for unparsable status`() = runTest {
         enqueueResponse("""{"status":{"unexpected":{}}}""")
 
         val repository = repository(
@@ -101,7 +131,7 @@ class HealthRepositoryTest {
 
         val result = repository.check()
 
-        assertEquals(DEGRADED, result.status)
+        assertEquals(ONLINE, result.status)
         assertEquals(HealthState.MESSAGE_PARSE_ERROR, result.message)
     }
 
