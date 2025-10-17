@@ -5,6 +5,7 @@ import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
+import com.kotopogoda.uploader.core.data.photo.PhotoEntity
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
@@ -55,7 +56,7 @@ class UploadQueueRepositoryTest {
         coEvery { uploadItemDao.insert(any()) } returns 1L
         every { contentResolver.openInputStream(uri) } returns ByteArrayInputStream(ByteArray(0))
 
-        repository.enqueue(uri)
+        repository.enqueue(uri, idempotencyKey = "key-1")
 
         coVerify {
             photoDao.upsert(withArg { entity ->
@@ -72,6 +73,7 @@ class UploadQueueRepositoryTest {
                 assertEquals(uri.toString(), entity.uri)
                 assertEquals("IMG_0001.jpg", entity.displayName)
                 assertEquals(1280L, entity.size)
+                assertEquals("key-1", entity.idempotencyKey)
             })
         }
         verify(exactly = 1) { contentResolver.openInputStream(uri) }
@@ -85,11 +87,52 @@ class UploadQueueRepositoryTest {
         every { contentResolver.openInputStream(uri) } returns null
 
         val error = assertFailsWith<IllegalStateException> {
-            repository.enqueue(uri)
+            repository.enqueue(uri, idempotencyKey = "key-2")
         }
 
         assertEquals("Unable to open input stream for uri: $uri", error.message)
         coVerify(exactly = 0) { photoDao.upsert(any()) }
+    }
+
+    @Test
+    fun `enqueue updates existing item metadata and key`() = runTest {
+        val uri = Uri.parse("content://media/external/images/media/3")
+        val photo = PhotoEntity(
+            id = "photo-3",
+            uri = uri.toString(),
+            relPath = "DCIM/Camera/IMG_0003.jpg",
+            sha256 = "hash",
+            takenAt = null,
+            size = 256L,
+        )
+        val existing = UploadItemEntity(
+            id = 11L,
+            photoId = photo.id,
+            idempotencyKey = "old-key",
+            uri = photo.uri,
+            displayName = "old",
+            size = 128L,
+            state = UploadItemState.PROCESSING.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+        coEvery { photoDao.getByUri(uri.toString()) } returns photo
+        coEvery { uploadItemDao.getByPhotoId(photo.id) } returns existing
+
+        repository.enqueue(uri, idempotencyKey = "new-key")
+
+        val expectedNow = clock.instant().toEpochMilli()
+        coVerify {
+            uploadItemDao.updateStateWithMetadata(
+                id = existing.id,
+                state = UploadItemState.QUEUED.rawValue,
+                uri = photo.uri,
+                displayName = "IMG_0003.jpg",
+                size = photo.size,
+                idempotencyKey = "new-key",
+                updatedAt = expectedNow,
+            )
+        }
     }
 
     @Test
@@ -125,6 +168,28 @@ class UploadQueueRepositoryTest {
 
         coVerify(exactly = 0) { uploadItemDao.requeueProcessingToQueued(any(), any(), any()) }
         coVerify { uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, 3) }
+    }
+
+    @Test
+    fun `fetchQueued returns stored idempotency key`() = runTest {
+        val entity = UploadItemEntity(
+            id = 1L,
+            photoId = "photo-1",
+            idempotencyKey = "stored-key",
+            uri = "content://media/external/images/media/4",
+            displayName = "IMG_0004.jpg",
+            size = 512L,
+            state = UploadItemState.QUEUED.rawValue,
+            createdAt = 1L,
+            updatedAt = null,
+        )
+        coEvery { uploadItemDao.getByState(any(), any()) } returns listOf(entity)
+
+        val items = repository.fetchQueued(limit = 1, recoverStuck = false)
+
+        assertEquals(1, items.size)
+        val item = items.first()
+        assertEquals("stored-key", item.idempotencyKey)
     }
 
     @Test

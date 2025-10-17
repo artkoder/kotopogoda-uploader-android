@@ -20,9 +20,8 @@ class UploadEnqueuer @Inject constructor(
     private val constraintsProvider: UploadConstraintsProvider,
 ) {
 
-    @Suppress("UNUSED_PARAMETER")
     suspend fun enqueue(uri: Uri, idempotencyKey: String, displayName: String) {
-        uploadItemsRepository.enqueue(uri)
+        uploadItemsRepository.enqueue(uri, idempotencyKey)
         summaryStarter.ensureRunning()
         scheduleDrain()
     }
@@ -49,7 +48,8 @@ class UploadEnqueuer @Inject constructor(
         val uri = metadata.uri ?: return
         val uniqueName = uniqueName(uri)
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
-        uploadItemsRepository.enqueue(uri)
+        val key = metadata.idempotencyKey ?: sha256(uri.toString())
+        uploadItemsRepository.enqueue(uri, key)
         summaryStarter.ensureRunning()
         scheduleDrain()
     }
