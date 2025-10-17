@@ -41,8 +41,7 @@ class PhotoRepositoryPagingSourceTest {
                         null,
                         null,
                         null,
-                        "image/jpeg",
-                        200_000L
+                        "image/jpeg"
                     )
                 )
                 addRow(
@@ -53,8 +52,7 @@ class PhotoRepositoryPagingSourceTest {
                         null,
                         null,
                         null,
-                        "image/jpeg",
-                        100_000L
+                        "image/jpeg"
                     )
                 )
             }
@@ -71,8 +69,7 @@ class PhotoRepositoryPagingSourceTest {
                         null,
                         null,
                         null,
-                        "image/jpeg",
-                        200_000L
+                        "image/jpeg"
                     )
                 )
                 addRow(
@@ -83,8 +80,7 @@ class PhotoRepositoryPagingSourceTest {
                         null,
                         null,
                         null,
-                        "image/jpeg",
-                        100_000L
+                        "image/jpeg"
                     )
                 )
             }
@@ -130,8 +126,7 @@ class PhotoRepositoryPagingSourceTest {
                     null,
                     null,
                     null,
-                    "image/jpeg",
-                    1_700_000_000_000L
+                    "image/jpeg"
                 )
             )
             addRow(
@@ -142,8 +137,7 @@ class PhotoRepositoryPagingSourceTest {
                     null,
                     null,
                     null,
-                    "image/jpeg",
-                    1_640_995_200_000L
+                    "image/jpeg"
                 )
             )
         }
@@ -209,10 +203,8 @@ class PhotoRepositoryPagingSourceTest {
             MediaStore.Images.Media.RELATIVE_PATH,
             MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
             MediaStore.Images.Media.SIZE,
-            MediaStore.Images.Media.MIME_TYPE,
-            SORT_KEY_COLUMN
+            MediaStore.Images.Media.MIME_TYPE
         )
-        private const val SORT_KEY_COLUMN = "sort_key"
         private const val SORT_KEY_EXPRESSION =
             "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
