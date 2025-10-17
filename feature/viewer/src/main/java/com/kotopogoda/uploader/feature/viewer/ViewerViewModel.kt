@@ -242,10 +242,15 @@ class ViewerViewModel @Inject constructor(
     }
 
     fun scrollToNewest() {
-        val targetIndex = 0
-        setCurrentIndex(targetIndex)
+        val targetIndex = clampToCount(0, photoCount.value)
+        updateCurrentIndexInternal(targetIndex)
+        clearSelection()
+        if (undoStack.isNotEmpty()) {
+            undoStack.clear()
+            persistUndoStack()
+        }
         viewModelScope.launch {
-            persistProgress(targetIndex, currentPhoto.value?.takenAt)
+            persistProgress(targetIndex, Instant.now())
         }
     }
 

@@ -87,7 +87,7 @@ class ViewerScreenTest {
         }
 
         val goToNewestLabel =
-            composeRule.activity.getString(R.string.viewer_action_go_to_start)
+            composeRule.activity.getString(R.string.viewer_open_latest)
         composeRule.onNodeWithContentDescription(goToNewestLabel).performClick()
         composeRule.runOnIdle {
             assertTrue(scrolledToNewest.value)
