@@ -641,7 +641,7 @@ private fun ViewerTopBar(
             IconButton(onClick = onScrollToNewest) {
                 Icon(
                     imageVector = Icons.Rounded.ArrowUpward,
-                    contentDescription = stringResource(id = R.string.viewer_action_go_to_start)
+                    contentDescription = stringResource(id = R.string.viewer_open_latest)
                 )
             }
             IconButton(onClick = onOpenJumpToDate) {

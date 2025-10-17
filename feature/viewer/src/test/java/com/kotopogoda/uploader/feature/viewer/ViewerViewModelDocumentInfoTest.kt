@@ -299,14 +299,23 @@ class ViewerViewModelDocumentInfoTest {
         val environment = createEnvironment(context, folder, storedPosition)
         advanceUntilIdle()
 
+        val photo = PhotoItem(id = "1", uri = Uri.parse("content://photo/1"), takenAt = null)
+        environment.viewModel.updateVisiblePhoto(totalCount = 10, photo = photo)
+        environment.viewModel.onSkip(photo)
+        advanceUntilIdle()
+        environment.viewModel.onPhotoLongPress(photo)
         environment.viewModel.setCurrentIndex(3)
         advanceUntilIdle()
+        assertTrue(environment.viewModel.undoCount.value > 0)
+        assertTrue(environment.viewModel.selection.value.isNotEmpty())
         clearMocks(environment.reviewProgressStore, answers = false)
 
         environment.viewModel.scrollToNewest()
         advanceUntilIdle()
 
         assertEquals(0, environment.viewModel.currentIndex.value)
+        assertTrue(environment.viewModel.selection.value.isEmpty())
+        assertEquals(0, environment.viewModel.undoCount.value)
         coVerify(atLeast = 1) {
             environment.reviewProgressStore.savePosition(any(), 0, any())
         }

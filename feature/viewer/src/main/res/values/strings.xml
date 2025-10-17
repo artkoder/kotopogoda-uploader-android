@@ -29,7 +29,7 @@
     <string name="viewer_error_select_again">Выбрать папку снова</string>
     <string name="viewer_error_back">Назад</string>
     <string name="viewer_error_sd_hint">Если фотографии находятся на SD-карте, подключите карту и выберите папку снова.</string>
-    <string name="viewer_action_go_to_start">К началу</string>
+    <string name="viewer_open_latest">К последним</string>
     <string name="viewer_open_queue">Очередь</string>
     <string name="viewer_back">Назад</string>
     <string name="viewer_open_status">Статусы</string>
