@@ -140,10 +140,59 @@ class QueueDrainWorkerTest {
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 any(),
             )
         }
+    }
+
+    @Test
+    fun `worker queues sequential drain when queue exceeds batch size`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val queueItems = (0 until 5).map { index ->
+            UploadQueueItem(
+                id = index.toLong(),
+                uri = Uri.parse("content://example/overflow/$index"),
+                idempotencyKey = "key-$index",
+                displayName = "photo-$index.jpg",
+                size = 10L,
+            )
+        }
+        val names = mutableListOf<String>()
+        val policies = mutableListOf<ExistingWorkPolicy>()
+
+        coEvery { repository.recoverStuckProcessing() } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns queueItems
+        coEvery { repository.markProcessing(any()) } returns true
+        coEvery { repository.hasQueued() } returns true
+        every { constraintsProvider.buildConstraints() } returns Constraints.NONE
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        every {
+            workManager.enqueueUniqueWork(
+                capture(names),
+                capture(policies),
+                any(),
+            )
+        } returns mockk(relaxed = true)
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertEquals(6, names.size)
+        val drainIndex = names.indexOf(QUEUE_DRAIN_WORK_NAME)
+        assertTrue(drainIndex >= 0)
+        assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, policies[drainIndex])
     }
 
     @Test
@@ -160,6 +209,7 @@ class QueueDrainWorkerTest {
             size = 10L,
         )
         val names = mutableListOf<String>()
+        val policies = mutableListOf<ExistingWorkPolicy>()
         val requests = mutableListOf<OneTimeWorkRequest>()
 
         coEvery { repository.recoverStuckProcessing() } returns 0
@@ -171,7 +221,7 @@ class QueueDrainWorkerTest {
         every {
             workManager.enqueueUniqueWork(
                 capture(names),
-                any(),
+                capture(policies),
                 capture(requests),
             )
         } returns mockk(relaxed = true)
@@ -192,10 +242,12 @@ class QueueDrainWorkerTest {
         assertTrue(names.contains(QUEUE_DRAIN_WORK_NAME))
         val uploadRequest = requests[names.indexOf(UploadEnqueuer.uniqueNameForUri(queueItem.uri))]
         val drainRequest = requests[names.indexOf(QUEUE_DRAIN_WORK_NAME)]
+        val drainPolicy = policies[names.indexOf(QUEUE_DRAIN_WORK_NAME)]
 
         assertTrue(uploadRequest.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, uploadRequest.workSpec.outOfQuotaPolicy)
         assertTrue(drainRequest.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, drainRequest.workSpec.outOfQuotaPolicy)
+        assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, drainPolicy)
     }
 }

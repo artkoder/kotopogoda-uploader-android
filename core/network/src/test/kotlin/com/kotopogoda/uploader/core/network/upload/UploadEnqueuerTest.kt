@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class UploadEnqueuerTest {
@@ -59,7 +60,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -84,7 +85,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -108,7 +109,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -138,7 +139,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -161,7 +162,7 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
@@ -187,13 +188,37 @@ class UploadEnqueuerTest {
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 requestSlot.captured,
             )
         }
         assertTrue(requestSlot.captured.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, requestSlot.captured.workSpec.outOfQuotaPolicy)
         every { constraintsProvider.shouldUseExpeditedWork() } returns false
+    }
+
+    @Test
+    fun enqueue_moreThanBatchSizeItems_queuesDrainSequentially() = runBlocking {
+        val enqueuer = createEnqueuer()
+        clearMocks(workManager, constraintsProvider, answers = false)
+        every { constraintsProvider.buildConstraints() } returns Constraints.NONE
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        val policies = mutableListOf<ExistingWorkPolicy>()
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                capture(policies),
+                any<OneTimeWorkRequest>(),
+            )
+        } returns mockk(relaxed = true)
+
+        repeat(6) { index ->
+            val uri = Uri.parse("content://example/batch/$index")
+            enqueuer.enqueue(uri, "key-$index", "file-$index")
+        }
+
+        assertEquals(6, policies.size)
+        assertTrue(policies.all { it == ExistingWorkPolicy.APPEND_OR_REPLACE })
     }
 
     @Test
