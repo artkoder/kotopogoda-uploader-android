@@ -57,14 +57,11 @@ class HealthRepository @Inject constructor(
             is Boolean -> extracted.toHealthStatus()
             else -> null
         }
-        if (status == null) {
+        if (status == null || status == HealthStatus.UNKNOWN) {
             return ParsedStatus(
                 status = HealthStatus.ONLINE,
                 message = HealthState.MESSAGE_PARSE_ERROR,
             )
-        }
-        if (status == HealthStatus.UNKNOWN) {
-            return ParsedStatus(status = HealthStatus.UNKNOWN, message = null)
         }
         return ParsedStatus(status = status, message = null)
     }
