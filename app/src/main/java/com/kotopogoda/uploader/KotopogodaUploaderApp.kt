@@ -2,6 +2,7 @@ package com.kotopogoda.uploader
 
 import android.app.Application
 import androidx.work.Configuration
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.AppLogger
 import com.kotopogoda.uploader.core.network.connectivity.NetworkMonitor
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
@@ -11,6 +12,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
+import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.upload.UploadSummaryService
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
