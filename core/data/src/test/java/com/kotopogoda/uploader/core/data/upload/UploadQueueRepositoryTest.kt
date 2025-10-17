@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.data.upload
 
+import android.content.ContentResolver
 import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
@@ -9,10 +10,13 @@ import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import java.io.ByteArrayInputStream
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -24,12 +28,13 @@ class UploadQueueRepositoryTest {
     private val uploadItemDao = mockk<UploadItemDao>(relaxed = true)
     private val photoDao = mockk<PhotoDao>(relaxed = true)
     private val metadataReader = mockk<MediaStorePhotoMetadataReader>(relaxed = true)
+    private val contentResolver = mockk<ContentResolver>()
     private lateinit var repository: UploadQueueRepository
     private val clock = Clock.fixed(Instant.ofEpochMilli(1_000_000L), ZoneOffset.UTC)
 
     @Before
     fun setUp() {
-        repository = UploadQueueRepository(uploadItemDao, photoDao, metadataReader, clock)
+        repository = UploadQueueRepository(uploadItemDao, photoDao, metadataReader, contentResolver, clock)
     }
 
     @Test
@@ -48,6 +53,7 @@ class UploadQueueRepositoryTest {
         coEvery { photoDao.upsert(any()) } returns Unit
         coEvery { uploadItemDao.getByPhotoId(uri.toString()) } returns null
         coEvery { uploadItemDao.insert(any()) } returns 1L
+        every { contentResolver.openInputStream(uri) } returns ByteArrayInputStream(ByteArray(0))
 
         repository.enqueue(uri)
 
@@ -68,6 +74,22 @@ class UploadQueueRepositoryTest {
                 assertEquals(1280L, entity.size)
             })
         }
+        verify(exactly = 1) { contentResolver.openInputStream(uri) }
+    }
+
+    @Test
+    fun `enqueue throws when placeholder photo uri is not accessible`() = runTest {
+        val uri = Uri.parse("content://media/external/images/media/2")
+        coEvery { photoDao.getByUri(uri.toString()) } returns null
+        every { metadataReader.read(uri) } returns null
+        every { contentResolver.openInputStream(uri) } returns null
+
+        val error = assertFailsWith<IllegalStateException> {
+            repository.enqueue(uri)
+        }
+
+        assertEquals("Unable to open input stream for uri: $uri", error.message)
+        coVerify(exactly = 0) { photoDao.upsert(any()) }
     }
 
     @Test
