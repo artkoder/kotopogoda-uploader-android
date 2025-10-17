@@ -26,49 +26,62 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
 
-      - name: Create branch and empty commit
+      - name: Create (or reuse) branch and empty commit
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -e
           BRANCH="codex/issue-${ISSUE_NUMBER}"
           echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+      
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
-          git commit --allow-empty -m "chore: start Codex task for issue #${ISSUE_NUMBER}"
-          git push -u origin "$BRANCH"
+      
+          # если ветка уже есть на origin — подтягиваем и работаем в ней
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH:$BRANCH"
+            git checkout "$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
+
+          # всегда создаём пустой коммит, чтобы сдвинуть CI
+          git commit --allow-empty -m "chore: start Codex task for issue #${ISSUE_NUMBER}" || true
+          git push -u origin "$BRANCH" || true
 
       - name: Open draft PR (copy Issue body as plan)
         id: pr
         uses: actions/github-script@v7
         with:
           script: |
-            const branch = process.env.BRANCH; // из предыдущего шага (GITHUB_ENV)
-            const base = context.payload.repository.default_branch;
-            const issue = context.payload.issue;
-
-            const prBody = [
-              '## План',
-              issue.body || '',
-              '',
-              `Closes #${issue.number}`
-            ].join('\n');
-
-            const pr = await github.rest.pulls.create({
-              owner: context.repo.owner, repo: context.repo.repo,
-              title: `[Codex] ${issue.title}`,
-              head: branch, base, draft: true,
-              body: prBody
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const branch = process.env.BRANCH;
+            const base   = context.payload.repository.default_branch;
+            const issue  = context.payload.issue;
+      
+            // если PR с этой ветки уже открыт — используем его
+            const existing = await github.rest.pulls.list({
+              owner, repo, head: `${owner}:${branch}`, state: 'open'
             });
+            let pr;
+            if (existing.data.length) {
+              pr = existing.data[0];
+            } else {
+              const body = ['## План', issue.body || '', '', `Closes #${issue.number}`].join('\n');
+              pr = (await github.rest.pulls.create({
+                owner, repo, title: `[Codex] ${issue.title}`, head: branch, base, draft: true, body
+              })).data;
+            }
+      
+            // помечаем (если уже есть — просто игнорируем ошибку)
+            try {
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number: pr.number, labels: ['codex:plan','codex:step-0']
+              });
+            } catch {}
+      
+            core.setOutput('number', String(pr.number));
 
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: pr.data.number,
-              labels: ['codex:plan','codex:step-0']
-            });
-
-            core.setOutput('number', pr.data.number);
 
       - name: Start Codex in PR (Step 1 or free-form)
         uses: actions/github-script@v7
