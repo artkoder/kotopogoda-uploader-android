@@ -50,6 +50,7 @@ const val QUEUE_ROUTE = "queue"
 fun QueueRoute(
     onBack: () -> Unit,
     healthState: HealthState,
+    isNetworkValidated: Boolean,
     viewModel: QueueViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -60,6 +61,7 @@ fun QueueRoute(
     QueueScreen(
         state = state,
         healthState = healthState,
+        isNetworkValidated = isNetworkValidated,
         onBack = onBack,
         onCancel = viewModel::onCancel,
         onRetry = viewModel::onRetry
@@ -71,6 +73,7 @@ fun QueueRoute(
 fun QueueScreen(
     state: QueueUiState,
     healthState: HealthState,
+    isNetworkValidated: Boolean,
     onBack: () -> Unit,
     onCancel: (QueueItemUiModel) -> Unit,
     onRetry: (QueueItemUiModel) -> Unit
@@ -81,7 +84,10 @@ fun QueueScreen(
                 title = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = stringResource(id = R.string.queue_title))
-                        HealthStatusBadge(healthState = healthState)
+                        HealthStatusBadge(
+                            healthState = healthState,
+                            isNetworkValidated = isNetworkValidated,
+                        )
                     }
                 },
                 navigationIcon = {
@@ -96,24 +102,41 @@ fun QueueScreen(
             )
         }
     ) { innerPadding ->
-        if (state.isEmpty) {
-            EmptyQueue(modifier = Modifier
+        Column(
+            modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding))
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(state.items, key = { it.id }) { item ->
-                    QueueItemCard(
-                        item = item,
-                        onCancel = onCancel,
-                        onRetry = onRetry
-                    )
+                .padding(innerPadding),
+            verticalArrangement = Arrangement.Top,
+        ) {
+            if (!isNetworkValidated) {
+                OfflineNotice(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                )
+            }
+
+            if (state.isEmpty) {
+                EmptyQueue(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = true)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = true),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(state.items, key = { it.id }) { item ->
+                        QueueItemCard(
+                            item = item,
+                            onCancel = onCancel,
+                            onRetry = onRetry
+                        )
+                    }
                 }
             }
         }
@@ -123,7 +146,7 @@ fun QueueScreen(
 @Composable
 private fun EmptyQueue(modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier,
+        modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -131,6 +154,23 @@ private fun EmptyQueue(modifier: Modifier = Modifier) {
             text = stringResource(id = R.string.queue_empty),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun OfflineNotice(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        tonalElevation = 4.dp,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+    ) {
+        Text(
+            text = stringResource(id = R.string.queue_offline_notice),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
         )
     }
 }
@@ -243,9 +283,15 @@ private fun QueueItemCard(
 @Composable
 private fun HealthStatusBadge(
     healthState: HealthState,
+    isNetworkValidated: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val (labelRes, color) = when (healthState.status) {
+    val status = if (isNetworkValidated) {
+        healthState.status
+    } else {
+        HealthStatus.OFFLINE
+    }
+    val (labelRes, color) = when (status) {
         HealthStatus.ONLINE -> R.string.queue_health_online to MaterialTheme.colorScheme.tertiary
         HealthStatus.DEGRADED -> R.string.queue_health_degraded to MaterialTheme.colorScheme.secondary
         HealthStatus.OFFLINE -> R.string.queue_health_offline to MaterialTheme.colorScheme.error

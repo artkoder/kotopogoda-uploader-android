@@ -3,7 +3,7 @@ package com.kotopogoda.uploader
 import android.app.Application
 import androidx.work.Configuration
 import com.kotopogoda.uploader.core.logging.AppLogger
-import com.kotopogoda.uploader.core.network.connectivity.ConnectivityObserver
+import com.kotopogoda.uploader.core.network.connectivity.NetworkMonitor
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.settings.SettingsRepository
@@ -37,7 +37,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     lateinit var networkClientProvider: NetworkClientProvider
 
     @Inject
-    lateinit var connectivityObserver: ConnectivityObserver
+    lateinit var networkMonitor: NetworkMonitor
 
     @Inject
     lateinit var notificationPermissionChecker: NotificationPermissionChecker
@@ -47,7 +47,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         UploadNotif.ensureChannel(this)
-        connectivityObserver.start()
+        networkMonitor.start()
         scope.launch {
             settingsRepository.flow.collect { settings ->
                 appLogger.setEnabled(settings.appLogging)
@@ -65,7 +65,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     override fun onTerminate() {
         super.onTerminate()
-        connectivityObserver.stop()
+        networkMonitor.stop()
         scope.cancel()
     }
 }

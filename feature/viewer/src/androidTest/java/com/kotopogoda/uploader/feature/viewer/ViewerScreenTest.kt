@@ -49,6 +49,7 @@ class ViewerScreenTest {
                 onOpenStatus = {},
                 onOpenSettings = {},
                 healthState = HealthState.Unknown,
+                isNetworkValidated = true,
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},

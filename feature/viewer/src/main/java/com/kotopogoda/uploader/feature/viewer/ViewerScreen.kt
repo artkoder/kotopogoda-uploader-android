@@ -103,6 +103,7 @@ fun ViewerRoute(
     onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
+    isNetworkValidated: Boolean,
     viewModel: ViewerViewModel = hiltViewModel()
 ) {
     val photos = viewModel.photos.collectAsLazyPagingItems()
@@ -185,6 +186,7 @@ fun ViewerRoute(
         onOpenStatus = onOpenStatus,
         onOpenSettings = onOpenSettings,
         healthState = healthState,
+        isNetworkValidated = isNetworkValidated,
         onPageChanged = viewModel::setCurrentIndex,
         onVisiblePhotoChanged = viewModel::updateVisiblePhoto,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
@@ -222,6 +224,7 @@ internal fun ViewerScreen(
     onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
+    isNetworkValidated: Boolean,
     onPageChanged: (Int) -> Unit,
     onVisiblePhotoChanged: (Int, PhotoItem?) -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
@@ -385,6 +388,7 @@ internal fun ViewerScreen(
                 onOpenSettings = onOpenSettings,
                 onOpenJumpToDate = { showJumpSheet = true },
                 healthState = healthState,
+                isNetworkValidated = isNetworkValidated,
             )
         },
         bottomBar = {
@@ -451,10 +455,14 @@ private fun ViewerTopBar(
     onOpenJumpToDate: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
+    isNetworkValidated: Boolean,
 ) {
     SmallTopAppBar(
         title = {
-            HealthStatusBadge(healthState = healthState)
+            HealthStatusBadge(
+                healthState = healthState,
+                isNetworkValidated = isNetworkValidated,
+            )
         },
         navigationIcon = {
             IconButton(onClick = onBack) {
@@ -593,9 +601,15 @@ private fun LocalDate.startOfDayInstant(zoneId: ZoneId): Instant =
 @Composable
 private fun HealthStatusBadge(
     healthState: HealthState,
+    isNetworkValidated: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val (labelRes, color) = when (healthState.status) {
+    val status = if (isNetworkValidated) {
+        healthState.status
+    } else {
+        HealthStatus.OFFLINE
+    }
+    val (labelRes, color) = when (status) {
         HealthStatus.ONLINE -> R.string.viewer_health_online to MaterialTheme.colorScheme.tertiary
         HealthStatus.DEGRADED -> R.string.viewer_health_degraded to MaterialTheme.colorScheme.secondary
         HealthStatus.OFFLINE -> R.string.viewer_health_offline to MaterialTheme.colorScheme.error

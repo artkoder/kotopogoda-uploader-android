@@ -78,6 +78,7 @@ private fun KotopogodaApp(
         navController = navController,
         deviceCreds = uiState.deviceCreds,
         healthState = uiState.healthState,
+        isNetworkValidated = uiState.isNetworkValidated,
         onResetPairing = viewModel::clearPairing,
         navigationEvents = navigationEvents,
     )
