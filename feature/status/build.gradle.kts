@@ -57,4 +57,12 @@ dependencies {
     kapt(libs.dagger.hilt.compiler)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.truth)
+    testImplementation(libs.mockk)
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation("org.robolectric:robolectric:4.11.1")
 }
