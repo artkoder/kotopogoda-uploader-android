@@ -206,7 +206,10 @@ class PhotoRepository @Inject constructor(
             val bundle = Bundle().apply {
                 putStringArray(
                     ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                    arrayOf(MediaStore.Images.Media.DATE_TAKEN)
+                    arrayOf(
+                        MediaStore.Images.Media.DATE_TAKEN,
+                        MediaStore.Images.Media.DATE_ADDED
+                    )
                 )
                 putInt(
                     ContentResolver.QUERY_ARG_SORT_DIRECTION,
@@ -230,17 +233,27 @@ class PhotoRepository @Inject constructor(
                 ) { contentUri, result ->
                     val idIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                     val dateTakenIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                    val dateAddedIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
                     val mimeIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
                     val items = buildList {
                         while (result.moveToNext()) {
                             val id = result.getLong(idIndex)
                             val uri = ContentUris.withAppendedId(contentUri, id)
-                            val takenAt = if (result.isNull(dateTakenIndex)) {
+                            val dateTakenMillis = if (result.isNull(dateTakenIndex)) {
                                 null
                             } else {
-                                val value = result.getLong(dateTakenIndex)
-                                if (value > 0) Instant.ofEpochMilli(value) else null
+                                result.getLong(dateTakenIndex).takeIf { it > 0 }
                             }
+                            val takenAt = dateTakenMillis?.let { Instant.ofEpochMilli(it) }
+                                ?: run {
+                                    if (result.isNull(dateAddedIndex)) {
+                                        null
+                                    } else {
+                                        result.getLong(dateAddedIndex)
+                                            .takeIf { it > 0 }
+                                            ?.let { Instant.ofEpochSecond(it) }
+                                    }
+                                }
                             val mime = if (result.isNull(mimeIndex)) null else result.getString(mimeIndex)
                             if (mime != null && mime.startsWith("image/")) {
                                 add(
@@ -287,6 +300,7 @@ class PhotoRepository @Inject constructor(
             private val PROJECTION = arrayOf(
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DATE_TAKEN,
+                MediaStore.Images.Media.DATE_ADDED,
                 MediaStore.Images.Media.RELATIVE_PATH,
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
                 MediaStore.Images.Media.SIZE,
