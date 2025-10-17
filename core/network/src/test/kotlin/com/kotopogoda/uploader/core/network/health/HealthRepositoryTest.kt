@@ -135,6 +135,36 @@ class HealthRepositoryTest {
         assertEquals(HealthState.MESSAGE_PARSE_ERROR, result.message)
     }
 
+    @Test
+    fun `check treats unknown string status as parse error`() = runTest {
+        enqueueResponse("""{"status":"green"}""")
+
+        val repository = repository(
+            clock = sequenceClock(Instant.EPOCH, Instant.EPOCH.plusMillis(8)),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val result = repository.check()
+
+        assertEquals(ONLINE, result.status)
+        assertEquals(HealthState.MESSAGE_PARSE_ERROR, result.message)
+    }
+
+    @Test
+    fun `check treats unknown numeric status as parse error`() = runTest {
+        enqueueResponse("""{"status":999}""")
+
+        val repository = repository(
+            clock = sequenceClock(Instant.EPOCH, Instant.EPOCH.plusMillis(9)),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val result = repository.check()
+
+        assertEquals(ONLINE, result.status)
+        assertEquals(HealthState.MESSAGE_PARSE_ERROR, result.message)
+    }
+
     private fun repository(clock: Clock, dispatcher: StandardTestDispatcher): HealthRepository {
         return HealthRepository(
             networkClientProvider = networkClientProvider,
