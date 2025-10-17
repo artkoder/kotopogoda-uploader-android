@@ -87,11 +87,13 @@ object DataModule {
         uploadItemDao: UploadItemDao,
         photoDao: PhotoDao,
         metadataReader: MediaStorePhotoMetadataReader,
+        @ApplicationContext context: Context,
         clock: Clock,
     ): UploadQueueRepository = UploadQueueRepository(
         uploadItemDao = uploadItemDao,
         photoDao = photoDao,
         metadataReader = metadataReader,
+        contentResolver = context.contentResolver,
         clock = clock,
     )
 }

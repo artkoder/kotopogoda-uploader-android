@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.data.upload
 
+import android.content.ContentResolver
 import android.net.Uri
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
@@ -21,6 +22,7 @@ class UploadQueueRepository @Inject constructor(
     private val uploadItemDao: UploadItemDao,
     private val photoDao: PhotoDao,
     private val metadataReader: MediaStorePhotoMetadataReader,
+    private val contentResolver: ContentResolver,
     private val clock: Clock,
 ) {
 
@@ -357,6 +359,13 @@ class UploadQueueRepository @Inject constructor(
             size = metadata?.size ?: 0L,
             mime = metadata?.mimeType ?: DEFAULT_MIME,
         )
+        val inputStream = try {
+            contentResolver.openInputStream(uri)
+        } catch (error: Exception) {
+            throw IllegalStateException("Unable to open input stream for uri: $uri", error)
+        }
+        inputStream?.use { }
+            ?: throw IllegalStateException("Unable to open input stream for uri: $uri")
         try {
             photoDao.upsert(entity)
         } catch (error: Throwable) {
