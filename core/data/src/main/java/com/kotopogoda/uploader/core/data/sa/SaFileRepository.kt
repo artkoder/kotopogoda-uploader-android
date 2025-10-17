@@ -2,9 +2,11 @@ package com.kotopogoda.uploader.core.data.sa
 
 import android.app.PendingIntent
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -98,6 +100,39 @@ class SaFileRepository @Inject constructor(
         val resolver = context.contentResolver
         val mimeType = resolver.getType(src) ?: DEFAULT_MIME
         val displayName = resolveMediaStoreDisplayName(resolver, src) ?: DEFAULT_FILE_NAME
+        val destinationDocumentId = resolveDocumentId(destinationDirectory)
+        val destinationVolume = destinationDocumentId?.substringBefore(':')
+        val mediaStoreVolume = runCatching { MediaStore.getVolumeName(src) }.getOrNull()
+
+        if (
+            destinationDocumentId != null &&
+            destinationVolume != null &&
+            mediaStoreVolume != null &&
+            areSameVolume(destinationVolume, mediaStoreVolume)
+        ) {
+            val uniqueDisplayName = generateUniqueDisplayName(destinationDirectory, displayName)
+            val relativePath = buildRelativePath(destinationDocumentId)
+                ?: throw IllegalStateException("Unable to resolve relative path for ${destinationDirectory.uri}")
+
+            runCatching { requestMediaStoreWritePermission(resolver, src) }
+                .onFailure { throw IllegalStateException("Unable to request write access for $src", it) }
+
+            val updateValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                if (uniqueDisplayName != displayName) {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, uniqueDisplayName)
+                }
+            }
+
+            val updated = resolver.update(src, updateValues, null, null)
+            if (updated <= 0) {
+                throw IllegalStateException("Unable to update destination for $src")
+            }
+
+            val targetDocumentId = "$destinationDocumentId/$uniqueDisplayName"
+            return DocumentsContract.buildDocumentUriUsingTree(destinationDirectory.uri, targetDocumentId)
+        }
+
         val destination = createUniqueFile(destinationDirectory, mimeType, displayName)
             ?: throw IllegalStateException("Unable to create destination document for $src")
 
@@ -126,6 +161,19 @@ class SaFileRepository @Inject constructor(
             pendingIntent.send()
         } catch (error: PendingIntent.CanceledException) {
             throw IllegalStateException("Delete request was cancelled for $uri", error)
+        }
+    }
+
+    private fun requestMediaStoreWritePermission(resolver: ContentResolver, uri: Uri) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            return
+        }
+
+        val pendingIntent = MediaStore.createWriteRequest(resolver, listOf(uri))
+        try {
+            pendingIntent.send()
+        } catch (error: PendingIntent.CanceledException) {
+            throw IllegalStateException("Write request was cancelled for $uri", error)
         }
     }
 
@@ -249,10 +297,38 @@ class SaFileRepository @Inject constructor(
     }
 
     companion object {
-        private const val BUFFER_SIZE = 64 * 1024
+        private const val BUFFER_SIZE = 1024 * 1024
         private const val DEFAULT_MIME = "application/octet-stream"
         private const val DEFAULT_FILE_NAME = "photo.jpg"
     }
+}
+
+private fun areSameVolume(destinationVolume: String, mediaStoreVolume: String): Boolean {
+    val normalizedDestination = destinationVolume.lowercase()
+    val normalizedSource = when (mediaStoreVolume.lowercase()) {
+        MediaStore.VOLUME_EXTERNAL.lowercase(),
+        MediaStore.VOLUME_EXTERNAL_PRIMARY.lowercase() -> "primary"
+        else -> mediaStoreVolume.lowercase()
+    }
+
+    return normalizedDestination == normalizedSource
+}
+
+private fun buildRelativePath(destinationDocumentId: String): String? {
+    val separatorIndex = destinationDocumentId.indexOf(':')
+    if (separatorIndex <= 0 || separatorIndex >= destinationDocumentId.length - 1) {
+        return null
+    }
+    val relative = destinationDocumentId.substring(separatorIndex + 1)
+    return if (relative.endsWith('/')) {
+        relative
+    } else {
+        "$relative/"
+    }
+}
+
+private fun resolveDocumentId(document: DocumentFile): String? {
+    return runCatching { DocumentsContract.getDocumentId(document.uri) }.getOrNull()
 }
 
 private data class DisplayNameComponents(
