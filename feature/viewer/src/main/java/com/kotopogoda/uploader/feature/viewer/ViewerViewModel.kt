@@ -318,6 +318,18 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
+    fun onCancelSelection() {
+        clearSelection()
+    }
+
+    fun onMoveSelection() {
+        requestMoveSelectionToProcessing(_selection.value.toList())
+    }
+
+    fun onDeleteSelection() {
+        requestDeleteSelection(_selection.value.toList())
+    }
+
     fun onMoveToProcessing(photo: PhotoItem?) {
         if (_actionInProgress.value != null) {
             return
@@ -374,7 +386,7 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
-    fun onMoveSelectionToProcessing(photos: List<PhotoItem>) {
+    private fun requestMoveSelectionToProcessing(photos: List<PhotoItem>) {
         if (_actionInProgress.value != null) {
             return
         }
@@ -551,7 +563,7 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
-    fun onDeleteSelection(photos: List<PhotoItem>) {
+    private fun requestDeleteSelection(photos: List<PhotoItem>) {
         if (_actionInProgress.value != null) {
             return
         }
