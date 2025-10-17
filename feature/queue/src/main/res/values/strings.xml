@@ -29,4 +29,10 @@
     <string name="queue_error_remote_failure">Обработка на сервере завершилась с ошибкой</string>
     <string name="queue_error_unexpected">Неизвестная ошибка</string>
     <string name="queue_offline_notice">задачи будут отправлены при появлении сети</string>
+    <string name="queue_transfer_active">Передача в процессе…</string>
+    <string name="queue_network_unmetered">Требуется Wi‑Fi или другая безлимитная сеть</string>
+    <string name="queue_network_not_roaming">Требуется сеть без роуминга</string>
+    <string name="queue_network_connected">Требуется подключение к сети</string>
+    <string name="queue_network_metered">Требуется подключение к сети (допустимы платные каналы)</string>
+    <string name="queue_retry_in">Повтор через %1$s</string>
 </resources>

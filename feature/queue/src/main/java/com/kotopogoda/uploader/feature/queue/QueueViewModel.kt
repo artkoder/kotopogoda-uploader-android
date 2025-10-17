@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
@@ -12,10 +14,12 @@ import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
+import com.kotopogoda.uploader.core.network.upload.UploadTags
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -26,17 +30,27 @@ class QueueViewModel @Inject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val uploadEnqueuer: UploadEnqueuer,
     private val summaryStarter: UploadSummaryStarter,
+    private val workManager: WorkManager,
+    private val workInfoMapper: QueueWorkInfoMapper,
 ) : ViewModel() {
 
     init {
         summaryStarter.ensureRunning()
     }
 
-    val uiState: StateFlow<QueueUiState> = uploadQueueRepository.observeQueue()
-        .map { items ->
-            val uiItems = items.map { it.toQueueItemUiModel() }
-            QueueUiState(items = uiItems)
+    private val workInfoFlow = workManager.getWorkInfosByTagFlow(UploadTags.TAG_UPLOAD)
+        .map { infos -> buildWorkLookup(infos) }
+
+    val uiState: StateFlow<QueueUiState> = combine(
+        uploadQueueRepository.observeQueue(),
+        workInfoFlow,
+    ) { items, lookup ->
+        val uiItems = items.map { entry ->
+            val workInfo = findWorkInfo(entry, lookup)
+            entry.toQueueItemUiModel(workInfo)
         }
+        QueueUiState(items = uiItems)
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
@@ -82,6 +96,50 @@ class QueueViewModel @Inject constructor(
             kind = UploadWorkKind.UPLOAD,
         )
     }
+
+    private fun buildWorkLookup(infos: List<WorkInfo>): QueueWorkLookup {
+        if (infos.isEmpty()) {
+            return QueueWorkLookup.EMPTY
+        }
+        val mapped = infos.mapNotNull(workInfoMapper::map)
+        if (mapped.isEmpty()) {
+            return QueueWorkLookup.EMPTY
+        }
+        val byUniqueName = buildMap {
+            for (info in mapped) {
+                val key = info.uniqueName
+                if (!key.isNullOrBlank()) {
+                    put(key, info)
+                }
+            }
+        }
+        val byUri = buildMap {
+            for (info in mapped) {
+                val key = info.uri?.toString()
+                if (!key.isNullOrBlank()) {
+                    put(key, info)
+                }
+            }
+        }
+        return QueueWorkLookup(byUniqueName, byUri)
+    }
+
+    private fun findWorkInfo(
+        entry: UploadQueueEntry,
+        lookup: QueueWorkLookup,
+    ): QueueItemWorkInfo? {
+        val uri = entry.uri
+        if (uri != null) {
+            val uniqueName = uploadEnqueuer.uniqueName(uri)
+            lookup.byUniqueName[uniqueName]?.let { return it }
+            lookup.byUri[uri.toString()]?.let { return it }
+        }
+        val entityUri = entry.entity.uri
+        if (entityUri.isNotBlank()) {
+            lookup.byUri[entityUri]?.let { return it }
+        }
+        return null
+    }
 }
 
 data class QueueUiState(
@@ -104,22 +162,26 @@ data class QueueItemUiModel(
     val totalBytes: Long?,
     val lastErrorKind: UploadErrorKind?,
     val lastErrorHttpCode: Int?,
+    val waitingReasons: List<QueueItemWaitingReason>,
+    val isActiveTransfer: Boolean,
 ) {
     val isIndeterminate: Boolean get() = progressPercent == null
 }
 
-internal fun UploadQueueEntry.toQueueItemUiModel(): QueueItemUiModel {
+internal fun UploadQueueEntry.toQueueItemUiModel(
+    workInfo: QueueItemWorkInfo?,
+): QueueItemUiModel {
     val entity = this.entity
     val normalizedTitle = entity.displayName.takeIf { it.isNotBlank() }
         ?: uri?.lastPathSegment?.takeIf { it.isNotBlank() }
         ?: DEFAULT_TITLE
-    val progressPercent = when (state) {
+    val baseProgressPercent = when (state) {
         UploadItemState.QUEUED -> 0
         UploadItemState.PROCESSING -> null
         UploadItemState.SUCCEEDED -> 100
         UploadItemState.FAILED -> 0
     }
-    val statusResId = when (state) {
+    val baseStatusResId = when (state) {
         UploadItemState.QUEUED -> R.string.queue_status_enqueued
         UploadItemState.PROCESSING -> R.string.queue_status_running
         UploadItemState.SUCCEEDED -> R.string.queue_status_succeeded
@@ -129,20 +191,45 @@ internal fun UploadQueueEntry.toQueueItemUiModel(): QueueItemUiModel {
     val canRetry = state == UploadItemState.FAILED
     val highlightWarning = state == UploadItemState.FAILED && lastErrorKind == UploadErrorKind.REMOTE_FAILURE
 
+    val mergedProgressPercent = workInfo?.progressPercent ?: baseProgressPercent
+    val mergedStatusResId = workInfo?.statusResId ?: baseStatusResId
+    val mergedBytesSent = workInfo?.bytesSent
+    val mergedTotalBytes = workInfo?.totalBytes ?: entity.size.takeIf { it > 0 }
+    val mergedWaitingReasons = workInfo?.waitingReasons ?: emptyList()
+    val mergedIsActive = workInfo?.isActiveTransfer ?: false
+    val finalCanCancel = when (workInfo?.state) {
+        WorkInfo.State.SUCCEEDED,
+        WorkInfo.State.FAILED,
+        WorkInfo.State.CANCELLED -> false
+        else -> canCancel
+    }
+
     return QueueItemUiModel(
         id = entity.id,
         title = normalizedTitle,
-        progressPercent = progressPercent,
+        progressPercent = mergedProgressPercent,
         uri = uri,
         source = this,
-        canCancel = canCancel,
+        canCancel = finalCanCancel,
         canRetry = canRetry,
-        statusResId = statusResId,
+        statusResId = mergedStatusResId,
         highlightWarning = highlightWarning,
-        bytesSent = null,
-        totalBytes = entity.size.takeIf { it > 0 },
+        bytesSent = mergedBytesSent,
+        totalBytes = mergedTotalBytes,
         lastErrorKind = lastErrorKind,
         lastErrorHttpCode = lastErrorHttpCode,
+        waitingReasons = mergedWaitingReasons,
+        isActiveTransfer = mergedIsActive,
     )
 }
+
+data class QueueWorkLookup(
+    val byUniqueName: Map<String, QueueItemWorkInfo>,
+    val byUri: Map<String, QueueItemWorkInfo>,
+) {
+    companion object {
+        val EMPTY = QueueWorkLookup(emptyMap(), emptyMap())
+    }
+}
+
 private const val DEFAULT_TITLE = "Загрузка"

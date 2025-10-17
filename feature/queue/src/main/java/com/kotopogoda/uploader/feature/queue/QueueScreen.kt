@@ -260,6 +260,23 @@ private fun QueueItemCard(
                     MaterialTheme.colorScheme.primary
                 }
             )
+            if (item.isActiveTransfer) {
+                Text(
+                    text = stringResource(id = R.string.queue_transfer_active),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            item.waitingReasons.forEach { reason ->
+                val args = reason.formatArgs.toTypedArray()
+                Text(
+                    text = stringResource(id = reason.messageResId, *args),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
