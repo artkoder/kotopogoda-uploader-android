@@ -80,7 +80,7 @@ class QueueDrainWorker @AssistedInject constructor(
         val request = builder.build()
         workManager.enqueueUniqueWork(
             QUEUE_DRAIN_WORK_NAME,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request,
         )
     }
