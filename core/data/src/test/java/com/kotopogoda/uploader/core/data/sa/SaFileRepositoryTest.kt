@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import io.mockk.eq
 import io.mockk.every
+import io.mockk.match
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -134,10 +135,13 @@ class SaFileRepositoryTest {
         every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
 
         mockkStatic(MediaStore::class)
+        every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
 
         mockkStatic(DocumentsContract::class)
-        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "primary:Kotopogoda/На обработку"
+        val destinationFolderUri = Uri.parse("content://com.android.externalstorage.documents/document/1234-5678:Kotopogoda/Processing")
+        every { destinationFolder.uri } returns destinationFolderUri
+        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "1234-5678:Kotopogoda/Processing"
 
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
@@ -159,11 +163,66 @@ class SaFileRepositoryTest {
 
         assertEquals(destinationUri, result)
         assertContentEquals(inputBytes, outputStream.toByteArray())
+        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
         verify(exactly = 1) { pendingIntent.send() }
         verify(exactly = 0) { contentResolver.delete(mediaUri, any(), any()) }
         verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 0) { contentResolver.update(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `moveToProcessing updates MediaStore document within same volume`() = runTest {
+        val mediaUri = Uri.parse("content://media/external_primary/images/media/777")
+        val destinationFolderUri = Uri.parse("content://com.android.externalstorage.documents/document/primary:Kotopogoda/Processing")
+        val expectedDocumentId = "primary:Kotopogoda/Processing/bar.jpg"
+        val expectedProcessingUri = Uri.parse("content://com.android.externalstorage.documents/document/$expectedDocumentId")
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val pendingIntent = mockk<PendingIntent>(relaxed = true)
+
+        mockkStatic(Build.VERSION::class)
+        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
+
+        mockkStatic(MediaStore::class)
+        every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
+        every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
+
+        mockkStatic(DocumentsContract::class)
+        every { destinationFolder.uri } returns destinationFolderUri
+        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "primary:Kotopogoda/Processing"
+        every { DocumentsContract.buildDocumentUriUsingTree(destinationFolderUri, expectedDocumentId) } returns expectedProcessingUri
+
+        val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
+            addRow(arrayOf<Any>("bar.jpg"))
+        }
+
+        every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.listFiles() } returns emptyArray()
+
+        every { contentResolver.getType(mediaUri) } returns "image/jpeg"
+        every { contentResolver.query(mediaUri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null) } returns cursor
+        every { contentResolver.update(eq(mediaUri), any(), isNull(), isNull()) } returns 1
+        every { pendingIntent.send() } returns Unit
+
+        val result = repository.moveToProcessing(mediaUri)
+
+        assertEquals(expectedProcessingUri, result)
+        verify(exactly = 1) {
+            contentResolver.update(
+                eq(mediaUri),
+                match { values ->
+                    values.get(MediaStore.MediaColumns.RELATIVE_PATH) == "Kotopogoda/Processing/" &&
+                        values.get(MediaStore.MediaColumns.DISPLAY_NAME) == null
+                },
+                null,
+                null
+            )
+        }
+        verify(exactly = 1) { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) }
+        verify(exactly = 1) { pendingIntent.send() }
+        verify(exactly = 0) { contentResolver.openInputStream(any()) }
+        verify(exactly = 0) { contentResolver.openOutputStream(any()) }
+        verify(exactly = 0) { MediaStore.createDeleteRequest(any(), any()) }
     }
 
     @Test
