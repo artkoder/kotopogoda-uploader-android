@@ -1,6 +1,8 @@
 package com.kotopogoda.uploader.feature.onboarding
 
 import android.app.Activity
+import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.UriPermission
 import android.net.Uri
@@ -8,6 +10,7 @@ import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,6 +51,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.content.ContextCompat
 import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.feature.onboarding.R
 import java.time.Instant
@@ -55,6 +59,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import android.content.pm.PackageManager
+import android.os.Build
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,6 +134,18 @@ fun OnboardingRoute(
         }
     }
 
+    val mediaPermission = remember { mediaReadPermissionFor(Build.VERSION.SDK_INT) }
+    var hasMediaPermission by remember { mutableStateOf(isPermissionGranted(context, mediaPermission)) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasMediaPermission = granted
+    }
+
+    LaunchedEffect(mediaPermission, context) {
+        hasMediaPermission = isPermissionGranted(context, mediaPermission)
+    }
+
     var autoRequestKey by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(currentFolderUri, contentResolver) {
         val treeUriString = currentFolderUri ?: return@LaunchedEffect
@@ -158,17 +176,74 @@ fun OnboardingRoute(
         }
     }
 
-    OnboardingScreen(
-        uiState = uiState,
-        onSelectFolder = {
-            if (!isScanInProgress) {
-                launchFolderPicker(currentFolderUri?.let(Uri::parse))
-            }
-        },
-        onStartReview = viewModel::onStartReview,
-        onResetProgress = viewModel::onResetProgress,
-        onResetAnchor = viewModel::onResetAnchor
-    )
+    if (hasMediaPermission) {
+        OnboardingScreen(
+            uiState = uiState,
+            onSelectFolder = {
+                if (!isScanInProgress) {
+                    launchFolderPicker(currentFolderUri?.let(Uri::parse))
+                }
+            },
+            onStartReview = viewModel::onStartReview,
+            onResetProgress = viewModel::onResetProgress,
+            onResetAnchor = viewModel::onResetAnchor
+        )
+    } else {
+        MediaPermissionMissingContent(
+            onRequestPermission = { permissionLauncher.launch(mediaPermission) },
+            onSelectFolder = { launchFolderPicker(currentFolderUri?.let(Uri::parse)) }
+        )
+    }
+}
+
+@VisibleForTesting
+@Composable
+internal fun MediaPermissionMissingContent(
+    onRequestPermission: () -> Unit,
+    onSelectFolder: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = stringResource(id = R.string.media_permission_title),
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = stringResource(id = R.string.media_permission_body),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = stringResource(id = R.string.media_permission_select_folder_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
+        Button(onClick = onRequestPermission) {
+            Text(text = stringResource(id = R.string.media_permission_grant))
+        }
+        OutlinedButton(onClick = onSelectFolder) {
+            Text(text = stringResource(id = R.string.media_permission_select_folder))
+        }
+    }
+}
+
+private fun mediaReadPermissionFor(apiLevel: Int): String {
+    return if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+}
+
+private fun isPermissionGranted(context: Context, permission: String): Boolean {
+    return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun maskPersistableFlags(flags: Int): Int {

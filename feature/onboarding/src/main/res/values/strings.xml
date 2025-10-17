@@ -1,4 +1,9 @@
 <resources>
+    <string name="media_permission_title">Нужен доступ к фото</string>
+    <string name="media_permission_body">Предоставьте приложению доступ к фотографиям, чтобы выбрать и отправить их.</string>
+    <string name="media_permission_grant">Предоставить доступ</string>
+    <string name="media_permission_select_folder">Выбрать папку (SAF)</string>
+    <string name="media_permission_select_folder_hint">Можно выбрать папку через системный файловый диалог без доступа к медиатеке.</string>
     <string name="onboarding_choose_folder_title">Выберите папку</string>
     <string name="onboarding_choose_folder_body">Приложению нужен доступ к папке, где вы храните фотографии. Предоставьте доступ через системный выбор папки.</string>
     <string name="onboarding_choose_folder_action">Выбрать папку</string>
