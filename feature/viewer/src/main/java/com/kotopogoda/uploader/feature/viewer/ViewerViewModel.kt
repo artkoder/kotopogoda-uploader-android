@@ -121,7 +121,7 @@ class ViewerViewModel @Inject constructor(
         .map { it.isNotEmpty() }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.Eagerly,
             initialValue = _selection.value.isNotEmpty()
         )
 
