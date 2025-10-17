@@ -11,7 +11,12 @@ import io.mockk.coAnswers
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -64,5 +69,80 @@ class OnboardingViewModelTest {
         val state = viewModel.uiState.value as OnboardingUiState.FolderSelected
         assertThat(state.photoCount).isEqualTo(4)
         assertThat(state.scanState).isEqualTo(OnboardingScanState.Idle)
+    }
+
+    @Test
+    fun emitsEventWhenPersistablePermissionGranted() = runTest {
+        val folderRepository = mockk<FolderRepository>()
+        every { folderRepository.observeFolder() } returns MutableStateFlow<Folder?>(null)
+
+        val photoRepository = mockk<PhotoRepository>()
+        coEvery { photoRepository.countAll() } returns 0
+        coEvery { photoRepository.findIndexAtOrAfter(any()) } returns 0
+        coEvery { photoRepository.clampIndex(any()) } answers { firstArg() }
+
+        val reviewProgressStore = mockk<ReviewProgressStore>()
+        coEvery { reviewProgressStore.loadPosition(any()) } returns null
+
+        val indexerRepository = mockk<IndexerRepository>()
+        every { indexerRepository.isIndexerEnabled } returns false
+
+        val viewModel = OnboardingViewModel(
+            folderRepository = folderRepository,
+            photoRepository = photoRepository,
+            reviewProgressStore = reviewProgressStore,
+            indexerRepository = indexerRepository
+        )
+
+        val event = async { viewModel.events.first() }
+
+        viewModel.onPersistablePermissionGranted()
+
+        assertThat(event.await()).isEqualTo(OnboardingEvent.FolderPermissionPersisted)
+    }
+
+    @Test
+    fun scanTimesOutUpdatesState() = runTest {
+        val folderFlow = MutableStateFlow<Folder?>(null)
+        val folderRepository = mockk<FolderRepository>()
+        every { folderRepository.observeFolder() } returns folderFlow
+
+        val photoRepository = mockk<PhotoRepository>()
+        coEvery { photoRepository.countAll() } returns 0
+        coEvery { photoRepository.findIndexAtOrAfter(any()) } returns 0
+        coEvery { photoRepository.clampIndex(any()) } answers { firstArg() }
+
+        val reviewProgressStore = mockk<ReviewProgressStore>()
+        coEvery { reviewProgressStore.loadPosition(any()) } returns null
+
+        val indexerRepository = mockk<IndexerRepository>()
+        every { indexerRepository.isIndexerEnabled } returns true
+        every { indexerRepository.scanAll() } returns flow {
+            awaitCancellation()
+        }
+
+        val viewModel = OnboardingViewModel(
+            folderRepository = folderRepository,
+            photoRepository = photoRepository,
+            reviewProgressStore = reviewProgressStore,
+            indexerRepository = indexerRepository
+        )
+
+        folderFlow.value = Folder(
+            id = 1,
+            treeUri = "content://test/folder",
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+
+        advanceUntilIdle()
+
+        advanceTimeBy(30_000)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as OnboardingUiState.FolderSelected
+        assertThat(state.scanState).isEqualTo(OnboardingScanState.Timeout)
     }
 }

@@ -5,6 +5,7 @@
     <string name="onboarding_selected_folder_title">Папка выбрана</string>
     <string name="onboarding_selected_folder_body">Текущая папка: %1$s</string>
     <string name="onboarding_change_folder">Сменить папку</string>
+    <string name="onboarding_folder_permission_persisted">Папка добавлена, доступ сохранён</string>
     <string name="onboarding_start_title">Старт просмотра</string>
     <string name="onboarding_start_photos_count">Всего фото: %1$d</string>
     <string name="onboarding_start_option_continue">Продолжить</string>
@@ -25,4 +26,5 @@
     <string name="onboarding_scan_completed">Сканирование завершено: добавлено %1$d, обновлено %2$d, пропущено %3$d</string>
     <string name="onboarding_scan_completed_empty">Сканирование завершено</string>
     <string name="onboarding_scan_failed">Не удалось просканировать папку: %1$s</string>
+    <string name="onboarding_scan_timeout">Долго читаем медиатеку, попробуйте снова / выбрать другую папку</string>
 </resources>
