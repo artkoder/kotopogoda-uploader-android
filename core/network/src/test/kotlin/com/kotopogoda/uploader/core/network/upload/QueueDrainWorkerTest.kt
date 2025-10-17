@@ -7,8 +7,8 @@ import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker.Result
 import androidx.work.OneTimeWorkRequest
-import androidx.work.Operation
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkContinuation
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
@@ -42,7 +42,8 @@ class QueueDrainWorkerTest {
             displayName = "photo.jpg",
             size = 10L,
         )
-        val requestSlot = slot<OneTimeWorkRequest>()
+        val uploadRequestSlot = slot<OneTimeWorkRequest>()
+        val pollRequestSlot = slot<OneTimeWorkRequest>()
 
         coEvery { repository.recoverStuckProcessing() } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
@@ -50,13 +51,17 @@ class QueueDrainWorkerTest {
         coEvery { repository.hasQueued() } returns false
         every { constraintsProvider.buildConstraints() } returns Constraints.NONE
         every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        val continuation = mockk<WorkContinuation>()
+        val finalContinuation = mockk<WorkContinuation>()
         every {
-            workManager.enqueueUniqueWork(
+            workManager.beginUniqueWork(
                 any(),
                 any(),
-                capture(requestSlot)
+                capture(uploadRequestSlot)
             )
-        } returns mockk<Operation>(relaxed = true)
+        } returns continuation
+        every { continuation.then(capture(pollRequestSlot)) } returns finalContinuation
+        every { finalContinuation.enqueue() } returns mockk(relaxed = true)
 
         val worker = QueueDrainWorker(
             context,
@@ -73,28 +78,44 @@ class QueueDrainWorkerTest {
         coVerify { repository.fetchQueued(match { it == 5 }, recoverStuck = false) }
         coVerify { repository.markProcessing(queueItem.id) }
         verify {
-            workManager.enqueueUniqueWork(
+            workManager.beginUniqueWork(
                 UploadEnqueuer.uniqueNameForUri(queueItem.uri),
                 ExistingWorkPolicy.KEEP,
-                requestSlot.captured,
+                uploadRequestSlot.captured,
             )
         }
+        verify { continuation.then(pollRequestSlot.captured) }
+        verify { finalContinuation.enqueue() }
 
-        val input = requestSlot.captured.workSpec.input
+        val input = uploadRequestSlot.captured.workSpec.input
         assertEquals(queueItem.id, input.getLong(UploadEnqueuer.KEY_ITEM_ID, -1))
         assertEquals(queueItem.uri.toString(), input.getString(UploadEnqueuer.KEY_URI))
         assertEquals(queueItem.idempotencyKey, input.getString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY))
         assertEquals(queueItem.displayName, input.getString(UploadEnqueuer.KEY_DISPLAY_NAME))
 
-        val tags = requestSlot.captured.tags
-        assertTrue(tags.contains(UploadTags.TAG_UPLOAD))
-        assertTrue(tags.contains(UploadTags.uniqueTag(UploadEnqueuer.uniqueNameForUri(queueItem.uri))))
-        assertTrue(tags.contains(UploadTags.uriTag(queueItem.uri.toString())))
-        assertTrue(tags.contains(UploadTags.displayNameTag(queueItem.displayName)))
-        assertTrue(tags.contains(UploadTags.keyTag(queueItem.idempotencyKey)))
-        assertTrue(tags.contains(UploadTags.kindTag(UploadWorkKind.UPLOAD)))
+        val pollInput = pollRequestSlot.captured.workSpec.input
+        assertEquals(queueItem.id, pollInput.getLong(UploadEnqueuer.KEY_ITEM_ID, -1))
+        assertEquals(queueItem.uri.toString(), pollInput.getString(UploadEnqueuer.KEY_URI))
+        assertEquals(queueItem.displayName, pollInput.getString(UploadEnqueuer.KEY_DISPLAY_NAME))
 
-        assertFalse(requestSlot.captured.workSpec.expedited)
+        val uploadTags = uploadRequestSlot.captured.tags
+        val pollTags = pollRequestSlot.captured.tags
+        assertTrue(uploadTags.contains(UploadTags.TAG_UPLOAD))
+        assertTrue(uploadTags.contains(UploadTags.uniqueTag(UploadEnqueuer.uniqueNameForUri(queueItem.uri))))
+        assertTrue(uploadTags.contains(UploadTags.uriTag(queueItem.uri.toString())))
+        assertTrue(uploadTags.contains(UploadTags.displayNameTag(queueItem.displayName)))
+        assertTrue(uploadTags.contains(UploadTags.keyTag(queueItem.idempotencyKey)))
+        assertTrue(uploadTags.contains(UploadTags.kindTag(UploadWorkKind.UPLOAD)))
+
+        assertTrue(pollTags.contains(UploadTags.TAG_POLL))
+        assertTrue(pollTags.contains(UploadTags.uniqueTag(UploadEnqueuer.uniqueNameForUri(queueItem.uri))))
+        assertTrue(pollTags.contains(UploadTags.uriTag(queueItem.uri.toString())))
+        assertTrue(pollTags.contains(UploadTags.displayNameTag(queueItem.displayName)))
+        assertTrue(pollTags.contains(UploadTags.keyTag(queueItem.idempotencyKey)))
+        assertTrue(pollTags.contains(UploadTags.kindTag(UploadWorkKind.POLL)))
+
+        assertFalse(uploadRequestSlot.captured.workSpec.expedited)
+        assertFalse(pollRequestSlot.captured.workSpec.expedited)
     }
 
     @Test
@@ -111,13 +132,33 @@ class QueueDrainWorkerTest {
             size = 10L,
         )
 
+        val uploadRequestSlot = slot<OneTimeWorkRequest>()
+        val pollRequestSlot = slot<OneTimeWorkRequest>()
+        val drainRequestSlot = slot<OneTimeWorkRequest>()
         coEvery { repository.recoverStuckProcessing() } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.hasQueued() } returns true
         every { constraintsProvider.buildConstraints() } returns Constraints.NONE
         every { constraintsProvider.shouldUseExpeditedWork() } returns false
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+        val continuation = mockk<WorkContinuation>()
+        val finalContinuation = mockk<WorkContinuation>()
+        every {
+            workManager.beginUniqueWork(
+                any(),
+                any(),
+                capture(uploadRequestSlot),
+            )
+        } returns continuation
+        every { continuation.then(capture(pollRequestSlot)) } returns finalContinuation
+        every { finalContinuation.enqueue() } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                capture(drainRequestSlot),
+            )
+        } returns mockk(relaxed = true)
 
         val worker = QueueDrainWorker(
             context,
@@ -131,17 +172,19 @@ class QueueDrainWorkerTest {
 
         assertEquals(Result.success(), result)
         verify {
-            workManager.enqueueUniqueWork(
+            workManager.beginUniqueWork(
                 UploadEnqueuer.uniqueNameForUri(queueItem.uri),
                 ExistingWorkPolicy.KEEP,
-                any(),
+                uploadRequestSlot.captured,
             )
         }
+        verify { continuation.then(pollRequestSlot.captured) }
+        verify { finalContinuation.enqueue() }
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
-                any(),
+                drainRequestSlot.captured,
             )
         }
     }
@@ -159,8 +202,11 @@ class QueueDrainWorkerTest {
             displayName = "photo.jpg",
             size = 10L,
         )
-        val names = mutableListOf<String>()
-        val requests = mutableListOf<OneTimeWorkRequest>()
+        val uploadRequestSlot = slot<OneTimeWorkRequest>()
+        val pollRequestSlot = slot<OneTimeWorkRequest>()
+        val drainRequestSlot = slot<OneTimeWorkRequest>()
+        val continuation = mockk<WorkContinuation>()
+        val finalContinuation = mockk<WorkContinuation>()
 
         coEvery { repository.recoverStuckProcessing() } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
@@ -169,10 +215,19 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.buildConstraints() } returns Constraints.NONE
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
         every {
-            workManager.enqueueUniqueWork(
-                capture(names),
+            workManager.beginUniqueWork(
                 any(),
-                capture(requests),
+                any(),
+                capture(uploadRequestSlot),
+            )
+        } returns continuation
+        every { continuation.then(capture(pollRequestSlot)) } returns finalContinuation
+        every { finalContinuation.enqueue() } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                capture(drainRequestSlot),
             )
         } returns mockk(relaxed = true)
 
@@ -187,15 +242,20 @@ class QueueDrainWorkerTest {
         val result = worker.doWork()
 
         assertEquals(Result.success(), result)
-        assertEquals(2, requests.size)
-        assertTrue(names.contains(UploadEnqueuer.uniqueNameForUri(queueItem.uri)))
-        assertTrue(names.contains(QUEUE_DRAIN_WORK_NAME))
-        val uploadRequest = requests[names.indexOf(UploadEnqueuer.uniqueNameForUri(queueItem.uri))]
-        val drainRequest = requests[names.indexOf(QUEUE_DRAIN_WORK_NAME)]
-
-        assertTrue(uploadRequest.workSpec.expedited)
-        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, uploadRequest.workSpec.outOfQuotaPolicy)
-        assertTrue(drainRequest.workSpec.expedited)
-        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, drainRequest.workSpec.outOfQuotaPolicy)
+        assertTrue(uploadRequestSlot.captured.workSpec.expedited)
+        assertEquals(
+            OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST,
+            uploadRequestSlot.captured.workSpec.outOfQuotaPolicy,
+        )
+        assertTrue(pollRequestSlot.captured.workSpec.expedited)
+        assertEquals(
+            OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST,
+            pollRequestSlot.captured.workSpec.outOfQuotaPolicy,
+        )
+        assertTrue(drainRequestSlot.captured.workSpec.expedited)
+        assertEquals(
+            OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST,
+            drainRequestSlot.captured.workSpec.outOfQuotaPolicy,
+        )
     }
 }

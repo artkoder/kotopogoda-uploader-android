@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.work.UploadWorker
+import com.kotopogoda.uploader.core.network.work.PollStatusWorker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -41,8 +42,10 @@ class QueueDrainWorker @AssistedInject constructor(
                 continue
             }
             val uniqueName = UploadEnqueuer.uniqueNameForUri(item.uri)
+            val constraints = constraintsProvider.buildConstraints()
+            val expedited = constraintsProvider.shouldUseExpeditedWork()
             val requestBuilder = OneTimeWorkRequestBuilder<UploadWorker>()
-                .setConstraints(constraintsProvider.buildConstraints())
+                .setConstraints(constraints)
                 .setInputData(
                     workDataOf(
                         UploadEnqueuer.KEY_ITEM_ID to item.id,
@@ -57,11 +60,35 @@ class QueueDrainWorker @AssistedInject constructor(
                 .addTag(UploadTags.displayNameTag(item.displayName))
                 .addTag(UploadTags.keyTag(item.idempotencyKey))
                 .addTag(UploadTags.kindTag(UploadWorkKind.UPLOAD))
-            if (constraintsProvider.shouldUseExpeditedWork()) {
+            if (expedited) {
                 requestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             }
-            val request = requestBuilder.build()
-            workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
+            val uploadRequest = requestBuilder.build()
+
+            val pollRequestBuilder = OneTimeWorkRequestBuilder<PollStatusWorker>()
+                .setConstraints(constraints)
+                .setInputData(
+                    workDataOf(
+                        UploadEnqueuer.KEY_ITEM_ID to item.id,
+                        UploadEnqueuer.KEY_URI to item.uri.toString(),
+                        UploadEnqueuer.KEY_DISPLAY_NAME to item.displayName,
+                    )
+                )
+                .addTag(UploadTags.TAG_POLL)
+                .addTag(UploadTags.uniqueTag(uniqueName))
+                .addTag(UploadTags.uriTag(item.uri.toString()))
+                .addTag(UploadTags.displayNameTag(item.displayName))
+                .addTag(UploadTags.keyTag(item.idempotencyKey))
+                .addTag(UploadTags.kindTag(UploadWorkKind.POLL))
+            if (expedited) {
+                pollRequestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            }
+            val pollRequest = pollRequestBuilder.build()
+
+            workManager
+                .beginUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, uploadRequest)
+                .then(pollRequest)
+                .enqueue()
         }
 
         if (repository.hasQueued()) {
