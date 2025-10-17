@@ -47,7 +47,7 @@ interface UploadItemDao {
 
     @Query(
         "UPDATE upload_items SET state = :state, uri = :uri, display_name = :displayName, size = :size, " +
-            "last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE id = :id"
+            "idempotency_key = :idempotencyKey, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateStateWithMetadata(
         id: Long,
@@ -55,6 +55,7 @@ interface UploadItemDao {
         uri: String,
         displayName: String,
         size: Long,
+        idempotencyKey: String,
         updatedAt: Long,
     )
 

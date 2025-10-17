@@ -54,7 +54,7 @@ class UploadEnqueuerTest {
 
         enqueuer.enqueue(uri, "key-1", "file-1")
 
-        coVerify { uploadItemsRepository.enqueue(uri) }
+        coVerify { uploadItemsRepository.enqueue(uri, "key-1") }
         verify { summaryStarter.ensureRunning() }
         verify { constraintsProvider.buildConstraints() }
         verify {
@@ -132,7 +132,7 @@ class UploadEnqueuerTest {
 
         val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
-        coVerify { uploadItemsRepository.enqueue(uri) }
+        coVerify { uploadItemsRepository.enqueue(uri, "key-3") }
         verify { summaryStarter.ensureRunning() }
         verify { constraintsProvider.buildConstraints() }
         verify { constraintsProvider.shouldUseExpeditedWork() }

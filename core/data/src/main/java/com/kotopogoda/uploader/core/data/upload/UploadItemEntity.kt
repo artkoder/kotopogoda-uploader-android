@@ -18,6 +18,8 @@ data class UploadItemEntity(
     val id: Long = 0,
     @ColumnInfo(name = "photo_id")
     val photoId: String,
+    @ColumnInfo(name = "idempotency_key", defaultValue = "''")
+    val idempotencyKey: String = "",
     @ColumnInfo(name = "uri", defaultValue = "''")
     val uri: String = "",
     @ColumnInfo(name = "display_name", defaultValue = "'photo.jpg'")

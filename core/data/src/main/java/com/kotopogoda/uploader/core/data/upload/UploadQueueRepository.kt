@@ -58,7 +58,7 @@ class UploadQueueRepository @Inject constructor(
         ).distinctUntilChanged()
     }
 
-    suspend fun enqueue(uri: Uri) = withContext(Dispatchers.IO) {
+    suspend fun enqueue(uri: Uri, idempotencyKey: String) = withContext(Dispatchers.IO) {
         val uriString = uri.toString()
         val photo = photoDao.getByUri(uriString)
             ?: createFallbackPhoto(uri, uriString)
@@ -69,6 +69,7 @@ class UploadQueueRepository @Inject constructor(
             val id = uploadItemDao.insert(
                 UploadItemEntity(
                     photoId = photo.id,
+                    idempotencyKey = idempotencyKey,
                     uri = photo.uri,
                     displayName = displayName,
                     size = photo.size,
@@ -98,6 +99,7 @@ class UploadQueueRepository @Inject constructor(
                 uri = photo.uri,
                 displayName = displayName,
                 size = photo.size,
+                idempotencyKey = idempotencyKey,
                 updatedAt = now,
             )
             Timber.tag("Queue").i(
@@ -233,7 +235,8 @@ class UploadQueueRepository @Inject constructor(
                     continue
                 }
                 val displayName = resolveDisplayName(entity, uri)
-                val idempotencyKey = buildIdempotencyKey(entity.photoId)
+                val idempotencyKey = entity.idempotencyKey.takeIf { it.isNotBlank() }
+                    ?: buildIdempotencyKey(entity.photoId)
                 add(
                     UploadQueueItem(
                         id = entity.id,
