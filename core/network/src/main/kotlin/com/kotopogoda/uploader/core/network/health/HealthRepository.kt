@@ -54,13 +54,17 @@ class HealthRepository @Inject constructor(
         val status = when (extracted) {
             is String -> extracted.toHealthStatus()
             is Number -> extracted.toHealthStatus()
+            is Boolean -> extracted.toHealthStatus()
             else -> null
         }
-        if (status == null || status == HealthStatus.UNKNOWN) {
+        if (status == null) {
             return ParsedStatus(
-                status = HealthStatus.DEGRADED,
+                status = HealthStatus.ONLINE,
                 message = HealthState.MESSAGE_PARSE_ERROR,
             )
+        }
+        if (status == HealthStatus.UNKNOWN) {
+            return ParsedStatus(status = HealthStatus.UNKNOWN, message = null)
         }
         return ParsedStatus(status = status, message = null)
     }
@@ -68,11 +72,11 @@ class HealthRepository @Inject constructor(
     private fun extractStatusValue(value: Any?): Any? {
         return when (value) {
             null -> null
-            is String, is Number -> value
+            is String, is Number, is Boolean -> value
             is Map<*, *> -> {
                 val prioritized = value.entries.firstNotNullOfOrNull { (key, entryValue) ->
-                    val keyString = key?.toString()?.lowercase()
-                    if (keyString == "status" || keyString == "state") {
+                    val keyString = key?.toString()?.lowercase()?.replace("_", "")
+                    if (keyString == "status" || keyString == "state" || keyString == "ok" || keyString == "isok") {
                         extractStatusValue(entryValue)
                     } else {
                         null
@@ -88,21 +92,28 @@ class HealthRepository @Inject constructor(
 
     private fun String.toHealthStatus(): HealthStatus {
         return when (lowercase().trim()) {
-            "online", "healthy", "ok", "success" -> HealthStatus.ONLINE
+            "online", "healthy", "ok", "success", "true" -> HealthStatus.ONLINE
             "degraded", "warn", "warning", "partial" -> HealthStatus.DEGRADED
-            "offline", "down", "error", "fail", "failed" -> HealthStatus.OFFLINE
+            "offline", "down", "error", "fail", "failed", "false" -> HealthStatus.OFFLINE
             else -> HealthStatus.UNKNOWN
         }
     }
 
     private fun Number.toHealthStatus(): HealthStatus {
         val asInt = toInt()
-        return when (asInt) {
-            1 -> HealthStatus.ONLINE
-            2 -> HealthStatus.DEGRADED
-            0 -> HealthStatus.OFFLINE
+        return when {
+            asInt == 1 -> HealthStatus.ONLINE
+            asInt == 2 -> HealthStatus.DEGRADED
+            asInt == 0 -> HealthStatus.OFFLINE
+            asInt in 200..299 -> HealthStatus.ONLINE
+            asInt in 300..399 -> HealthStatus.DEGRADED
+            asInt >= 400 -> HealthStatus.OFFLINE
             else -> HealthStatus.UNKNOWN
         }
+    }
+
+    private fun Boolean.toHealthStatus(): HealthStatus {
+        return if (this) HealthStatus.ONLINE else HealthStatus.OFFLINE
     }
 
     private fun durationMillisBetween(start: Instant, end: Instant): Long {
