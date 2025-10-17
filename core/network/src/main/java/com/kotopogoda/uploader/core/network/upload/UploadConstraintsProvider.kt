@@ -2,6 +2,8 @@ package com.kotopogoda.uploader.core.network.upload
 
 import androidx.work.Constraints
 
-fun interface UploadConstraintsProvider {
+interface UploadConstraintsProvider {
     fun buildConstraints(): Constraints
+
+    fun shouldUseExpeditedWork(): Boolean
 }
