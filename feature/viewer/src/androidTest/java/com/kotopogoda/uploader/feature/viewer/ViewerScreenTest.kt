@@ -70,7 +70,7 @@ class ViewerScreenTest {
                 onZoomStateChanged = {},
                 onSkip = { _ -> },
                 onMoveToProcessing = { _ -> },
-                onMoveSelectionToProcessing = {},
+                onMoveSelection = {},
                 onEnqueueUpload = { _ -> },
                 onUndo = {},
                 onDelete = { _ -> },
@@ -81,7 +81,7 @@ class ViewerScreenTest {
                 onScrollToNewest = { scrolledToNewest.value = true },
                 onPhotoLongPress = {},
                 onToggleSelection = {},
-                onClearSelection = {},
+                onCancelSelection = {},
                 onSelectFolder = {}
             )
         }
@@ -133,11 +133,11 @@ class ViewerScreenTest {
                 onZoomStateChanged = {},
                 onSkip = { _ -> },
                 onMoveToProcessing = { _ -> },
-                onMoveSelectionToProcessing = { moved = it },
+                onMoveSelection = { moved = selection.toList() },
                 onEnqueueUpload = { _ -> },
                 onUndo = {},
                 onDelete = { _ -> },
-                onDeleteSelection = { deleted = it },
+                onDeleteSelection = { deleted = selection.toList() },
                 onDeleteResult = {},
                 onWriteRequestResult = {},
                 onJumpToDate = {},
@@ -150,7 +150,7 @@ class ViewerScreenTest {
                         selection + photo
                     }
                 },
-                onClearSelection = { selection = emptySet() },
+                onCancelSelection = { selection = emptySet() },
                 onSelectFolder = {}
             )
         }

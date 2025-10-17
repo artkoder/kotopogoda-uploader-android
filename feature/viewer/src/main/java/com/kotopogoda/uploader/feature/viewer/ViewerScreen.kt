@@ -211,7 +211,8 @@ fun ViewerRoute(
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
         onSkip = viewModel::onSkip,
         onMoveToProcessing = viewModel::onMoveToProcessing,
-        onMoveSelectionToProcessing = viewModel::onMoveSelectionToProcessing,
+        onCancelSelection = viewModel::onCancelSelection,
+        onMoveSelection = viewModel::onMoveSelection,
         onEnqueueUpload = viewModel::onEnqueueUpload,
         onUndo = viewModel::onUndo,
         onDelete = viewModel::onDelete,
@@ -222,7 +223,6 @@ fun ViewerRoute(
         onScrollToNewest = viewModel::scrollToNewest,
         onPhotoLongPress = viewModel::onPhotoLongPress,
         onToggleSelection = viewModel::onToggleSelection,
-        onClearSelection = viewModel::clearSelection,
         onSelectFolder = {
             launchFolderPicker(currentFolderUri?.let(Uri::parse))
         }
@@ -258,23 +258,23 @@ internal fun ViewerScreen(
     onZoomStateChanged: (Boolean) -> Unit,
     onSkip: (PhotoItem?) -> Unit,
     onMoveToProcessing: (PhotoItem?) -> Unit,
-    onMoveSelectionToProcessing: (List<PhotoItem>) -> Unit,
+    onMoveSelection: () -> Unit,
     onEnqueueUpload: (PhotoItem?) -> Unit,
     onUndo: () -> Unit,
     onDelete: (PhotoItem?) -> Unit,
-    onDeleteSelection: (List<PhotoItem>) -> Unit,
+    onDeleteSelection: () -> Unit,
     onDeleteResult: (ViewerViewModel.DeleteResult) -> Unit,
     onWriteRequestResult: (Boolean) -> Unit,
     onJumpToDate: (Instant) -> Unit,
     onScrollToNewest: () -> Unit,
     onPhotoLongPress: (PhotoItem) -> Unit,
     onToggleSelection: (PhotoItem) -> Unit,
-    onClearSelection: () -> Unit,
+    onCancelSelection: () -> Unit,
     onSelectFolder: () -> Unit
 ) {
     BackHandler {
         if (isSelectionMode) {
-            onClearSelection()
+            onCancelSelection()
         } else {
             onBack()
         }
@@ -327,8 +327,6 @@ internal fun ViewerScreen(
     }
     val isCurrentQueued by isQueuedFlow.collectAsState(initial = false)
     val isBusy = actionInProgress != null
-    val selectedPhotos = remember(selection) { selection.toList() }
-
     if (showJumpSheet) {
         ModalBottomSheet(
             onDismissRequest = { showJumpSheet = false },
@@ -448,9 +446,9 @@ internal fun ViewerScreen(
             ViewerActionBar(
                 isSelectionMode = isSelectionMode,
                 selectionCount = selection.size,
-                onCancelSelection = onClearSelection,
-                onMoveSelection = { onMoveSelectionToProcessing(selectedPhotos) },
-                onDeleteSelection = { onDeleteSelection(selectedPhotos) },
+                onCancelSelection = onCancelSelection,
+                onMoveSelection = onMoveSelection,
+                onDeleteSelection = onDeleteSelection,
                 skipEnabled = !isBusy && currentIndex < itemCount - 1 && !isSelectionMode,
                 processingEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
                 publishEnabled = !isBusy && currentPhoto != null && !isCurrentQueued && !isSelectionMode,
