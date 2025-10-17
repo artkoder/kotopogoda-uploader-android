@@ -6,6 +6,7 @@ import com.kotopogoda.uploader.core.data.database.KotopogodaDatabase
 import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
+import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.upload.UploadItemDao
@@ -76,13 +77,21 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun provideMediaStorePhotoMetadataReader(
+        @ApplicationContext context: Context,
+    ): MediaStorePhotoMetadataReader = MediaStorePhotoMetadataReader(context.contentResolver)
+
+    @Provides
+    @Singleton
     fun provideUploadQueueRepository(
         uploadItemDao: UploadItemDao,
         photoDao: PhotoDao,
+        metadataReader: MediaStorePhotoMetadataReader,
         clock: Clock,
     ): UploadQueueRepository = UploadQueueRepository(
         uploadItemDao = uploadItemDao,
         photoDao = photoDao,
+        metadataReader = metadataReader,
         clock = clock,
     )
 }
