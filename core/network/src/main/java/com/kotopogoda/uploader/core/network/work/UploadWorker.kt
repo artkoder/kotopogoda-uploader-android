@@ -6,15 +6,21 @@ import android.net.Uri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
+import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
+import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -39,6 +45,7 @@ class UploadWorker @AssistedInject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
+    private val workManager: WorkManager,
 ) : CoroutineWorker(appContext, params) {
 
     private var lastProgressSnapshot = ProgressSnapshot()
@@ -130,15 +137,22 @@ class UploadWorker @AssistedInject constructor(
                             bytesSent = lastBytesSent ?: payload.size,
                             totalBytes = payload.size.takeIf { it > 0 }
                         )
-                        Result.success(
-                            buildResultData(
-                                displayName = displayName,
-                                uriString = uriString,
-                                uploadId = uploadId,
-                                bytesSent = lastProgressSnapshot.bytesSent,
-                                totalBytes = lastProgressSnapshot.totalBytes
-                            )
+                        val resultData = buildResultData(
+                            displayName = displayName,
+                            uriString = uriString,
+                            uploadId = uploadId,
+                            bytesSent = lastProgressSnapshot.bytesSent,
+                            totalBytes = lastProgressSnapshot.totalBytes
                         )
+                        enqueuePollWork(
+                            itemId = itemId,
+                            uploadId = uploadId,
+                            uriString = uriString,
+                            displayName = displayName,
+                            idempotencyKey = idempotencyKey,
+                            uri = uri
+                        )
+                        Result.success(resultData)
                     }
                 }
                 413, 415 -> failureResult(
@@ -328,6 +342,39 @@ class UploadWorker @AssistedInject constructor(
 
     private fun createForeground(displayName: String, progress: Int): ForegroundInfo {
         return foregroundDelegate.create(displayName, progress, id, UploadForegroundKind.UPLOAD)
+    }
+
+    private fun enqueuePollWork(
+        itemId: Long,
+        uploadId: String,
+        uriString: String,
+        displayName: String,
+        idempotencyKey: String,
+        uri: Uri,
+    ) {
+        val uniqueName = UploadEnqueuer.uniqueNameForUri(uri)
+        val pollRequest = OneTimeWorkRequestBuilder<PollStatusWorker>()
+            .setInputData(
+                workDataOf(
+                    UploadEnqueuer.KEY_ITEM_ID to itemId,
+                    UploadEnqueuer.KEY_UPLOAD_ID to uploadId,
+                    UploadEnqueuer.KEY_URI to uriString,
+                    UploadEnqueuer.KEY_DISPLAY_NAME to displayName,
+                )
+            )
+            .addTag(UploadTags.TAG_POLL)
+            .addTag(UploadTags.uniqueTag(uniqueName))
+            .addTag(UploadTags.uriTag(uriString))
+            .addTag(UploadTags.displayNameTag(displayName))
+            .addTag(UploadTags.keyTag(idempotencyKey))
+            .addTag(UploadTags.kindTag(UploadWorkKind.POLL))
+            .build()
+
+        workManager.enqueueUniqueWork(
+            "$uniqueName:poll",
+            ExistingWorkPolicy.REPLACE,
+            pollRequest,
+        )
     }
 
     companion object {

@@ -7,17 +7,23 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundUpdater
 import androidx.work.ListenableWorker.Result.Failure
 import androidx.work.ListenableWorker.Result.Retry
 import androidx.work.ListenableWorker.Result.Success
+import androidx.work.OneTimeWorkRequest
+import androidx.work.Operation
 import androidx.work.WorkerFactory
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadTags
+import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
@@ -45,7 +51,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowContentResolver
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
 
 @RunWith(RobolectricTestRunner::class)
 class UploadWorkerTest {
@@ -55,6 +64,7 @@ class UploadWorkerTest {
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
     private lateinit var uploadQueueRepository: UploadQueueRepository
+    private lateinit var workManager: WorkManager
 
     @Before
     fun setUp() {
@@ -62,6 +72,7 @@ class UploadWorkerTest {
         TestForegroundDelegate.ensureChannel(context)
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
+        workManager = mockk(relaxed = true)
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
@@ -94,6 +105,7 @@ class UploadWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
+                        workManager,
                     )
                 }
                 return null
@@ -143,6 +155,50 @@ class UploadWorkerTest {
         assertTrue(body.contains(file.length().toString()))
         assertTrue(body.contains("name=\"file\"; filename=\"photo.jpg\""))
         assertTrue(body.contains("hello upload"))
+    }
+
+    @Test
+    fun uploadAcceptedEnqueuesPollWorkerWithExpectedInputAndTags() = runBlocking {
+        val file = createTempFileWithContent("poll content")
+        val inputData = inputDataFor(file, displayName = "poll.jpg", idempotencyKey = "poll-key")
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(202)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"upload_id":"poll-id","status":"accepted"}""")
+        )
+
+        val requestSlot = slot<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(any(), any(), capture(requestSlot))
+        } returns mockk<Operation>(relaxed = true)
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        val expectedUniqueName = UploadEnqueuer.uniqueNameForUri(Uri.fromFile(file))
+        verify(exactly = 1) {
+            workManager.enqueueUniqueWork("$expectedUniqueName:poll", ExistingWorkPolicy.REPLACE, any())
+        }
+
+        val pollRequest = requestSlot.captured
+        val pollInput = pollRequest.workSpec.input
+        assertEquals(1L, pollInput.getLong(UploadEnqueuer.KEY_ITEM_ID, -1))
+        assertEquals("poll-id", pollInput.getString(UploadEnqueuer.KEY_UPLOAD_ID))
+        assertEquals(Uri.fromFile(file).toString(), pollInput.getString(UploadEnqueuer.KEY_URI))
+        assertEquals("poll.jpg", pollInput.getString(UploadEnqueuer.KEY_DISPLAY_NAME))
+
+        val expectedTags = setOf(
+            UploadTags.TAG_POLL,
+            UploadTags.uniqueTag(expectedUniqueName),
+            UploadTags.uriTag(Uri.fromFile(file).toString()),
+            UploadTags.displayNameTag("poll.jpg"),
+            UploadTags.keyTag("poll-key"),
+            UploadTags.kindTag(UploadWorkKind.POLL),
+        )
+        assertTrue(pollRequest.tags.containsAll(expectedTags))
     }
 
     @Test
@@ -254,6 +310,7 @@ class UploadWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
+                        workManager,
                     )
                 }
                 return null
