@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.lifecycle.Observer
+import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundUpdater
@@ -17,6 +18,7 @@ import androidx.work.ListenableWorker.Result.Retry
 import androidx.work.ListenableWorker.Result.Success
 import androidx.work.OneTimeWorkRequest
 import androidx.work.Operation
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerFactory
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -25,6 +27,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.work.UploadErrorKind
@@ -71,6 +74,7 @@ class UploadWorkerTest {
     private lateinit var workerFactory: WorkerFactory
     private lateinit var uploadQueueRepository: UploadQueueRepository
     private lateinit var workManager: WorkManager
+    private lateinit var constraintsProvider: UploadConstraintsProvider
 
     @Before
     fun setUp() {
@@ -79,6 +83,9 @@ class UploadWorkerTest {
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
         workManager = mockk(relaxed = true)
+        constraintsProvider = mockk(relaxed = true)
+        every { constraintsProvider.buildConstraints() } returns Constraints.Builder().build()
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
@@ -112,6 +119,7 @@ class UploadWorkerTest {
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                         workManager,
+                        constraintsProvider,
                     )
                 }
                 return null
@@ -249,6 +257,10 @@ class UploadWorkerTest {
     fun uploadAcceptedEnqueuesPollWorkerWithExpectedInputAndTags() = runBlocking {
         val file = createTempFileWithContent("poll content")
         val inputData = inputDataFor(file, displayName = "poll.jpg", idempotencyKey = "poll-key")
+        val expectedConstraints = Constraints.Builder()
+            .setRequiresCharging(true)
+            .build()
+        every { constraintsProvider.buildConstraints() } returns expectedConstraints
 
         mockWebServer.enqueue(
             MockResponse()
@@ -287,6 +299,35 @@ class UploadWorkerTest {
             UploadTags.kindTag(UploadWorkKind.POLL),
         )
         assertTrue(pollRequest.tags.containsAll(expectedTags))
+        assertEquals(expectedConstraints, pollRequest.workSpec.constraints)
+        assertEquals(false, pollRequest.workSpec.expedited)
+    }
+
+    @Test
+    fun uploadAcceptedEnqueuesPollWorkerWithExpeditedPolicyWhenAllowed() = runBlocking {
+        val file = createTempFileWithContent("poll expedited")
+        val inputData = inputDataFor(file, displayName = "poll-exp.jpg", idempotencyKey = "poll-exp-key")
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(202)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"upload_id":"poll-exp-id","status":"accepted"}""")
+        )
+
+        val requestSlot = slot<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(any(), any(), capture(requestSlot))
+        } returns mockk(relaxed = true)
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        val pollRequest = requestSlot.captured
+        assertEquals(true, pollRequest.workSpec.expedited)
+        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, pollRequest.workSpec.outOfQuotaPolicy)
     }
 
     @Test
@@ -399,6 +440,7 @@ class UploadWorkerTest {
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                         workManager,
+                        constraintsProvider,
                     )
                 }
                 return null

@@ -9,11 +9,13 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
+import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
 import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
@@ -48,6 +50,7 @@ class UploadWorker @AssistedInject constructor(
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
     private val workManager: WorkManager,
+    private val constraintsProvider: UploadConstraintsProvider,
 ) : CoroutineWorker(appContext, params) {
 
     private var lastProgressSnapshot = ProgressSnapshot()
@@ -375,7 +378,8 @@ class UploadWorker @AssistedInject constructor(
         uri: Uri,
     ) {
         val uniqueName = UploadEnqueuer.uniqueNameForUri(uri)
-        val pollRequest = OneTimeWorkRequestBuilder<PollStatusWorker>()
+        val pollRequestBuilder = OneTimeWorkRequestBuilder<PollStatusWorker>()
+            .setConstraints(constraintsProvider.buildConstraints())
             .setInputData(
                 workDataOf(
                     UploadEnqueuer.KEY_ITEM_ID to itemId,
@@ -390,7 +394,10 @@ class UploadWorker @AssistedInject constructor(
             .addTag(UploadTags.displayNameTag(displayName))
             .addTag(UploadTags.keyTag(idempotencyKey))
             .addTag(UploadTags.kindTag(UploadWorkKind.POLL))
-            .build()
+        if (constraintsProvider.shouldUseExpeditedWork()) {
+            pollRequestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        }
+        val pollRequest = pollRequestBuilder.build()
 
         workManager.enqueueUniqueWork(
             "$uniqueName:poll",
