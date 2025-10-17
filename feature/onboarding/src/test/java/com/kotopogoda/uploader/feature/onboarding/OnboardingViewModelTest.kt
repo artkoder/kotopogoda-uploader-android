@@ -9,6 +9,7 @@ import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import io.mockk.coAnswers
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.async
@@ -144,5 +145,53 @@ class OnboardingViewModelTest {
 
         val state = viewModel.uiState.value as OnboardingUiState.FolderSelected
         assertThat(state.scanState).isEqualTo(OnboardingScanState.Timeout)
+    }
+
+    @Test
+    fun ignoresFolderSelectionWhileScanActive() = runTest {
+        val folderFlow = MutableStateFlow<Folder?>(
+            Folder(
+                id = 1,
+                treeUri = "content://test/folder",
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                lastScanAt = null,
+                lastViewedPhotoId = null,
+                lastViewedAt = null
+            )
+        )
+        val folderRepository = mockk<FolderRepository>()
+        every { folderRepository.observeFolder() } returns folderFlow
+
+        val photoRepository = mockk<PhotoRepository>()
+        coEvery { photoRepository.countAll() } returns 0
+        coEvery { photoRepository.findIndexAtOrAfter(any()) } returns 0
+        coEvery { photoRepository.clampIndex(any()) } answers { firstArg() }
+
+        val reviewProgressStore = mockk<ReviewProgressStore>()
+        coEvery { reviewProgressStore.loadPosition(any()) } returns null
+
+        val indexerRepository = mockk<IndexerRepository>()
+        every { indexerRepository.isIndexerEnabled } returns true
+        every { indexerRepository.scanAll() } returns flow {
+            awaitCancellation()
+        }
+
+        val viewModel = OnboardingViewModel(
+            folderRepository = folderRepository,
+            photoRepository = photoRepository,
+            reviewProgressStore = reviewProgressStore,
+            indexerRepository = indexerRepository
+        )
+
+        advanceUntilIdle()
+
+        viewModel.onFolderSelected(
+            "content://test/new",
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { folderRepository.setFolder(any(), any()) }
     }
 }

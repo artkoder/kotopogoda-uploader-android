@@ -83,6 +83,10 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun onFolderSelected(treeUri: String, flags: Int) {
+        if (scanJob?.isActive == true) {
+            Timber.tag("Scanner").i("Ignoring folder change while scan is active")
+            return
+        }
         viewModelScope.launch {
             folderRepository.setFolder(treeUri, flags)
         }
