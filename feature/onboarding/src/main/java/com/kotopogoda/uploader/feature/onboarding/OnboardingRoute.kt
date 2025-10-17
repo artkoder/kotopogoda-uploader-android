@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.UriPermission
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,6 +74,7 @@ fun OnboardingRoute(
             try {
                 if (mask != 0) {
                     contentResolver.takePersistableUriPermission(uri, mask)
+                    viewModel.onPersistablePermissionGranted()
                 }
                 currentFolderUri?.let { previousUriString ->
                     val previousUri = Uri.parse(previousUriString)
@@ -138,6 +141,13 @@ fun OnboardingRoute(
         viewModel.events.collect { event ->
             when (event) {
                 is OnboardingEvent.OpenViewer -> onOpenViewer(event.startIndex)
+                OnboardingEvent.FolderPermissionPersisted -> {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.onboarding_folder_permission_persisted),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
@@ -345,6 +355,21 @@ private fun ScanStatusIndicator(scanState: OnboardingScanState) {
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Start
             )
+        }
+
+        OnboardingScanState.Timeout -> {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = stringResource(id = R.string.onboarding_scan_timeout),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

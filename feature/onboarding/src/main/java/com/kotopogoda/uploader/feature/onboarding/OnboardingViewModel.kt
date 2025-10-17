@@ -21,7 +21,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import timber.log.Timber
+
+private const val SCAN_TIMEOUT_MILLIS = 30_000L
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
@@ -82,6 +85,12 @@ class OnboardingViewModel @Inject constructor(
     fun onFolderSelected(treeUri: String, flags: Int) {
         viewModelScope.launch {
             folderRepository.setFolder(treeUri, flags)
+        }
+    }
+
+    fun onPersistablePermissionGranted() {
+        viewModelScope.launch {
+            _events.emit(OnboardingEvent.FolderPermissionPersisted)
         }
     }
 
@@ -160,9 +169,11 @@ class OnboardingViewModel @Inject constructor(
             var lastProgress: IndexerRepository.ScanProgress? = null
             try {
                 updateScanState(OnboardingScanState.InProgress(progress = null))
-                indexerRepository.scanAll().collect { progress ->
-                    lastProgress = progress
-                    updateScanState(OnboardingScanState.InProgress(progress))
+                withTimeout(SCAN_TIMEOUT_MILLIS) {
+                    indexerRepository.scanAll().collect { progress ->
+                        lastProgress = progress
+                        updateScanState(OnboardingScanState.InProgress(progress))
+                    }
                 }
                 refreshFolderState()
                 updateScanState(OnboardingScanState.Completed(lastProgress))
@@ -175,11 +186,7 @@ class OnboardingViewModel @Inject constructor(
                 )
             } catch (timeout: TimeoutCancellationException) {
                 Timber.tag("Scanner").w(timeout, "Scan timed out for folderId=%s", folderId)
-                updateScanState(
-                    OnboardingScanState.Failed(
-                        timeout.message ?: "Scan timed out"
-                    )
-                )
+                updateScanState(OnboardingScanState.Timeout)
             } catch (cancellation: CancellationException) {
                 Timber.tag("Scanner").i("Scan cancelled for folderId=%s", folderId)
                 throw cancellation
@@ -222,6 +229,7 @@ sealed interface OnboardingScanState {
     data class InProgress(val progress: IndexerRepository.ScanProgress?) : OnboardingScanState
     data class Completed(val progress: IndexerRepository.ScanProgress?) : OnboardingScanState
     data class Failed(val message: String) : OnboardingScanState
+    data object Timeout : OnboardingScanState
 }
 
 enum class ReviewStartOption {
@@ -232,4 +240,5 @@ enum class ReviewStartOption {
 
 sealed interface OnboardingEvent {
     data class OpenViewer(val startIndex: Int) : OnboardingEvent
+    data object FolderPermissionPersisted : OnboardingEvent
 }
