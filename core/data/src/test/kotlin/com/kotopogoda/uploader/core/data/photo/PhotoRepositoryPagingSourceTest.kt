@@ -104,12 +104,12 @@ class PhotoRepositoryPagingSourceTest {
             val bundle = bundleSlot.captured
             assertNotNull(bundle)
             assertEquals(
-                "$SORT_KEY_SQL DESC",
+                "$SORT_KEY_EXPRESSION DESC",
                 bundle.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
             )
         } else {
             assertTrue(sortOrderSlot.isCaptured)
-            assertEquals("$SORT_KEY_SQL DESC LIMIT 2", sortOrderSlot.captured)
+            assertEquals("$SORT_KEY_EXPRESSION DESC LIMIT 2", sortOrderSlot.captured)
         }
     }
 
@@ -172,12 +172,12 @@ class PhotoRepositoryPagingSourceTest {
             val bundle = bundleSlot.captured
             assertNotNull(bundle)
             assertEquals(
-                "$SORT_KEY_SQL DESC",
+                "$SORT_KEY_EXPRESSION DESC",
                 bundle.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
             )
         } else {
             assertTrue(sortOrderSlot.isCaptured)
-            assertEquals("$SORT_KEY_SQL DESC LIMIT 2", sortOrderSlot.captured)
+            assertEquals("$SORT_KEY_EXPRESSION DESC LIMIT 2", sortOrderSlot.captured)
         }
     }
 
@@ -213,7 +213,7 @@ class PhotoRepositoryPagingSourceTest {
             SORT_KEY_COLUMN
         )
         private const val SORT_KEY_COLUMN = "sort_key"
-        private const val SORT_KEY_SQL =
+        private const val SORT_KEY_EXPRESSION =
             "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
                 "ELSE ${MediaStore.Images.Media.DATE_ADDED} * 1000 END"
