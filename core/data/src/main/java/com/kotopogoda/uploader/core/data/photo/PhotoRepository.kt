@@ -245,18 +245,28 @@ class PhotoRepository @Inject constructor(
                 ) { contentUri, result ->
                     val idIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                     val mimeIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
-                    val sortKeyIndex = result.getColumnIndexOrThrow(SORT_KEY_COLUMN)
+                    val dateTakenIndex =
+                        result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                    val dateAddedIndex =
+                        result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
                     val items = buildList {
                         while (result.moveToNext()) {
                             val id = result.getLong(idIndex)
                             val uri = ContentUris.withAppendedId(contentUri, id)
-                            val sortKeyMillis = if (result.isNull(sortKeyIndex)) {
+                            val dateTaken = if (result.isNull(dateTakenIndex)) {
                                 null
                             } else {
-                                result.getLong(sortKeyIndex)
+                                result.getLong(dateTakenIndex)
                                     .takeIf { it > 0 }
                             }
-                            val takenAt = sortKeyMillis?.let(Instant::ofEpochMilli)
+                            val dateAdded = if (result.isNull(dateAddedIndex)) {
+                                null
+                            } else {
+                                result.getLong(dateAddedIndex)
+                                    .takeIf { it > 0 }
+                            }
+                            val takenAtMillis = dateTaken ?: dateAdded?.let { it * 1000 }
+                            val takenAt = takenAtMillis?.let(Instant::ofEpochMilli)
                             val mime = if (result.isNull(mimeIndex)) null else result.getString(mimeIndex)
                             if (mime != null && mime.startsWith("image/")) {
                                 add(
@@ -307,8 +317,7 @@ class PhotoRepository @Inject constructor(
                 MediaStore.Images.Media.RELATIVE_PATH,
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
                 MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.MIME_TYPE,
-                "$SORT_KEY_EXPRESSION AS $SORT_KEY_COLUMN"
+                MediaStore.Images.Media.MIME_TYPE
             )
         }
     }
@@ -316,7 +325,6 @@ class PhotoRepository @Inject constructor(
     companion object {
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
-        private const val SORT_KEY_COLUMN = "sort_key"
         private const val SORT_KEY_EXPRESSION =
             "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
