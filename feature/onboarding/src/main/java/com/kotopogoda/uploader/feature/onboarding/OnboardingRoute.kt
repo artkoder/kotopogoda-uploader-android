@@ -176,7 +176,9 @@ fun OnboardingRoute(
         }
     }
 
-    if (hasMediaPermission) {
+    val shouldShowOnboarding = hasMediaPermission || uiState is OnboardingUiState.FolderSelected
+
+    if (shouldShowOnboarding) {
         OnboardingScreen(
             uiState = uiState,
             onSelectFolder = {
