@@ -219,6 +219,7 @@ private fun OnboardingScreen(
                 progress = uiState.progress,
                 photoCount = uiState.photoCount,
                 scanState = uiState.scanState,
+                isChangeFolderEnabled = uiState.scanState !is OnboardingScanState.InProgress,
                 onChangeFolder = onSelectFolder,
                 onStartReview = onStartReview,
                 onResetProgress = onResetProgress,
@@ -264,6 +265,7 @@ private fun FolderSelectedContent(
     progress: ReviewPosition?,
     photoCount: Int,
     scanState: OnboardingScanState,
+    isChangeFolderEnabled: Boolean,
     onChangeFolder: () -> Unit,
     onStartReview: (ReviewStartOption, Instant?) -> Unit,
     onResetProgress: () -> Unit,
@@ -286,7 +288,10 @@ private fun FolderSelectedContent(
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
-        OutlinedButton(onClick = onChangeFolder) {
+        OutlinedButton(
+            onClick = onChangeFolder,
+            enabled = isChangeFolderEnabled
+        ) {
             Text(text = stringResource(id = R.string.onboarding_change_folder))
         }
         ScanStatusIndicator(scanState = scanState)
