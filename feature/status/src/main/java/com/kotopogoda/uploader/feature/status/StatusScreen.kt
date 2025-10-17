@@ -105,6 +105,19 @@ fun StatusRoute(
                 is StatusEvent.RequestFolderAccess -> {
                     launchFolderPicker(event.treeUri)
                 }
+                is StatusEvent.HealthPingResult -> {
+                    val message = if (event.isSuccess) {
+                        val latencyText = event.latencyMillis?.let {
+                            context.getString(R.string.status_health_latency_ms, it)
+                        } ?: context.getString(R.string.status_health_ping_unknown_latency)
+                        context.getString(R.string.status_health_ping_success, latencyText)
+                    } else {
+                        val errorText = event.error?.toReadableMessage()
+                            ?: context.getString(R.string.status_health_ping_error_unknown)
+                        context.getString(R.string.status_health_ping_error, errorText)
+                    }
+                    snackbarHostState.showSnackbar(message)
+                }
             }
         }
     }
@@ -125,6 +138,12 @@ fun StatusRoute(
 private fun maskPersistableFlags(flags: Int): Int {
     val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     return flags and mask
+}
+
+private fun Throwable.toReadableMessage(): String {
+    val localized = localizedMessage?.takeIf { it.isNotBlank() }
+    val rawMessage = message?.takeIf { it.isNotBlank() }
+    return localized ?: rawMessage ?: this::class.java.simpleName.ifBlank { toString() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

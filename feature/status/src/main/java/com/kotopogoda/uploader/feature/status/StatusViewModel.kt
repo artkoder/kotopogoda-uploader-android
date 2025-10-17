@@ -83,7 +83,24 @@ class StatusViewModel @Inject constructor(
 
     fun onRefreshHealth() {
         viewModelScope.launch {
-            healthMonitor.checkOnce()
+            val result = runCatching { healthMonitor.checkOnce() }
+            val event = result.fold(
+                onSuccess = { state ->
+                    StatusEvent.HealthPingResult(
+                        isSuccess = true,
+                        latencyMillis = state.latencyMillis,
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    StatusEvent.HealthPingResult(
+                        isSuccess = false,
+                        latencyMillis = null,
+                        error = error,
+                    )
+                }
+            )
+            _events.send(event)
         }
     }
 
@@ -234,6 +251,11 @@ sealed interface StatusEvent {
     data object OpenQueue : StatusEvent
     data object OpenPairingSettings : StatusEvent
     data class RequestFolderAccess(val treeUri: Uri?) : StatusEvent
+    data class HealthPingResult(
+        val isSuccess: Boolean,
+        val latencyMillis: Long?,
+        val error: Throwable?,
+    ) : StatusEvent
 }
 
 data class StatusUiState(

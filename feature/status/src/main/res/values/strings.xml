@@ -9,7 +9,7 @@
     <string name="status_health_unknown">Неизвестно</string>
     <string name="status_health_checked_at">Проверено: %1$s</string>
     <string name="status_health_checked_at_with_duration">Проверено: %1$s (%2$s)</string>
-    <string name="status_health_latency_ms">%1$d мс</string>
+    <string name="status_health_latency_ms">%1$d мс</string>
     <string name="status_health_ping">Health-пинг</string>
     <string name="status_health_parse_error">Не удалось распознать ответ сервера.</string>
     <string name="status_section_pairing">Привязка</string>
@@ -32,4 +32,8 @@
     <string name="status_storage_permission_missing">Нет доступа к папке «%1$s».</string>
     <string name="status_storage_request_permission">Выдать доступ</string>
     <string name="status_storage_space">Свободно %1$s из %2$s</string>
+    <string name="status_health_ping_success">OK (%1$s)</string>
+    <string name="status_health_ping_unknown_latency">—</string>
+    <string name="status_health_ping_error">Ошибка: %1$s</string>
+    <string name="status_health_ping_error_unknown">Неизвестная ошибка</string>
 </resources>
