@@ -14,6 +14,8 @@ import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.upload.UploadSummaryService
+import com.kotopogoda.uploader.upload.UploadStartupInitializer
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +57,10 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     @Inject
     lateinit var uploadSummaryStarter: UploadSummaryStarter
 
+    private val uploadStartupInitializer by lazy {
+        UploadStartupInitializer(uploadQueueRepository, uploadEnqueuer, uploadSummaryStarter)
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
@@ -62,11 +68,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
         scope.launch(Dispatchers.IO) {
-            UploadStartupInitializer(
-                uploadQueueRepository = uploadQueueRepository,
-                uploadEnqueuer = uploadEnqueuer,
-                uploadSummaryStarter = uploadSummaryStarter,
-            ).ensureRunningIfNeeded()
+            uploadStartupInitializer.ensureUploadRunningIfQueued()
         }
         scope.launch {
             settingsRepository.flow.collect { settings ->

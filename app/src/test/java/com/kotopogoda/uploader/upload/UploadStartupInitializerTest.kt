@@ -7,41 +7,40 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.verify
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class UploadStartupInitializerTest {
 
     private val uploadQueueRepository = mockk<UploadQueueRepository>()
     private val uploadEnqueuer = mockk<UploadEnqueuer>(relaxed = true)
-    private val uploadSummaryStarter = mockk<UploadSummaryStarter>(relaxed = true)
+    private val summaryStarter = mockk<UploadSummaryStarter>(relaxed = true)
+
     private val initializer = UploadStartupInitializer(
         uploadQueueRepository = uploadQueueRepository,
         uploadEnqueuer = uploadEnqueuer,
-        uploadSummaryStarter = uploadSummaryStarter,
+        summaryStarter = summaryStarter,
     )
 
     @Test
-    fun `ensureRunningIfNeeded запускает воркеры при наличии задач`() = runTest {
-        coEvery { uploadQueueRepository.hasQueued() } returns true
+    fun `does nothing when queue is empty`() = runTest {
+        coEvery { uploadQueueRepository.hasQueued() } returns false
 
-        initializer.ensureRunningIfNeeded()
+        initializer.ensureUploadRunningIfQueued()
 
         coVerify(exactly = 1) { uploadQueueRepository.hasQueued() }
-        verify(exactly = 1) { uploadSummaryStarter.ensureRunning() }
-        verify(exactly = 1) { uploadEnqueuer.ensureUploadRunning() }
+        verify(exactly = 0) { uploadEnqueuer.ensureUploadRunning() }
+        verify(exactly = 0) { summaryStarter.ensureRunning() }
     }
 
     @Test
-    fun `ensureRunningIfNeeded ничего не делает при пустой очереди`() = runTest {
-        coEvery { uploadQueueRepository.hasQueued() } returns false
+    fun `starts upload when queue has items`() = runTest {
+        coEvery { uploadQueueRepository.hasQueued() } returns true
 
-        initializer.ensureRunningIfNeeded()
+        initializer.ensureUploadRunningIfQueued()
 
         coVerify(exactly = 1) { uploadQueueRepository.hasQueued() }
-        verify(exactly = 0) { uploadSummaryStarter.ensureRunning() }
-        verify(exactly = 0) { uploadEnqueuer.ensureUploadRunning() }
+        verify(exactly = 1) { uploadEnqueuer.ensureUploadRunning() }
+        verify(exactly = 1) { summaryStarter.ensureRunning() }
     }
 }
