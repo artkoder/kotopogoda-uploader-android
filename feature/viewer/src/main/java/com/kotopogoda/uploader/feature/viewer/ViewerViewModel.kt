@@ -241,6 +241,14 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
+    fun scrollToNewest() {
+        val targetIndex = 0
+        setCurrentIndex(targetIndex)
+        viewModelScope.launch {
+            persistProgress(targetIndex, currentPhoto.value?.takenAt)
+        }
+    }
+
     fun onFolderSelected(treeUri: String, flags: Int) {
         Timber.tag("UI").i("Folder selected: %s (flags=%d)", treeUri, flags)
         viewModelScope.launch {

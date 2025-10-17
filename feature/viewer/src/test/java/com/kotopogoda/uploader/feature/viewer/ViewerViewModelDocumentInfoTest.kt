@@ -20,6 +20,7 @@ import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.feature.viewer.R
 import io.mockk.Runs
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.eq
@@ -282,6 +283,35 @@ class ViewerViewModelDocumentInfoTest {
         assertEquals(storedIndex, environment.viewModel.currentIndex.value)
     }
 
+    @Test
+    fun scrollToNewestResetsIndexAndSavesProgress() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val storedPosition = ReviewPosition(index = 5, anchorDate = Instant.ofEpochMilli(10))
+        val context = TestContext(MockContentResolver())
+        val environment = createEnvironment(context, folder, storedPosition)
+        advanceUntilIdle()
+
+        environment.viewModel.setCurrentIndex(3)
+        advanceUntilIdle()
+        clearMocks(environment.reviewProgressStore, answers = false)
+
+        environment.viewModel.scrollToNewest()
+        advanceUntilIdle()
+
+        assertEquals(0, environment.viewModel.currentIndex.value)
+        coVerify(atLeast = 1) {
+            environment.reviewProgressStore.savePosition(any(), 0, any())
+        }
+    }
+
     private fun createEnvironment(
         context: TestContext,
         folder: Folder,
@@ -315,7 +345,13 @@ class ViewerViewModelDocumentInfoTest {
             savedStateHandle = savedStateHandle
         )
 
-        return ViewModelEnvironment(viewModel, saFileRepository, uploadEnqueuer, uploadQueueRepository)
+        return ViewModelEnvironment(
+            viewModel = viewModel,
+            saFileRepository = saFileRepository,
+            uploadEnqueuer = uploadEnqueuer,
+            uploadQueueRepository = uploadQueueRepository,
+            reviewProgressStore = reviewProgressStore
+        )
     }
 
     @Test
@@ -487,6 +523,7 @@ class ViewerViewModelDocumentInfoTest {
         val viewModel: ViewerViewModel,
         val saFileRepository: SaFileRepository,
         val uploadEnqueuer: UploadEnqueuer,
-        val uploadQueueRepository: UploadQueueRepository
+        val uploadQueueRepository: UploadQueueRepository,
+        val reviewProgressStore: ReviewProgressStore
     )
 }

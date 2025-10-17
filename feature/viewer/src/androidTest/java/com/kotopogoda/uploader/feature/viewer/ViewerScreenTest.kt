@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -26,6 +27,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
 @MediumTest
@@ -41,6 +43,8 @@ class ViewerScreenTest {
             uri = Uri.parse("content://photo/1"),
             takenAt = null
         )
+
+        val scrolledToNewest = mutableStateOf(false)
 
         composeRule.setContent {
             val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
@@ -74,11 +78,19 @@ class ViewerScreenTest {
                 onDeleteResult = {},
                 onWriteRequestResult = {},
                 onJumpToDate = {},
+                onScrollToNewest = { scrolledToNewest.value = true },
                 onPhotoLongPress = {},
                 onToggleSelection = {},
                 onClearSelection = {},
                 onSelectFolder = {}
             )
+        }
+
+        val goToNewestLabel =
+            composeRule.activity.getString(R.string.viewer_action_go_to_start)
+        composeRule.onNodeWithContentDescription(goToNewestLabel).performClick()
+        composeRule.runOnIdle {
+            assertTrue(scrolledToNewest.value)
         }
 
         composeRule.onNodeWithText(
@@ -129,6 +141,7 @@ class ViewerScreenTest {
                 onDeleteResult = {},
                 onWriteRequestResult = {},
                 onJumpToDate = {},
+                onScrollToNewest = {},
                 onPhotoLongPress = { photo -> selection = setOf(photo) },
                 onToggleSelection = { photo ->
                     selection = if (photo in selection) {

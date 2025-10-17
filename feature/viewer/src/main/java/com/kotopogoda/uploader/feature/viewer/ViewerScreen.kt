@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Undo
@@ -218,6 +219,7 @@ fun ViewerRoute(
         onDeleteResult = viewModel::onDeleteResult,
         onWriteRequestResult = viewModel::onWriteRequestResult,
         onJumpToDate = viewModel::jumpToDate,
+        onScrollToNewest = viewModel::scrollToNewest,
         onPhotoLongPress = viewModel::onPhotoLongPress,
         onToggleSelection = viewModel::onToggleSelection,
         onClearSelection = viewModel::clearSelection,
@@ -264,6 +266,7 @@ internal fun ViewerScreen(
     onDeleteResult: (ViewerViewModel.DeleteResult) -> Unit,
     onWriteRequestResult: (Boolean) -> Unit,
     onJumpToDate: (Instant) -> Unit,
+    onScrollToNewest: () -> Unit,
     onPhotoLongPress: (PhotoItem) -> Unit,
     onToggleSelection: (PhotoItem) -> Unit,
     onClearSelection: () -> Unit,
@@ -436,6 +439,7 @@ internal fun ViewerScreen(
                 onOpenStatus = onOpenStatus,
                 onOpenSettings = onOpenSettings,
                 onOpenJumpToDate = { showJumpSheet = true },
+                onScrollToNewest = onScrollToNewest,
                 healthState = healthState,
                 isNetworkValidated = isNetworkValidated,
             )
@@ -613,6 +617,7 @@ private fun ViewerTopBar(
     onOpenQueue: () -> Unit,
     onOpenStatus: () -> Unit,
     onOpenJumpToDate: () -> Unit,
+    onScrollToNewest: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     isNetworkValidated: Boolean,
@@ -633,6 +638,12 @@ private fun ViewerTopBar(
             }
         },
         actions = {
+            IconButton(onClick = onScrollToNewest) {
+                Icon(
+                    imageVector = Icons.Rounded.ArrowUpward,
+                    contentDescription = stringResource(id = R.string.viewer_action_go_to_start)
+                )
+            }
             IconButton(onClick = onOpenJumpToDate) {
                 Icon(
                     imageVector = Icons.Rounded.CalendarMonth,
