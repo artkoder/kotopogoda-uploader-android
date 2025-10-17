@@ -342,6 +342,38 @@ class ViewerViewModelDocumentInfoTest {
     }
 
     @Test
+    fun selectionStateUpdatesOnToggleAndClear() = runTest(context = dispatcher) {
+        val folder = Folder(
+            id = 1,
+            treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda").toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val context = TestContext(MockContentResolver())
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val first = PhotoItem(id = "1", uri = Uri.parse("content://photo/1"), takenAt = null)
+        val second = PhotoItem(id = "2", uri = Uri.parse("content://photo/2"), takenAt = null)
+
+        environment.viewModel.onPhotoLongPress(first)
+        assertEquals(setOf(first), environment.viewModel.selection.value)
+        assertTrue(environment.viewModel.isSelectionMode.value)
+
+        environment.viewModel.onToggleSelection(second)
+        assertEquals(setOf(first, second), environment.viewModel.selection.value)
+
+        environment.viewModel.onToggleSelection(first)
+        assertEquals(setOf(second), environment.viewModel.selection.value)
+
+        environment.viewModel.clearSelection()
+        assertTrue(environment.viewModel.selection.value.isEmpty())
+        assertTrue(!environment.viewModel.isSelectionMode.value)
+    }
+
+    @Test
     fun moveToProcessingEmitsToastEvent() = runTest(context = dispatcher) {
         val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
         val folder = Folder(
