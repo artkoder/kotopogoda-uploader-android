@@ -120,15 +120,13 @@ fun KotopogodaNavHost(
                 }
             })
             composable(AppDestination.Onboarding.route) {
-                MediaPermissionGate {
-                    OnboardingRoute(
-                        onOpenViewer = { startIndex ->
-                            navController.navigate(viewerRoute(startIndex)) {
-                                popUpTo(AppDestination.Onboarding.route) { inclusive = true }
-                            }
+                OnboardingRoute(
+                    onOpenViewer = { startIndex ->
+                        navController.navigate(viewerRoute(startIndex)) {
+                            popUpTo(AppDestination.Onboarding.route) { inclusive = true }
                         }
-                    )
-                }
+                    }
+                )
             }
             composable(
                 route = AppDestination.Viewer.route,
