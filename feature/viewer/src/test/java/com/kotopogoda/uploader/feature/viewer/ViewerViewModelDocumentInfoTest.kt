@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
+import com.kotopogoda.uploader.feature.viewer.R
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -31,6 +32,7 @@ import java.security.MessageDigest
 import java.time.Instant
 import kotlin.text.Charsets
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -337,6 +339,47 @@ class ViewerViewModelDocumentInfoTest {
         val result = environment.viewModel.observeUploadEnqueued(photo).first()
 
         assertTrue(result)
+    }
+
+    @Test
+    fun moveToProcessingEmitsToastEvent() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val documentId = "primary:Kotopogoda/Sub/saf.jpg"
+        val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2FSub%2Fsaf.jpg")
+        val resolver = TestContentResolver { uri, _ ->
+            if (uri == fileUri) {
+                createSafCursor(documentId, displayName = "saf.jpg", size = 1024L, lastModified = 1234L)
+            } else {
+                null
+            }
+        }
+        val context = TestContext(resolver)
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val processingUri = Uri.parse("content://processing/saf.jpg")
+        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returns processingUri
+
+        val photo = PhotoItem(id = "1", uri = fileUri, takenAt = Instant.ofEpochMilli(1_000))
+        environment.viewModel.updateVisiblePhoto(totalCount = 2, photo = photo)
+
+        val eventDeferred = async {
+            environment.viewModel.events.first { it is ViewerViewModel.ViewerEvent.ShowToast }
+        }
+
+        environment.viewModel.onMoveToProcessing(photo)
+        advanceUntilIdle()
+
+        val event = eventDeferred.await() as ViewerViewModel.ViewerEvent.ShowToast
+        assertEquals(R.string.viewer_toast_processing_success, event.messageRes)
     }
 
     private fun createSafCursor(

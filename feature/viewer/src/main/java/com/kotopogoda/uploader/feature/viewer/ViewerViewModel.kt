@@ -292,9 +292,8 @@ class ViewerViewModel @Inject constructor(
                 }
                 persistProgress(toIndex, current.takenAt)
                 _events.emit(
-                    ViewerEvent.ShowSnackbar(
-                        messageRes = R.string.viewer_snackbar_processing_success,
-                        withUndo = true
+                    ViewerEvent.ShowToast(
+                        messageRes = R.string.viewer_toast_processing_success
                     )
                 )
                 Timber.tag("UI").i(
