@@ -70,11 +70,51 @@ goto fail
 :execute
 @rem Setup the command line
 
-set CLASSPATH=
+set WRAPPER_JAR=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
+
+if exist "%WRAPPER_JAR%" goto wrapperReady
+
+set PROPERTIES_FILE=%APP_HOME%\gradle\wrapper\gradle-wrapper.properties
+if not exist "%PROPERTIES_FILE%" (
+    echo ERROR: Could not find %PROPERTIES_FILE% needed to download Gradle wrapper. 1>&2
+    goto fail
+)
+
+powershell -NoLogo -NoProfile -Command ^
+  "$ErrorActionPreference = 'Stop';" ^
+  "$propertiesPath = '%PROPERTIES_FILE%';" ^
+  "$distributionUrl = (Get-Content -Raw $propertiesPath) -split ""`n"" | Where-Object { $_ -match '^distributionUrl=' } | ForEach-Object { $_.Substring(16).Replace(''\\'','''') };" ^
+  "if (-not $distributionUrl) { throw 'Could not determine distributionUrl'; }" ^
+  "$match = [regex]::Match($distributionUrl, 'gradle-([0-9][0-9\.-]*)-');" ^
+  "if (-not $match.Success) { throw 'Could not determine Gradle version'; }" ^
+  "$baseVersion = $match.Groups[1].Value;" ^
+  "$candidates = @($baseVersion, \"$baseVersion.0\");" ^
+  "$targetJar = '%WRAPPER_JAR%';" ^
+  "$tmpJar = \"$targetJar.part\";" ^
+  "$targetDir = Split-Path -Parent $targetJar;" ^
+  "[System.IO.Directory]::CreateDirectory($targetDir) | Out-Null;" ^
+  "$downloaded = $false;" ^
+  "foreach ($candidate in $candidates) {" ^
+  "  if ([string]::IsNullOrEmpty($candidate)) { continue }" ^
+  "  $uri = \"https://raw.githubusercontent.com/gradle/gradle/v$candidate/gradle/wrapper/gradle-wrapper.jar\";" ^
+  "  try {" ^
+  "    Invoke-WebRequest -Uri $uri -OutFile $tmpJar -UseBasicParsing;" ^
+  "    Move-Item -Force $tmpJar $targetJar;" ^
+  "    $downloaded = $true;" ^
+  "    break" ^
+  "  } catch {" ^
+  "    if (Test-Path $tmpJar) { Remove-Item -Force $tmpJar }" ^
+  "  }" ^
+  "}" ^
+  "if (-not $downloaded) { throw 'Could not download Gradle wrapper JAR'; }" || goto fail
+
+:wrapperReady
+
+set CLASSPATH=%WRAPPER_JAR%
 
 
 @rem Execute Gradle
-"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -classpath "%CLASSPATH%" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %*
+"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %*
 
 :end
 @rem End local scope for the variables with windows NT shell
