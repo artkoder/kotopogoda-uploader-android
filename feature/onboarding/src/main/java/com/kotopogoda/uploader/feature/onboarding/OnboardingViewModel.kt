@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
@@ -44,6 +46,7 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             folderRepository.observeFolder().collect { folder ->
                 if (folder == null) {
+                    Timber.tag("Scanner").i("Folder cleared, stopping active scan")
                     currentFolderId = null
                     currentFolderRecordId = null
                     scanJob?.cancel()
@@ -147,9 +150,13 @@ class OnboardingViewModel @Inject constructor(
         if (!indexerRepository.isIndexerEnabled) {
             return
         }
-        scanJob?.cancel()
+        scanJob?.let {
+            Timber.tag("Scanner").i("Cancelling previous scan job before starting a new one")
+            it.cancel()
+        }
         val folderId = currentFolderId ?: return
         scanJob = viewModelScope.launch {
+            Timber.tag("Scanner").i("Starting scan for folderId=%s", folderId)
             var lastProgress: IndexerRepository.ScanProgress? = null
             try {
                 updateScanState(OnboardingScanState.InProgress(progress = null))
@@ -159,15 +166,35 @@ class OnboardingViewModel @Inject constructor(
                 }
                 refreshFolderState()
                 updateScanState(OnboardingScanState.Completed(lastProgress))
+                Timber.tag("Scanner").i(
+                    "Scan completed successfully for folderId=%s (scanned=%d, inserted=%d, updated=%d)",
+                    folderId,
+                    lastProgress?.scanned ?: 0,
+                    lastProgress?.inserted ?: 0,
+                    lastProgress?.updated ?: 0,
+                )
+            } catch (timeout: TimeoutCancellationException) {
+                Timber.tag("Scanner").w(timeout, "Scan timed out for folderId=%s", folderId)
+                updateScanState(
+                    OnboardingScanState.Failed(
+                        timeout.message ?: "Scan timed out"
+                    )
+                )
+            } catch (cancellation: CancellationException) {
+                Timber.tag("Scanner").i("Scan cancelled for folderId=%s", folderId)
+                throw cancellation
             } catch (error: Throwable) {
                 if (error is CancellationException) {
                     throw error
                 }
+                Timber.tag("Scanner").e(error, "Scan failed for folderId=%s", folderId)
                 updateScanState(
                     OnboardingScanState.Failed(
                         error.message ?: error::class.java.simpleName
                     )
                 )
+            } finally {
+                Timber.tag("Scanner").i("Scan stopped for folderId=%s", folderId)
             }
         }
     }

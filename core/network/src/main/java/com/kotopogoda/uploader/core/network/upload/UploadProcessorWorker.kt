@@ -8,6 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskParams
@@ -19,6 +20,7 @@ import java.net.UnknownHostException
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 @HiltWorker
 class UploadProcessorWorker @AssistedInject constructor(
@@ -31,20 +33,55 @@ class UploadProcessorWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        repository.recoverStuckProcessing()
+        Timber.tag("WorkManager").i(UploadLog.message(action = "worker_start"))
+        val recovered = repository.recoverStuckProcessing()
+        if (recovered > 0) {
+            Timber.tag("WorkManager").w(
+                UploadLog.message(
+                    action = "worker_recovered_processing",
+                    state = UploadItemState.QUEUED,
+                    "requeued" to recovered,
+                )
+            )
+        }
         val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                action = "worker_batch",
+                state = UploadItemState.QUEUED,
+                "fetched" to queued.size,
+            )
+        )
         if (queued.isEmpty()) {
             if (repository.hasQueued()) {
                 enqueueSelf()
             }
+            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_complete", "result" to "no_items"))
             return@withContext Result.success()
         }
 
         var shouldRetry = false
 
         for (item in queued) {
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    action = "worker_item_start",
+                    itemId = item.id,
+                    uri = item.uri,
+                    "displayName" to item.displayName,
+                    "size" to item.size,
+                )
+            )
             val markedProcessing = repository.markProcessing(item.id)
             if (!markedProcessing) {
+                Timber.tag("WorkManager").i(
+                    UploadLog.message(
+                        action = "worker_item_skip",
+                        itemId = item.id,
+                        uri = item.uri,
+                        "reason" to "state_changed",
+                    )
+                )
                 continue
             }
             val outcome = try {
@@ -70,6 +107,16 @@ class UploadProcessorWorker @AssistedInject constructor(
                 is UploadTaskResult.Success -> {
                     if (isProcessing) {
                         repository.markSucceeded(item.id)
+                        Timber.tag("WorkManager").i(
+                            UploadLog.message(
+                                action = "worker_item_success",
+                                itemId = item.id,
+                                uri = item.uri,
+                                state = UploadItemState.SUCCEEDED,
+                                "displayName" to item.displayName,
+                                "size" to item.size,
+                            )
+                        )
                     }
                 }
                 is UploadTaskResult.Failure -> {
@@ -79,6 +126,17 @@ class UploadProcessorWorker @AssistedInject constructor(
                             errorKind = outcome.errorKind,
                             httpCode = outcome.httpCode,
                             requeue = outcome.retryable,
+                        )
+                        Timber.tag("WorkManager").w(
+                            UploadLog.message(
+                                action = "worker_item_failure",
+                                itemId = item.id,
+                                uri = item.uri,
+                                state = if (outcome.retryable) UploadItemState.QUEUED else UploadItemState.FAILED,
+                                "errorKind" to outcome.errorKind,
+                                "httpCode" to outcome.httpCode,
+                                "retry" to outcome.retryable,
+                            )
                         )
                         if (outcome.retryable) {
                             shouldRetry = true
@@ -90,9 +148,17 @@ class UploadProcessorWorker @AssistedInject constructor(
 
         if (repository.hasQueued()) {
             enqueueSelf()
+            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_reschedule"))
         }
 
-        return@withContext if (shouldRetry) Result.retry() else Result.success()
+        val result = if (shouldRetry) {
+            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_complete", "result" to "retry"))
+            Result.retry()
+        } else {
+            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_complete", "result" to "success"))
+            Result.success()
+        }
+        result
     }
 
     private fun enqueueSelf() {
@@ -100,6 +166,7 @@ class UploadProcessorWorker @AssistedInject constructor(
             .setConstraints(constraintsHelper.buildConstraints())
             .build()
         workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        Timber.tag("WorkManager").i(UploadLog.message(action = "worker_enqueue"))
     }
 
     companion object {

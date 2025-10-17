@@ -228,6 +228,7 @@ class ViewerViewModel @Inject constructor(
     }
 
     fun onFolderSelected(treeUri: String, flags: Int) {
+        Timber.tag("UI").i("Folder selected: %s (flags=%d)", treeUri, flags)
         viewModelScope.launch {
             folderRepository.setFolder(treeUri, flags)
         }
@@ -245,6 +246,12 @@ class ViewerViewModel @Inject constructor(
         if (toIndex == fromIndex) {
             return
         }
+        Timber.tag("UI").i(
+            "Skip requested for %s (from=%d, to=%d)",
+            photo.uri,
+            fromIndex,
+            toIndex
+        )
         pushAction(UserAction.Skip(fromIndex = fromIndex, toIndex = toIndex))
         setCurrentIndex(toIndex)
         viewModelScope.launch {
@@ -262,6 +269,7 @@ class ViewerViewModel @Inject constructor(
             return
         }
         val current = photo ?: return
+        Timber.tag("UI").i("Move to processing requested for %s", current.uri)
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Processing
             try {
@@ -289,8 +297,19 @@ class ViewerViewModel @Inject constructor(
                         withUndo = true
                     )
                 )
+                Timber.tag("UI").i(
+                    "Moved %s to processing (from=%d, to=%d)",
+                    current.uri,
+                    fromIndex,
+                    toIndex
+                )
             } catch (error: Exception) {
                 persistUndoStack()
+                Timber.tag("UI").e(
+                    error,
+                    "Failed to move %s to processing",
+                    current.uri
+                )
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_processing_failed
@@ -307,6 +326,7 @@ class ViewerViewModel @Inject constructor(
             return
         }
         val current = photo ?: return
+        Timber.tag("UI").i("Enqueue upload requested for %s", current.uri)
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Upload
             try {
@@ -336,8 +356,19 @@ class ViewerViewModel @Inject constructor(
                         withUndo = true
                     )
                 )
+                Timber.tag("UI").i(
+                    "Enqueued upload for %s (from=%d, to=%d)",
+                    current.uri,
+                    fromIndex,
+                    toIndex
+                )
             } catch (error: Exception) {
                 persistUndoStack()
+                Timber.tag("UI").e(
+                    error,
+                    "Failed to enqueue upload for %s",
+                    current.uri
+                )
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_publish_failed
@@ -354,6 +385,7 @@ class ViewerViewModel @Inject constructor(
             return
         }
         val current = photo ?: return
+        Timber.tag("UI").i("Delete requested for %s", current.uri)
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Delete
             try {
@@ -394,7 +426,11 @@ class ViewerViewModel @Inject constructor(
                             finalizeDeletion(pending)
                         } catch (error: Exception) {
                             pending.backup?.delete()
-                            Timber.e(error, "Failed to finalize delete for %s", documentInfo.uri)
+                            Timber.tag("UI").e(
+                                error,
+                                "Failed to finalize delete for %s",
+                                documentInfo.uri
+                            )
                             _events.emit(
                                 ViewerEvent.ShowSnackbar(
                                     messageRes = R.string.viewer_snackbar_delete_failed
@@ -415,7 +451,7 @@ class ViewerViewModel @Inject constructor(
             } catch (error: Exception) {
                 pendingDelete?.backup?.delete()
                 pendingDelete = null
-                Timber.e(error, "Failed to request delete for %s", current.uri)
+                Timber.tag("UI").e(error, "Failed to request delete for %s", current.uri)
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_delete_failed
@@ -438,9 +474,10 @@ class ViewerViewModel @Inject constructor(
                 DeleteResult.Success -> {
                     try {
                         finalizeDeletion(pending)
+                        Timber.tag("UI").i("Delete confirmed for %s", pending.documentInfo.uri)
                     } catch (error: Exception) {
                         pending.backup?.delete()
-                        Timber.e(error, "Failed to finalize delete")
+                        Timber.tag("UI").e(error, "Failed to finalize delete")
                         _events.emit(
                             ViewerEvent.ShowSnackbar(
                                 messageRes = R.string.viewer_snackbar_delete_failed
@@ -451,13 +488,13 @@ class ViewerViewModel @Inject constructor(
                 }
                 DeleteResult.Cancelled -> {
                     pending.backup?.delete()
-                    Timber.i("Delete cancelled for %s", pending.documentInfo.uri)
+                    Timber.tag("UI").i("Delete cancelled for %s", pending.documentInfo.uri)
                     _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_delete_cancelled))
                     _actionInProgress.value = null
                 }
                 DeleteResult.Failed -> {
                     pending.backup?.delete()
-                    Timber.w("Delete request failed for %s", pending.documentInfo.uri)
+                    Timber.tag("UI").w("Delete request failed for %s", pending.documentInfo.uri)
                     _events.emit(
                         ViewerEvent.ShowSnackbar(
                             messageRes = R.string.viewer_snackbar_delete_failed
@@ -474,6 +511,7 @@ class ViewerViewModel @Inject constructor(
             return
         }
         val action = undoStack.removeLastOrNull() ?: return
+        Timber.tag("UI").i("Undo requested for %s", action.javaClass.simpleName)
         persistUndoStack()
         when (action) {
             is UserAction.Skip -> {
@@ -546,7 +584,7 @@ class ViewerViewModel @Inject constructor(
                             )
                         )
                         _events.emit(ViewerEvent.RefreshPhotos)
-                        Timber.i("Restored deleted photo %s", action.uri)
+                        Timber.tag("UI").i("Restored deleted photo %s", action.uri)
                     } else {
                         pushAction(action)
                         _events.emit(
@@ -600,7 +638,7 @@ class ViewerViewModel @Inject constructor(
             )
         )
         _events.emit(ViewerEvent.RefreshPhotos)
-        Timber.i("Deleted photo %s", pending.documentInfo.uri)
+        Timber.tag("UI").i("Deleted photo %s", pending.documentInfo.uri)
         _actionInProgress.value = null
     }
 

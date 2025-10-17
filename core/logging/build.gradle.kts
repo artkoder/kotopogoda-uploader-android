@@ -31,4 +31,7 @@ dependencies {
     implementation(libs.timber)
     implementation(libs.androidx.core.ktx)
     implementation(libs.com.squareup.okhttp3.logging.interceptor)
+
+    testImplementation(kotlin("test"))
+    testImplementation(libs.kotlinx.coroutines.test)
 }

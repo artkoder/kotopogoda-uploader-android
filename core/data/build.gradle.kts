@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.exif)
     implementation(libs.androidx.paging.runtime)
+    implementation(libs.timber)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
