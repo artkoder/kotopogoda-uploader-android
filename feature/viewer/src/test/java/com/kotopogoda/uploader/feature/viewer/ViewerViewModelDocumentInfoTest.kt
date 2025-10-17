@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.feature.viewer
 
+import android.content.IntentSender
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
@@ -13,6 +14,7 @@ import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.sa.MediaStoreWritePermissionRequiredException
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -380,6 +382,123 @@ class ViewerViewModelDocumentInfoTest {
 
         val event = eventDeferred.await() as ViewerViewModel.ViewerEvent.ShowToast
         assertEquals(R.string.viewer_toast_processing_success, event.messageRes)
+    }
+
+    @Test
+    fun moveToProcessingRequestsPermissionAndResumesAfterGrant() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val documentId = "primary:Kotopogoda/Sub/media.jpg"
+        val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2FSub%2Fmedia.jpg")
+        val resolver = TestContentResolver { uri, _ ->
+            if (uri == fileUri) {
+                createSafCursor(documentId, displayName = "media.jpg", size = 2048L, lastModified = 5678L)
+            } else {
+                null
+            }
+        }
+        val context = TestContext(resolver)
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val processingUri = Uri.parse("content://processing/media.jpg")
+        val intentSender = mockk<IntentSender>(relaxed = true)
+
+        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } throws MediaStoreWritePermissionRequiredException(
+            fileUri,
+            intentSender
+        ) andThen processingUri
+
+        val photo = PhotoItem(id = "1", uri = fileUri, takenAt = Instant.ofEpochMilli(2_000))
+        environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
+
+        val requestEventDeferred = async {
+            environment.viewModel.events.first { it is ViewerViewModel.ViewerEvent.RequestMediaStoreWrite }
+        }
+
+        environment.viewModel.onMoveToProcessing(photo)
+        advanceUntilIdle()
+
+        val requestEvent = requestEventDeferred.await() as ViewerViewModel.ViewerEvent.RequestMediaStoreWrite
+        assertEquals(intentSender, requestEvent.intentSender)
+        assertEquals(ViewerViewModel.ViewerActionInProgress.Processing, environment.viewModel.actionInProgress.value)
+
+        val toastDeferred = async {
+            environment.viewModel.events.first {
+                it is ViewerViewModel.ViewerEvent.ShowToast &&
+                    it.messageRes == R.string.viewer_toast_processing_success
+            }
+        }
+
+        environment.viewModel.onMediaStoreWriteResult(ViewerViewModel.MediaStoreWriteResult.Granted)
+        advanceUntilIdle()
+
+        toastDeferred.await()
+        assertEquals(null, environment.viewModel.actionInProgress.value)
+        coVerify(exactly = 2) { environment.saFileRepository.moveToProcessing(fileUri) }
+    }
+
+    @Test
+    fun moveToProcessingCancelledPermissionShowsToast() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val documentId = "primary:Kotopogoda/Sub/media.jpg"
+        val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2FSub%2Fmedia.jpg")
+        val resolver = TestContentResolver { uri, _ ->
+            if (uri == fileUri) {
+                createSafCursor(documentId, displayName = "media.jpg", size = 2048L, lastModified = 5678L)
+            } else {
+                null
+            }
+        }
+        val context = TestContext(resolver)
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val intentSender = mockk<IntentSender>(relaxed = true)
+        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } throws MediaStoreWritePermissionRequiredException(
+            fileUri,
+            intentSender
+        )
+
+        val photo = PhotoItem(id = "1", uri = fileUri, takenAt = Instant.ofEpochMilli(2_000))
+        environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
+
+        val requestEventDeferred = async {
+            environment.viewModel.events.first { it is ViewerViewModel.ViewerEvent.RequestMediaStoreWrite }
+        }
+
+        environment.viewModel.onMoveToProcessing(photo)
+        advanceUntilIdle()
+
+        requestEventDeferred.await()
+        val toastDeferred = async {
+            environment.viewModel.events.first {
+                it is ViewerViewModel.ViewerEvent.ShowToast &&
+                    it.messageRes == R.string.viewer_toast_processing_permission_cancelled
+            }
+        }
+
+        environment.viewModel.onMediaStoreWriteResult(ViewerViewModel.MediaStoreWriteResult.Cancelled)
+        advanceUntilIdle()
+
+        toastDeferred.await()
+        assertEquals(null, environment.viewModel.actionInProgress.value)
+        coVerify(exactly = 1) { environment.saFileRepository.moveToProcessing(fileUri) }
     }
 
     private fun createSafCursor(
