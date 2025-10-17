@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadTags
@@ -15,6 +16,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.match
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -33,6 +35,7 @@ class UploadEnqueuerTest {
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
         every { workManager.cancelUniqueWork(any()) } returns mockk(relaxed = true)
         every { constraintsProvider.buildConstraints() } returns Constraints.NONE
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
     }
 
     private fun createEnqueuer(): UploadEnqueuer = UploadEnqueuer(
@@ -55,12 +58,12 @@ class UploadEnqueuerTest {
         verify { constraintsProvider.buildConstraints() }
         verify {
             workManager.enqueueUniqueWork(
-                UPLOAD_PROCESSOR_WORK_NAME,
+                QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
-        verify(exactly = 0) { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
+        verify(exactly = 0) { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
     }
 
     @Test
@@ -74,12 +77,13 @@ class UploadEnqueuerTest {
 
         val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
-        verify { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
+        verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         coVerify { uploadItemsRepository.markCancelled(uri) }
         verify { constraintsProvider.buildConstraints() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
-                UPLOAD_PROCESSOR_WORK_NAME,
+                QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
@@ -97,12 +101,13 @@ class UploadEnqueuerTest {
 
         val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
-        verify(exactly = 0) { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
+        verify(exactly = 0) { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         coVerify { uploadItemsRepository.markCancelled(uri) }
         verify { constraintsProvider.buildConstraints() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
-                UPLOAD_PROCESSOR_WORK_NAME,
+                QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
@@ -129,14 +134,15 @@ class UploadEnqueuerTest {
         coVerify { uploadItemsRepository.enqueue(uri) }
         verify { summaryStarter.ensureRunning() }
         verify { constraintsProvider.buildConstraints() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
-                UPLOAD_PROCESSOR_WORK_NAME,
+                QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
-        verify(exactly = 0) { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
+        verify(exactly = 0) { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
     }
 
     @Test
@@ -148,16 +154,46 @@ class UploadEnqueuerTest {
 
         verify { workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD) }
         verify { workManager.cancelAllWorkByTag(UploadTags.TAG_POLL) }
-        verify { workManager.cancelUniqueWork(UPLOAD_PROCESSOR_WORK_NAME) }
+        verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         coVerify { uploadItemsRepository.cancelAll() }
         verify { constraintsProvider.buildConstraints() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
-                UPLOAD_PROCESSOR_WORK_NAME,
+                QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 match { it.workSpec.constraints == Constraints.NONE }
             )
         }
+    }
+
+    @Test
+    fun scheduleDrain_setsExpeditedWhenEnabled() {
+        val enqueuer = createEnqueuer()
+        clearMocks(workManager, constraintsProvider, answers = false)
+        every { constraintsProvider.buildConstraints() } returns Constraints.NONE
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
+        val requestSlot = slot<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                capture(requestSlot),
+            )
+        } returns mockk(relaxed = true)
+
+        enqueuer.scheduleDrain()
+
+        verify {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                requestSlot.captured,
+            )
+        }
+        assertTrue(requestSlot.captured.workSpec.expedited)
+        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, requestSlot.captured.workSpec.outOfQuotaPolicy)
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
     }
 
     @Test

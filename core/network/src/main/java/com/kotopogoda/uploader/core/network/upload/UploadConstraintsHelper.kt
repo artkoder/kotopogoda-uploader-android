@@ -34,4 +34,8 @@ class UploadConstraintsHelper @Inject constructor(
             .setRequiredNetworkType(requiredNetworkType)
             .build()
     }
+
+    override fun shouldUseExpeditedWork(): Boolean {
+        return !wifiOnlyState.value
+    }
 }
