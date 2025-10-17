@@ -111,24 +111,24 @@ class PhotoRepository @Inject constructor(
                 addAll(extraArgs)
             }
         }
+        val selectionString = selectionParts.joinToString(separator = " AND ")
+            .takeIf { it.isNotEmpty() }
+        val selectionArgsArray = args.takeIf { it.isNotEmpty() }?.toTypedArray()
         val bundle = bundleOf().apply {
-            if (selectionParts.isNotEmpty()) {
-                putString(
-                    ContentResolver.QUERY_ARG_SQL_SELECTION,
-                    selectionParts.joinToString(separator = " AND ")
-                )
+            selectionString?.let {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
             }
-            if (args.isNotEmpty()) {
-                putStringArray(
-                    ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
-                    args.toTypedArray()
-                )
+            selectionArgsArray?.let {
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
             }
         }
         return runCatching {
             resolver.queryWithFallback(
                 uris = spec.contentUris,
                 projection = arrayOf(MediaStore.Images.Media._ID),
+                selection = selectionString,
+                selectionArgs = selectionArgsArray,
+                sortOrder = null,
                 bundle = bundle
             ) { _, cursor ->
                 cursor.getCountSafely()
@@ -203,57 +203,60 @@ class PhotoRepository @Inject constructor(
             val limit = params.loadSize
             val selection = spec.selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
             val args = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
-            val bundle = Bundle().apply {
-                putStringArray(
-                    ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                    arrayOf(
-                        MediaStore.Images.Media.DATE_TAKEN,
-                        MediaStore.Images.Media.DATE_ADDED
+            val bundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Bundle().apply {
+                    putString(
+                        ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                        "$SORT_KEY_SQL DESC"
                     )
-                )
-                putInt(
-                    ContentResolver.QUERY_ARG_SORT_DIRECTION,
-                    ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
-                )
-                putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
-                putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
-                selection?.let {
-                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
+                    putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+                    putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
+                    selection?.let {
+                        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
+                    }
+                    args?.let {
+                        putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
+                    }
                 }
-                args?.let {
-                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
+            } else {
+                null
+            }
+
+            val legacySortOrder = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                buildString {
+                    append("$SORT_KEY_SQL DESC")
+                    append(" LIMIT $limit")
+                    if (offset > 0) {
+                        append(" OFFSET $offset")
+                    }
                 }
+            } else {
+                null
             }
 
             val page = runCatching {
                 contentResolver.queryWithFallback(
                     uris = spec.contentUris,
                     projection = PROJECTION,
+                    selection = selection,
+                    selectionArgs = args,
+                    sortOrder = legacySortOrder,
                     bundle = bundle
                 ) { contentUri, result ->
                     val idIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                    val dateTakenIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
-                    val dateAddedIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
                     val mimeIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+                    val sortKeyIndex = result.getColumnIndexOrThrow(SORT_KEY_COLUMN)
                     val items = buildList {
                         while (result.moveToNext()) {
                             val id = result.getLong(idIndex)
                             val uri = ContentUris.withAppendedId(contentUri, id)
-                            val dateTakenMillis = if (result.isNull(dateTakenIndex)) {
+                            val sortKeyMillis = if (result.isNull(sortKeyIndex)) {
                                 null
                             } else {
-                                result.getLong(dateTakenIndex).takeIf { it > 0 }
+                                result.getLong(sortKeyIndex)
+                                    .takeIf { it > 0 }
                             }
-                            val takenAt = dateTakenMillis?.let { Instant.ofEpochMilli(it) }
-                                ?: run {
-                                    if (result.isNull(dateAddedIndex)) {
-                                        null
-                                    } else {
-                                        result.getLong(dateAddedIndex)
-                                            .takeIf { it > 0 }
-                                            ?.let { Instant.ofEpochSecond(it) }
-                                    }
-                                }
+                            val takenAt = sortKeyMillis?.let(Instant::ofEpochMilli)
                             val mime = if (result.isNull(mimeIndex)) null else result.getString(mimeIndex)
                             if (mime != null && mime.startsWith("image/")) {
                                 add(
@@ -304,7 +307,8 @@ class PhotoRepository @Inject constructor(
                 MediaStore.Images.Media.RELATIVE_PATH,
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
                 MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.MIME_TYPE
+                MediaStore.Images.Media.MIME_TYPE,
+                "$SORT_KEY_SQL AS $SORT_KEY_COLUMN"
             )
         }
     }
@@ -312,19 +316,31 @@ class PhotoRepository @Inject constructor(
     companion object {
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
+        private const val SORT_KEY_COLUMN = "sort_key"
+        private const val SORT_KEY_SQL =
+            "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
+                "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
+                "ELSE ${MediaStore.Images.Media.DATE_ADDED} * 1000 END"
     }
 }
 
 private inline fun <T> ContentResolver.queryWithFallback(
     uris: List<Uri>,
     projection: Array<String>,
+    selection: String?,
+    selectionArgs: Array<String>?,
+    sortOrder: String?,
     bundle: Bundle?,
     crossinline block: (Uri, Cursor) -> T
 ): T? {
     var lastIllegalArgument: IllegalArgumentException? = null
     for (uri in uris) {
         val cursor = try {
-            query(uri, projection, bundle, null)
+            if (bundle != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                query(uri, projection, bundle, null)
+            } else {
+                query(uri, projection, selection, selectionArgs, sortOrder)
+            }
         } catch (error: IllegalArgumentException) {
             lastIllegalArgument = error
             continue
