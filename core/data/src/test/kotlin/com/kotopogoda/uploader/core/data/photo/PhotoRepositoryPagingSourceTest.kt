@@ -27,13 +27,66 @@ class PhotoRepositoryPagingSourceTest {
         val spec = createQuerySpec(listOf(baseUri))
         val contentResolver = mockk<ContentResolver>()
         val bundleSlot = slot<Bundle>()
+        val sortOrderSlot = slot<String?>()
 
         every {
             contentResolver.query(baseUri, any(), capture(bundleSlot), isNull())
         } answers {
             MatrixCursor(PROJECTION).apply {
-                addRow(arrayOf(1L, null, 200L, null, null, null, "image/jpeg"))
-                addRow(arrayOf(2L, null, 100L, null, null, null, "image/jpeg"))
+                addRow(
+                    arrayOf(
+                        1L,
+                        null,
+                        200L,
+                        null,
+                        null,
+                        null,
+                        "image/jpeg",
+                        200_000L
+                    )
+                )
+                addRow(
+                    arrayOf(
+                        2L,
+                        null,
+                        100L,
+                        null,
+                        null,
+                        null,
+                        "image/jpeg",
+                        100_000L
+                    )
+                )
+            }
+        }
+        every {
+            contentResolver.query(baseUri, any(), any<String?>(), any(), capture(sortOrderSlot))
+        } answers {
+            MatrixCursor(PROJECTION).apply {
+                addRow(
+                    arrayOf(
+                        1L,
+                        null,
+                        200L,
+                        null,
+                        null,
+                        null,
+                        "image/jpeg",
+                        200_000L
+                    )
+                )
+                addRow(
+                    arrayOf(
+                        2L,
+                        null,
+                        100L,
+                        null,
+                        null,
+                        null,
+                        "image/jpeg",
+                        100_000L
+                    )
+                )
             }
         }
 
@@ -44,19 +97,88 @@ class PhotoRepositoryPagingSourceTest {
         val page = result as Page
         assertEquals(listOf("1", "2"), page.data.map(PhotoItem::id))
         assertEquals(
-            listOf(Instant.ofEpochSecond(200), Instant.ofEpochSecond(100)),
+            listOf(Instant.ofEpochMilli(200_000), Instant.ofEpochMilli(100_000)),
             page.data.map(PhotoItem::takenAt)
         )
-        val bundle = bundleSlot.captured
-        assertNotNull(bundle)
+        if (bundleSlot.isCaptured) {
+            val bundle = bundleSlot.captured
+            assertNotNull(bundle)
+            assertEquals(
+                "$SORT_KEY_SQL DESC",
+                bundle.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
+            )
+        } else {
+            assertTrue(sortOrderSlot.isCaptured)
+            assertEquals("$SORT_KEY_SQL DESC LIMIT 2", sortOrderSlot.captured)
+        }
+    }
+
+    @Test
+    fun `load prefers larger date added when date taken zero`() = runTest {
+        val baseUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val spec = createQuerySpec(listOf(baseUri))
+        val contentResolver = mockk<ContentResolver>()
+        val bundleSlot = slot<Bundle>()
+        val sortOrderSlot = slot<String?>()
+
+        val legacyCursor = MatrixCursor(PROJECTION).apply {
+            addRow(
+                arrayOf(
+                    1L,
+                    0L,
+                    1_700_000_000L,
+                    null,
+                    null,
+                    null,
+                    "image/jpeg",
+                    1_700_000_000_000L
+                )
+            )
+            addRow(
+                arrayOf(
+                    2L,
+                    1_640_995_200_000L,
+                    1_600_000_000L,
+                    null,
+                    null,
+                    null,
+                    "image/jpeg",
+                    1_640_995_200_000L
+                )
+            )
+        }
+
+        every {
+            contentResolver.query(baseUri, any(), capture(bundleSlot), isNull())
+        } returns legacyCursor
+        every {
+            contentResolver.query(baseUri, any(), any<String?>(), any(), capture(sortOrderSlot))
+        } returns legacyCursor
+
+        val pagingSource = createPagingSource(contentResolver, spec)
+        val result = pagingSource.load(Refresh(key = null, loadSize = 2, placeholdersEnabled = false))
+
+        assertTrue(result is Page)
+        val page = result as Page
+        assertEquals(listOf("1", "2"), page.data.map(PhotoItem::id))
         assertEquals(
-            listOf(MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_ADDED),
-            bundle.getStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS)?.toList()
+            listOf(
+                Instant.ofEpochMilli(1_700_000_000_000L),
+                Instant.ofEpochMilli(1_640_995_200_000L)
+            ),
+            page.data.map(PhotoItem::takenAt)
         )
-        assertEquals(
-            ContentResolver.QUERY_SORT_DIRECTION_DESCENDING,
-            bundle.getInt(ContentResolver.QUERY_ARG_SORT_DIRECTION)
-        )
+        if (bundleSlot.isCaptured) {
+            val bundle = bundleSlot.captured
+            assertNotNull(bundle)
+            assertEquals(
+                "$SORT_KEY_SQL DESC",
+                bundle.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
+            )
+        } else {
+            assertTrue(sortOrderSlot.isCaptured)
+            assertEquals("$SORT_KEY_SQL DESC LIMIT 2", sortOrderSlot.captured)
+        }
     }
 
     private fun createPagingSource(contentResolver: ContentResolver, spec: Any): PagingSource<Int, PhotoItem> {
@@ -87,7 +209,13 @@ class PhotoRepositoryPagingSourceTest {
             MediaStore.Images.Media.RELATIVE_PATH,
             MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
             MediaStore.Images.Media.SIZE,
-            MediaStore.Images.Media.MIME_TYPE
+            MediaStore.Images.Media.MIME_TYPE,
+            SORT_KEY_COLUMN
         )
+        private const val SORT_KEY_COLUMN = "sort_key"
+        private const val SORT_KEY_SQL =
+            "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
+                "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
+                "ELSE ${MediaStore.Images.Media.DATE_ADDED} * 1000 END"
     }
 }
