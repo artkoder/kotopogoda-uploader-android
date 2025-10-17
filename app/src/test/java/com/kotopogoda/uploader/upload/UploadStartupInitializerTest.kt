@@ -1,6 +1,6 @@
 package com.kotopogoda.uploader.upload
 
-import com.kotopogода.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import io.mockk.coEvery

@@ -11,7 +11,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
-import com.kotopogода.uploader.notifications.UploadNotif
+import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.upload.UploadSummaryService
 import dagger.hilt.android.HiltAndroidApp
