@@ -405,7 +405,7 @@ class ViewerViewModel @Inject constructor(
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Processing
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (isAtLeastR()) {
                     val mediaStoreUris = photos
                         .map { it.uri }
                         .filter { it.authority == MediaStore.AUTHORITY }
@@ -503,7 +503,7 @@ class ViewerViewModel @Inject constructor(
                 val fromIndex = currentIndex.value
                 val toIndex = computeNextIndex(fromIndex)
                 val backup = runCatching { createDeleteBackup(documentInfo) }.getOrNull()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (isAtLeastR()) {
                     val pendingIntent = withContext(Dispatchers.IO) {
                         MediaStore.createDeleteRequest(
                             context.contentResolver,
@@ -583,7 +583,7 @@ class ViewerViewModel @Inject constructor(
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Delete
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (isAtLeastR()) {
                     val pendingIntent = withContext(Dispatchers.IO) {
                         MediaStore.createDeleteRequest(
                             context.contentResolver,
@@ -871,22 +871,28 @@ class ViewerViewModel @Inject constructor(
     }
 
     private suspend fun finalizeBatchDelete(photos: List<PhotoItem>) {
-        val resolver = context.contentResolver
-        var successCount = 0
-        withContext(Dispatchers.IO) {
-            photos.forEach { photo ->
-                runCatching { resolver.delete(photo.uri, null, null) }
-                    .onSuccess { deleted ->
-                        if (deleted > 0) {
-                            successCount += 1
+        val manualDeletionRequired = !isAtLeastR()
+        val successCount = if (manualDeletionRequired) {
+            val resolver = context.contentResolver
+            var deletedCount = 0
+            withContext(Dispatchers.IO) {
+                photos.forEach { photo ->
+                    runCatching { resolver.delete(photo.uri, null, null) }
+                        .onSuccess { deleted ->
+                            if (deleted > 0) {
+                                deletedCount += 1
+                            }
                         }
-                    }
-                    .onFailure { error ->
-                        Timber.tag("UI").e(error, "Failed to delete %s during batch", photo.uri)
-                    }
+                        .onFailure { error ->
+                            Timber.tag("UI").e(error, "Failed to delete %s during batch", photo.uri)
+                        }
+                }
             }
+            deletedCount
+        } else {
+            photos.size
         }
-        if (successCount > 0) {
+        if (!manualDeletionRequired || successCount > 0) {
             _events.emit(
                 ViewerEvent.ShowSnackbar(
                     messageRes = R.string.viewer_snackbar_delete_success
@@ -904,6 +910,9 @@ class ViewerViewModel @Inject constructor(
         clearSelection()
         _actionInProgress.value = null
     }
+
+    private fun isAtLeastR(): Boolean =
+        (buildVersionOverride ?: Build.VERSION.SDK_INT) >= Build.VERSION_CODES.R
 
     private suspend fun createDeleteBackup(info: DocumentInfo): DeleteBackup? =
         withContext(Dispatchers.IO) {
@@ -1479,5 +1488,7 @@ class ViewerViewModel @Inject constructor(
     companion object {
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
+
+        internal var buildVersionOverride: Int? = null
     }
 }
