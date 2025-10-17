@@ -1095,6 +1095,11 @@ private fun ActionButtonLabel(
 private fun ViewerActionBarPreview() {
     MaterialTheme(colorScheme = lightColorScheme()) {
         ViewerActionBar(
+            isSelectionMode = false,
+            selectionCount = 0,
+            onCancelSelection = {},
+            onMoveSelection = {},
+            onDeleteSelection = {},
             skipEnabled = true,
             processingEnabled = true,
             publishEnabled = true,
