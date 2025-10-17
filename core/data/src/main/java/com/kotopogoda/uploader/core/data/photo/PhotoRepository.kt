@@ -85,6 +85,32 @@ class PhotoRepository @Inject constructor(
         }
     }
 
+    suspend fun findIndexAtOrAfter(start: Instant, endExclusive: Instant): Int? =
+        withContext(ioDispatcher) {
+            val folder = folderRepository.getFolder() ?: return@withContext null
+            if (!endExclusive.isAfter(start)) {
+                return@withContext null
+            }
+            val spec = buildQuerySpec(folder)
+            val rangeStartMillis = start.toEpochMilli()
+            val rangeEndMillis = endExclusive.toEpochMilli()
+            val beforeCount = queryCount(
+                spec,
+                "$SORT_KEY_EXPRESSION >= ?",
+                arrayOf(rangeEndMillis.toString())
+            )
+            val inRangeCount = queryCount(
+                spec,
+                "$SORT_KEY_EXPRESSION >= ? AND $SORT_KEY_EXPRESSION < ?",
+                arrayOf(rangeStartMillis.toString(), rangeEndMillis.toString())
+            )
+            if (inRangeCount == 0) {
+                null
+            } else {
+                beforeCount
+            }
+        }
+
     suspend fun clampIndex(index: Int): Int = withContext(ioDispatcher) {
         val total = countAll()
         if (total == 0) {

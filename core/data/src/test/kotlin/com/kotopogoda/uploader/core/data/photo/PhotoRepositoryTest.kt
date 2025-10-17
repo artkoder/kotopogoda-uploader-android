@@ -14,22 +14,89 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
 import java.time.Instant
+import java.time.ZoneId
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class PhotoRepositoryTest {
 
+    private val testScheduler = TestCoroutineScheduler()
+    private val dispatcher = UnconfinedTestDispatcher(testScheduler)
+
     @Test
     fun `findIndexAtOrAfter prefers date added when date taken missing`() = runTest {
+        val freshSortKey = Instant.parse("2025-01-01T00:00:00Z").toEpochMilli()
+        val legacySortKey = Instant.parse("2022-01-01T00:00:00Z").toEpochMilli()
+        val target = Instant.parse("2025-01-01T00:00:00Z")
+        val environment = createRepositoryEnvironment(listOf(freshSortKey, legacySortKey))
+
+        val index = environment.repository.findIndexAtOrAfter(target)
+
+        assertEquals(0, index)
+        val selection = environment.selectionHistory.firstOrNull()
+        assertNotNull(selection)
+        assertEquals("$SORT_KEY_EXPRESSION > ?", selection)
+        val args = environment.argsHistory.firstOrNull()
+        assertNotNull(args)
+        assertEquals(target.toEpochMilli().toString(), args.first())
+    }
+
+    @Test
+    fun `findIndexAtOrAfter returns first index in day when photos exist`() = runTest {
+        val sortKeys = listOf(
+            Instant.parse("2025-01-03T00:00:00Z").toEpochMilli(),
+            Instant.parse("2025-01-02T12:00:00Z").toEpochMilli(),
+            Instant.parse("2025-01-02T06:00:00Z").toEpochMilli(),
+            Instant.parse("2025-01-01T23:00:00Z").toEpochMilli()
+        )
+        val environment = createRepositoryEnvironment(sortKeys)
+        val zone = ZoneId.systemDefault()
+        val localDate = Instant.parse("2025-01-02T10:00:00Z").atZone(zone).toLocalDate()
+        val startOfDay = localDate.atStartOfDay(zone).toInstant()
+        val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
+
+        val index = environment.repository.findIndexAtOrAfter(startOfDay, endOfDay)
+
+        assertEquals(1, index)
+        assertTrue(environment.selectionHistory.any { it == "$SORT_KEY_EXPRESSION >= ?" })
+        assertTrue(
+            environment.selectionHistory.any {
+                it == "$SORT_KEY_EXPRESSION >= ? AND $SORT_KEY_EXPRESSION < ?"
+            }
+        )
+    }
+
+    @Test
+    fun `findIndexAtOrAfter returns null when day has no photos`() = runTest {
+        val sortKeys = listOf(
+            Instant.parse("2025-01-03T00:00:00Z").toEpochMilli(),
+            Instant.parse("2025-01-01T23:00:00Z").toEpochMilli()
+        )
+        val environment = createRepositoryEnvironment(sortKeys)
+        val zone = ZoneId.systemDefault()
+        val localDate = Instant.parse("2025-01-02T10:00:00Z").atZone(zone).toLocalDate()
+        val startOfDay = localDate.atStartOfDay(zone).toInstant()
+        val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
+
+        val index = environment.repository.findIndexAtOrAfter(startOfDay, endOfDay)
+
+        assertNull(index)
+    }
+
+    private fun createRepositoryEnvironment(
+        sortKeys: List<Long>
+    ): RepositoryEnvironment {
         val folderRepository = mockk<FolderRepository>()
         val context = mockk<Context>()
         val contentResolver = mockk<ContentResolver>()
         every { context.contentResolver } returns contentResolver
 
-        val dispatcher = UnconfinedTestDispatcher(testScheduler)
         val repository = spyk(
             PhotoRepository(folderRepository, context, dispatcher),
             recordPrivateCalls = true
@@ -51,23 +118,31 @@ class PhotoRepositoryTest {
 
         val selectionHistory = mutableListOf<String?>()
         val argsHistory = mutableListOf<Array<String>?>()
-        val freshSortKey = Instant.parse("2025-01-01T00:00:00Z").toEpochMilli()
-        val legacySortKey = Instant.parse("2022-01-01T00:00:00Z").toEpochMilli()
-        val target = Instant.parse("2025-01-01T00:00:00Z")
 
         fun buildCursor(selection: String?, args: Array<String>?): MatrixCursor {
             selectionHistory += selection
             argsHistory += args
-            val relevantSortKeys = when (selection) {
-                null, "" -> listOf(freshSortKey, legacySortKey)
-                "$SORT_KEY_EXPRESSION > ?" -> {
-                    val threshold = args?.firstOrNull()?.toLongOrNull() ?: Long.MIN_VALUE
-                    listOf(freshSortKey, legacySortKey).filter { it > threshold }
+            val filtered = sortKeys.filter { key ->
+                when (selection) {
+                    null, "" -> true
+                    "$SORT_KEY_EXPRESSION > ?" -> {
+                        val threshold = args?.firstOrNull()?.toLongOrNull() ?: Long.MIN_VALUE
+                        key > threshold
+                    }
+                    "$SORT_KEY_EXPRESSION >= ?" -> {
+                        val threshold = args?.firstOrNull()?.toLongOrNull() ?: Long.MIN_VALUE
+                        key >= threshold
+                    }
+                    "$SORT_KEY_EXPRESSION >= ? AND $SORT_KEY_EXPRESSION < ?" -> {
+                        val lower = args?.getOrNull(0)?.toLongOrNull() ?: Long.MIN_VALUE
+                        val upper = args?.getOrNull(1)?.toLongOrNull() ?: Long.MAX_VALUE
+                        key in lower until upper
+                    }
+                    else -> true
                 }
-                else -> listOf(freshSortKey, legacySortKey)
             }
             return MatrixCursor(arrayOf(MediaStore.Images.Media._ID)).apply {
-                relevantSortKeys.forEachIndexed { index, _ ->
+                filtered.forEachIndexed { index, _ ->
                     addRow(arrayOf(index.toLong()))
                 }
             }
@@ -89,15 +164,7 @@ class PhotoRepositoryTest {
             buildCursor(selection, args)
         }
 
-        val index = repository.findIndexAtOrAfter(target)
-
-        assertEquals(0, index)
-        val selection = selectionHistory.firstOrNull()
-        assertNotNull(selection)
-        assertEquals("$SORT_KEY_EXPRESSION > ?", selection)
-        val args = argsHistory.firstOrNull()
-        assertNotNull(args)
-        assertEquals(target.toEpochMilli().toString(), args.first())
+        return RepositoryEnvironment(repository, selectionHistory, argsHistory)
     }
 
     private fun createQuerySpec(contentUris: List<Uri>): Any {
@@ -106,6 +173,12 @@ class PhotoRepositoryTest {
         constructor.isAccessible = true
         return constructor.newInstance(contentUris, emptyList<String>(), emptyList<String>())
     }
+
+    private data class RepositoryEnvironment(
+        val repository: PhotoRepository,
+        val selectionHistory: MutableList<String?>,
+        val argsHistory: MutableList<Array<String>?>
+    )
 
     companion object {
         private const val QUERY_SPEC_CLASS =

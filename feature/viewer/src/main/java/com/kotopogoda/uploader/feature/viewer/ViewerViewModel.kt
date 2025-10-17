@@ -31,6 +31,7 @@ import java.io.File
 import java.io.Serializable
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.ZoneId
 import java.util.ArrayList
 import java.util.UUID
 import javax.inject.Inject
@@ -236,8 +237,16 @@ class ViewerViewModel @Inject constructor(
 
     fun jumpToDate(target: Instant) {
         viewModelScope.launch {
-            val index = photoRepository.findIndexAtOrAfter(target)
-            setCurrentIndex(index)
+            val zone = ZoneId.systemDefault()
+            val localDate = target.atZone(zone).toLocalDate()
+            val startOfDay = localDate.atStartOfDay(zone).toInstant()
+            val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
+            val index = photoRepository.findIndexAtOrAfter(startOfDay, endOfDay)
+            if (index == null) {
+                _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
+            } else {
+                setCurrentIndex(index)
+            }
         }
     }
 
