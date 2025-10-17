@@ -11,6 +11,7 @@
     <string name="viewer_snackbar_action_undo">Отменить</string>
     <string name="viewer_snackbar_skip_success">Фотография пропущена</string>
     <string name="viewer_toast_processing_success">Отправлено на обработку</string>
+    <string name="viewer_toast_processing_permission_cancelled">Доступ к медиа не предоставлен</string>
     <string name="viewer_snackbar_processing_failed">Не удалось перенести в «На обработку»</string>
     <string name="viewer_snackbar_publish_success">Фото поставлено в очередь на публикацию</string>
     <string name="viewer_snackbar_publish_failed">Не удалось поставить фото в очередь</string>

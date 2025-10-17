@@ -1,9 +1,11 @@
 package com.kotopogoda.uploader.core.data.sa
 
 import android.app.PendingIntent
+import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
@@ -114,9 +116,6 @@ class SaFileRepository @Inject constructor(
             val relativePath = buildRelativePath(destinationDocumentId)
                 ?: throw IllegalStateException("Unable to resolve relative path for ${destinationDirectory.uri}")
 
-            runCatching { requestMediaStoreWritePermission(resolver, src) }
-                .onFailure { throw IllegalStateException("Unable to request write access for $src", it) }
-
             val updateValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                 if (uniqueDisplayName != displayName) {
@@ -124,9 +123,19 @@ class SaFileRepository @Inject constructor(
                 }
             }
 
-            val updated = resolver.update(src, updateValues, null, null)
-            if (updated <= 0) {
-                throw IllegalStateException("Unable to update destination for $src")
+            try {
+                val updated = resolver.update(src, updateValues, null, null)
+                if (updated <= 0) {
+                    throw IllegalStateException("Unable to update destination for $src")
+                }
+            } catch (security: RecoverableSecurityException) {
+                val intentSender = security.userAction.actionIntent.intentSender
+                    ?: requestMediaStoreWritePermission(resolver, src)
+                    ?: throw IllegalStateException(
+                        "Unable to request write access for $src",
+                        security
+                    )
+                throw MediaStoreWritePermissionRequiredException(src, intentSender)
             }
 
             val targetDocumentId = "$destinationDocumentId/$uniqueDisplayName"
@@ -164,17 +173,13 @@ class SaFileRepository @Inject constructor(
         }
     }
 
-    private fun requestMediaStoreWritePermission(resolver: ContentResolver, uri: Uri) {
+    private fun requestMediaStoreWritePermission(resolver: ContentResolver, uri: Uri): IntentSender? {
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            return
+            return null
         }
 
         val pendingIntent = MediaStore.createWriteRequest(resolver, listOf(uri))
-        try {
-            pendingIntent.send()
-        } catch (error: PendingIntent.CanceledException) {
-            throw IllegalStateException("Write request was cancelled for $uri", error)
-        }
+        return pendingIntent.intentSender
     }
 
     private fun resolveMediaStoreDisplayName(resolver: ContentResolver, uri: Uri): String? {

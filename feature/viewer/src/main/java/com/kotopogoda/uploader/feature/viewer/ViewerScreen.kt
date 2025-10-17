@@ -195,6 +195,7 @@ fun ViewerRoute(
         onEnqueueUpload = viewModel::onEnqueueUpload,
         onUndo = viewModel::onUndo,
         onDelete = viewModel::onDelete,
+        onMediaStoreWriteResult = viewModel::onMediaStoreWriteResult,
         onDeleteResult = viewModel::onDeleteResult,
         onJumpToDate = viewModel::jumpToDate,
         onSelectFolder = {
@@ -233,6 +234,7 @@ internal fun ViewerScreen(
     onEnqueueUpload: (PhotoItem?) -> Unit,
     onUndo: () -> Unit,
     onDelete: (PhotoItem?) -> Unit,
+    onMediaStoreWriteResult: (ViewerViewModel.MediaStoreWriteResult) -> Unit,
     onDeleteResult: (ViewerViewModel.DeleteResult) -> Unit,
     onJumpToDate: (Instant) -> Unit,
     onSelectFolder: () -> Unit
@@ -333,6 +335,17 @@ internal fun ViewerScreen(
 
     val context = LocalContext.current
 
+    val mediaStoreWriteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val outcome = when (result.resultCode) {
+            Activity.RESULT_OK -> ViewerViewModel.MediaStoreWriteResult.Granted
+            Activity.RESULT_CANCELED -> ViewerViewModel.MediaStoreWriteResult.Cancelled
+            else -> ViewerViewModel.MediaStoreWriteResult.Failed
+        }
+        onMediaStoreWriteResult(outcome)
+    }
+
     val deleteLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -364,6 +377,13 @@ internal fun ViewerScreen(
                 }
                 is ViewerViewModel.ViewerEvent.ShowToast -> {
                     Toast.makeText(context, event.messageRes, Toast.LENGTH_SHORT).show()
+                }
+                is ViewerViewModel.ViewerEvent.RequestMediaStoreWrite -> {
+                    val request = IntentSenderRequest.Builder(event.intentSender).build()
+                    runCatching { mediaStoreWriteLauncher.launch(request) }
+                        .onFailure {
+                            onMediaStoreWriteResult(ViewerViewModel.MediaStoreWriteResult.Failed)
+                        }
                 }
                 is ViewerViewModel.ViewerEvent.RequestDelete -> {
                     val request = IntentSenderRequest.Builder(event.intentSender).build()

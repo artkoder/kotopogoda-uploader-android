@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.feature.viewer.R
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.sa.MediaStoreWritePermissionRequiredException
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
@@ -113,6 +114,7 @@ class ViewerViewModel @Inject constructor(
     private val _events = MutableSharedFlow<ViewerEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<ViewerEvent> = _events.asSharedFlow()
 
+    private var pendingMoveToProcessing: PendingMoveToProcessing? = null
     private var pendingDelete: PendingDelete? = null
 
     init {
@@ -272,37 +274,59 @@ class ViewerViewModel @Inject constructor(
         Timber.tag("UI").i("Move to processing requested for %s", current.uri)
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Processing
+            val fromIndex = currentIndex.value
+            val toIndex = computeNextIndex(fromIndex)
+            var documentInfo: DocumentInfo? = null
             try {
-                val documentInfo = loadDocumentInfo(current.uri)
-                val fromIndex = currentIndex.value
-                val toIndex = computeNextIndex(fromIndex)
+                documentInfo = loadDocumentInfo(current.uri)
                 val processingUri = saFileRepository.moveToProcessing(current.uri)
-                pushAction(
-                    UserAction.MovedToProcessing(
-                        fromUri = current.uri,
-                        toUri = processingUri,
-                        originalParent = documentInfo.parentUri,
-                        displayName = documentInfo.displayName,
-                        fromIndex = fromIndex,
-                        toIndex = toIndex
-                    )
+                finalizeMoveToProcessing(
+                    photo = current,
+                    documentInfo = documentInfo,
+                    processingUri = processingUri,
+                    fromIndex = fromIndex,
+                    toIndex = toIndex
                 )
-                if (toIndex != fromIndex) {
-                    setCurrentIndex(toIndex)
-                }
-                persistProgress(toIndex, current.takenAt)
-                _events.emit(
-                    ViewerEvent.ShowToast(
-                        messageRes = R.string.viewer_toast_processing_success
-                    )
-                )
+                pendingMoveToProcessing = null
                 Timber.tag("UI").i(
                     "Moved %s to processing (from=%d, to=%d)",
                     current.uri,
                     fromIndex,
                     toIndex
                 )
+            } catch (error: MediaStoreWritePermissionRequiredException) {
+                val info = documentInfo
+                if (info == null) {
+                    pendingMoveToProcessing = null
+                    persistUndoStack()
+                    Timber.tag("UI").e(
+                        error,
+                        "Missing document info for %s when requesting write permission",
+                        current.uri
+                    )
+                    _events.emit(
+                        ViewerEvent.ShowSnackbar(
+                            messageRes = R.string.viewer_snackbar_processing_failed
+                        )
+                    )
+                } else {
+                    pendingMoveToProcessing = PendingMoveToProcessing(
+                        photo = current,
+                        documentInfo = info,
+                        fromIndex = fromIndex,
+                        toIndex = toIndex
+                    )
+                    _events.emit(
+                        ViewerEvent.RequestMediaStoreWrite(intentSender = error.intentSender)
+                    )
+                    Timber.tag("UI").i(
+                        "Requesting write access to move %s to processing",
+                        current.uri
+                    )
+                    return@launch
+                }
             } catch (error: Exception) {
+                pendingMoveToProcessing = null
                 persistUndoStack()
                 Timber.tag("UI").e(
                     error,
@@ -315,7 +339,124 @@ class ViewerViewModel @Inject constructor(
                     )
                 )
             } finally {
-                _actionInProgress.value = null
+                if (pendingMoveToProcessing == null) {
+                    _actionInProgress.value = null
+                }
+            }
+        }
+    }
+
+    private suspend fun finalizeMoveToProcessing(
+        photo: PhotoItem,
+        documentInfo: DocumentInfo,
+        processingUri: Uri,
+        fromIndex: Int,
+        toIndex: Int
+    ) {
+        pushAction(
+            UserAction.MovedToProcessing(
+                fromUri = photo.uri,
+                toUri = processingUri,
+                originalParent = documentInfo.parentUri,
+                displayName = documentInfo.displayName,
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+        )
+        if (toIndex != fromIndex) {
+            setCurrentIndex(toIndex)
+        }
+        persistProgress(toIndex, photo.takenAt)
+        _events.emit(
+            ViewerEvent.ShowToast(
+                messageRes = R.string.viewer_toast_processing_success
+            )
+        )
+    }
+
+    fun onMediaStoreWriteResult(result: MediaStoreWriteResult) {
+        val pending = pendingMoveToProcessing
+        if (pending == null) {
+            _actionInProgress.value = null
+            return
+        }
+        when (result) {
+            MediaStoreWriteResult.Granted -> {
+                viewModelScope.launch {
+                    try {
+                        val processingUri = saFileRepository.moveToProcessing(pending.photo.uri)
+                        finalizeMoveToProcessing(
+                            photo = pending.photo,
+                            documentInfo = pending.documentInfo,
+                            processingUri = processingUri,
+                            fromIndex = pending.fromIndex,
+                            toIndex = pending.toIndex
+                        )
+                        pendingMoveToProcessing = null
+                        Timber.tag("UI").i(
+                            "Move to processing resumed for %s",
+                            pending.photo.uri
+                        )
+                    } catch (error: MediaStoreWritePermissionRequiredException) {
+                        pendingMoveToProcessing = pending
+                        Timber.tag("UI").w(
+                            error,
+                            "Write permission still required for %s",
+                            pending.photo.uri
+                        )
+                        _events.emit(
+                            ViewerEvent.RequestMediaStoreWrite(intentSender = error.intentSender)
+                        )
+                        return@launch
+                    } catch (error: Exception) {
+                        pendingMoveToProcessing = null
+                        persistUndoStack()
+                        Timber.tag("UI").e(
+                            error,
+                            "Failed to move %s to processing after permission",
+                            pending.photo.uri
+                        )
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_processing_failed
+                            )
+                        )
+                    } finally {
+                        if (pendingMoveToProcessing == null) {
+                            _actionInProgress.value = null
+                        }
+                    }
+                }
+            }
+            MediaStoreWriteResult.Cancelled -> {
+                pendingMoveToProcessing = null
+                viewModelScope.launch {
+                    Timber.tag("UI").i(
+                        "Write request cancelled for %s",
+                        pending.photo.uri
+                    )
+                    _events.emit(
+                        ViewerEvent.ShowToast(
+                            messageRes = R.string.viewer_toast_processing_permission_cancelled
+                        )
+                    )
+                    _actionInProgress.value = null
+                }
+            }
+            MediaStoreWriteResult.Failed -> {
+                pendingMoveToProcessing = null
+                viewModelScope.launch {
+                    Timber.tag("UI").w(
+                        "Write request failed for %s",
+                        pending.photo.uri
+                    )
+                    _events.emit(
+                        ViewerEvent.ShowSnackbar(
+                            messageRes = R.string.viewer_snackbar_processing_failed
+                        )
+                    )
+                    _actionInProgress.value = null
+                }
             }
         }
     }
@@ -1033,6 +1174,7 @@ class ViewerViewModel @Inject constructor(
         ) : ViewerEvent
         data class ShowToast(@StringRes val messageRes: Int) : ViewerEvent
         data class RequestDelete(val intentSender: IntentSender) : ViewerEvent
+        data class RequestMediaStoreWrite(val intentSender: IntentSender) : ViewerEvent
         data object RefreshPhotos : ViewerEvent
     }
 
@@ -1075,6 +1217,12 @@ class ViewerViewModel @Inject constructor(
         Failed
     }
 
+    enum class MediaStoreWriteResult {
+        Granted,
+        Cancelled,
+        Failed
+    }
+
     private data class DocumentInfo(
         val uri: Uri,
         val displayName: String,
@@ -1082,6 +1230,13 @@ class ViewerViewModel @Inject constructor(
         val size: Long?,
         val lastModified: Long?,
         val mimeType: String?
+    )
+
+    private data class PendingMoveToProcessing(
+        val photo: PhotoItem,
+        val documentInfo: DocumentInfo,
+        val fromIndex: Int,
+        val toIndex: Int
     )
 
     private data class PendingDelete(
