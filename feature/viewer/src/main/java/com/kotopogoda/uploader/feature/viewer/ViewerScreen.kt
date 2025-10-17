@@ -13,10 +13,16 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,11 +32,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Undo
@@ -72,7 +82,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -81,7 +93,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus
@@ -112,6 +126,8 @@ fun ViewerRoute(
     val undoCount by viewModel.undoCount.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val actionInProgress by viewModel.actionInProgress.collectAsState()
+    val selection by viewModel.selection.collectAsState()
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val currentFolderUri by viewModel.currentFolderTreeUri.collectAsState()
     val context = LocalContext.current
     val contentResolver = context.contentResolver
@@ -180,6 +196,8 @@ fun ViewerRoute(
         canUndo = canUndo,
         actionInProgress = actionInProgress,
         events = viewModel.events,
+        selection = selection,
+        isSelectionMode = isSelectionMode,
         observeUploadEnqueued = viewModel::observeUploadEnqueued,
         onBack = onBack,
         onOpenQueue = onOpenQueue,
@@ -192,11 +210,17 @@ fun ViewerRoute(
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
         onSkip = viewModel::onSkip,
         onMoveToProcessing = viewModel::onMoveToProcessing,
+        onMoveSelectionToProcessing = viewModel::onMoveSelectionToProcessing,
         onEnqueueUpload = viewModel::onEnqueueUpload,
         onUndo = viewModel::onUndo,
         onDelete = viewModel::onDelete,
+        onDeleteSelection = viewModel::onDeleteSelection,
         onDeleteResult = viewModel::onDeleteResult,
+        onWriteRequestResult = viewModel::onWriteRequestResult,
         onJumpToDate = viewModel::jumpToDate,
+        onPhotoLongPress = viewModel::onPhotoLongPress,
+        onToggleSelection = viewModel::onToggleSelection,
+        onClearSelection = viewModel::clearSelection,
         onSelectFolder = {
             launchFolderPicker(currentFolderUri?.let(Uri::parse))
         }
@@ -218,6 +242,8 @@ internal fun ViewerScreen(
     canUndo: Boolean,
     actionInProgress: ViewerViewModel.ViewerActionInProgress?,
     events: Flow<ViewerViewModel.ViewerEvent>,
+    selection: Set<PhotoItem>,
+    isSelectionMode: Boolean,
     observeUploadEnqueued: (PhotoItem?) -> Flow<Boolean>,
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
@@ -230,14 +256,26 @@ internal fun ViewerScreen(
     onZoomStateChanged: (Boolean) -> Unit,
     onSkip: (PhotoItem?) -> Unit,
     onMoveToProcessing: (PhotoItem?) -> Unit,
+    onMoveSelectionToProcessing: (List<PhotoItem>) -> Unit,
     onEnqueueUpload: (PhotoItem?) -> Unit,
     onUndo: () -> Unit,
     onDelete: (PhotoItem?) -> Unit,
+    onDeleteSelection: (List<PhotoItem>) -> Unit,
     onDeleteResult: (ViewerViewModel.DeleteResult) -> Unit,
+    onWriteRequestResult: (Boolean) -> Unit,
     onJumpToDate: (Instant) -> Unit,
+    onPhotoLongPress: (PhotoItem) -> Unit,
+    onToggleSelection: (PhotoItem) -> Unit,
+    onClearSelection: () -> Unit,
     onSelectFolder: () -> Unit
 ) {
-    BackHandler(onBack = onBack)
+    BackHandler {
+        if (isSelectionMode) {
+            onClearSelection()
+        } else {
+            onBack()
+        }
+    }
 
     val itemCount = photos.itemCount
     val isRefreshing = photos.loadState.refresh is LoadState.Loading
@@ -286,6 +324,7 @@ internal fun ViewerScreen(
     }
     val isCurrentQueued by isQueuedFlow.collectAsState(initial = false)
     val isBusy = actionInProgress != null
+    val selectedPhotos = remember(selection) { selection.toList() }
 
     if (showJumpSheet) {
         ModalBottomSheet(
@@ -343,6 +382,11 @@ internal fun ViewerScreen(
         }
         onDeleteResult(outcome)
     }
+    val writeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        onWriteRequestResult(result.resultCode == Activity.RESULT_OK)
+    }
 
     LaunchedEffect(events, context, photos) {
         events.collectLatest { event ->
@@ -370,6 +414,11 @@ internal fun ViewerScreen(
                     runCatching { deleteLauncher.launch(request) }
                         .onFailure { onDeleteResult(ViewerViewModel.DeleteResult.Failed) }
                 }
+                is ViewerViewModel.ViewerEvent.RequestWrite -> {
+                    val request = IntentSenderRequest.Builder(event.intentSender).build()
+                    runCatching { writeLauncher.launch(request) }
+                        .onFailure { onWriteRequestResult(false) }
+                }
                 ViewerViewModel.ViewerEvent.RefreshPhotos -> {
                     photos.refresh()
                 }
@@ -393,14 +442,19 @@ internal fun ViewerScreen(
         },
         bottomBar = {
             ViewerActionBar(
-                skipEnabled = !isBusy && currentIndex < itemCount - 1,
-                processingEnabled = !isBusy && currentPhoto != null,
-                publishEnabled = !isBusy && currentPhoto != null && !isCurrentQueued,
-                deleteEnabled = !isBusy && currentPhoto != null,
+                isSelectionMode = isSelectionMode,
+                selectionCount = selection.size,
+                onCancelSelection = onClearSelection,
+                onMoveSelection = { onMoveSelectionToProcessing(selectedPhotos) },
+                onDeleteSelection = { onDeleteSelection(selectedPhotos) },
+                skipEnabled = !isBusy && currentIndex < itemCount - 1 && !isSelectionMode,
+                processingEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
+                publishEnabled = !isBusy && currentPhoto != null && !isCurrentQueued && !isSelectionMode,
+                deleteEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
                 processingBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing,
                 publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
                 deleteBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Delete,
-                canUndo = canUndo && !isBusy,
+                canUndo = canUndo && !isBusy && !isSelectionMode,
                 undoCount = undoCount,
                 onSkip = { onSkip(currentPhoto) },
                 onMoveToProcessing = { onMoveToProcessing(currentPhoto) },
@@ -415,32 +469,138 @@ internal fun ViewerScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            VerticalPager(
-                state = pagerState,
-                userScrollEnabled = isPagerScrollEnabled && !isBusy,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                val item = photos[page]
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (item != null) {
-                        ZoomableImage(
-                            uri = item.uri,
-                            modifier = Modifier.fillMaxSize(),
-                            onZoomChanged = onZoomStateChanged
-                        )
-                        if (page == currentIndex && isCurrentQueued) {
-                            UploadQueuedBadge(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(16.dp)
+            if (isSelectionMode) {
+                ViewerSelectionGrid(
+                    photos = photos,
+                    selection = selection,
+                    onToggleSelection = onToggleSelection
+                )
+            } else {
+                VerticalPager(
+                    state = pagerState,
+                    userScrollEnabled = isPagerScrollEnabled && !isBusy,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    val item = photos[page]
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("viewer_photo_$page")
+                            .let { base ->
+                                if (item != null) {
+                                    base.pointerInput(item.id) {
+                                        detectTapGestures(onLongPress = { onPhotoLongPress(item) })
+                                    }
+                                } else {
+                                    base
+                                }
+                            }
+                    ) {
+                        if (item != null) {
+                            ZoomableImage(
+                                uri = item.uri,
+                                modifier = Modifier.fillMaxSize(),
+                                onZoomChanged = onZoomStateChanged
+                            )
+                            if (page == currentIndex && isCurrentQueued) {
+                                UploadQueuedBadge(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(16.dp)
+                                )
+                            }
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.align(Alignment.Center)
                             )
                         }
-                    } else {
-                        CircularProgressIndicator(
-                            modifier = Modifier.align(Alignment.Center)
-                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ViewerSelectionGrid(
+    photos: LazyPagingItems<PhotoItem>,
+    selection: Set<PhotoItem>,
+    onToggleSelection: (PhotoItem) -> Unit
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 96.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(photos.itemCount) { index ->
+            val item = photos[index]
+            if (item != null) {
+                ViewerSelectionThumbnail(
+                    photo = item,
+                    selected = selection.contains(item),
+                    onToggleSelection = { onToggleSelection(item) },
+                    modifier = Modifier.testTag("viewer_selection_$index")
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .aspectRatio(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ViewerSelectionThumbnail(
+    photo: PhotoItem,
+    selected: Boolean,
+    onToggleSelection: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .aspectRatio(1f)
+            .combinedClickable(
+                onClick = onToggleSelection,
+                onLongClick = onToggleSelection
+            ),
+        shape = MaterialTheme.shapes.small,
+        tonalElevation = if (selected) 6.dp else 0.dp,
+        border = if (selected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        }
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = photo.uri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                )
+                Icon(
+                    imageVector = Icons.Rounded.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                )
             }
         }
     }
@@ -631,6 +791,11 @@ private fun HealthStatusBadge(
 
 @Composable
 private fun ViewerActionBar(
+    isSelectionMode: Boolean,
+    selectionCount: Int,
+    onCancelSelection: () -> Unit,
+    onMoveSelection: () -> Unit,
+    onDeleteSelection: () -> Unit,
     skipEnabled: Boolean,
     processingEnabled: Boolean,
     publishEnabled: Boolean,
@@ -656,6 +821,17 @@ private fun ViewerActionBar(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (isSelectionMode) {
+                SelectionActionContent(
+                    selectionCount = selectionCount,
+                    processingBusy = processingBusy,
+                    deleteBusy = deleteBusy,
+                    onCancelSelection = onCancelSelection,
+                    onMoveSelection = onMoveSelection,
+                    onDeleteSelection = onDeleteSelection
+                )
+                return@Column
+            }
             val buttonHeight = 48.dp
             val primaryModifier = Modifier
                 .weight(1f)
@@ -740,6 +916,76 @@ private fun ViewerActionBar(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionActionContent(
+    selectionCount: Int,
+    processingBusy: Boolean,
+    deleteBusy: Boolean,
+    onCancelSelection: () -> Unit,
+    onMoveSelection: () -> Unit,
+    onDeleteSelection: () -> Unit
+) {
+    val buttonHeight = 48.dp
+    val hasSelection = selectionCount > 0
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(id = R.string.viewer_selection_count, selectionCount),
+                style = MaterialTheme.typography.titleMedium
+            )
+            TextButton(onClick = onCancelSelection) {
+                Text(text = stringResource(id = R.string.viewer_selection_cancel))
+            }
+        }
+        val processingColors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+        val deleteColors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            FilledTonalButton(
+                onClick = onMoveSelection,
+                enabled = hasSelection && !processingBusy,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(buttonHeight),
+                colors = processingColors
+            ) {
+                ActionButtonContent(
+                    text = stringResource(id = R.string.viewer_action_processing),
+                    busy = processingBusy
+                )
+            }
+            FilledTonalButton(
+                onClick = onDeleteSelection,
+                enabled = hasSelection && !deleteBusy,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(buttonHeight),
+                colors = deleteColors
+            ) {
+                ActionButtonContent(
+                    text = stringResource(id = R.string.viewer_action_delete),
+                    busy = deleteBusy
+                )
             }
         }
     }

@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.collections.ArrayDeque
@@ -113,7 +114,20 @@ class ViewerViewModel @Inject constructor(
     private val _events = MutableSharedFlow<ViewerEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<ViewerEvent> = _events.asSharedFlow()
 
+    private val _selection = MutableStateFlow<Set<PhotoItem>>(emptySet())
+    val selection: StateFlow<Set<PhotoItem>> = _selection.asStateFlow()
+
+    val isSelectionMode: StateFlow<Boolean> = selection
+        .map { it.isNotEmpty() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = _selection.value.isNotEmpty()
+        )
+
     private var pendingDelete: PendingDelete? = null
+    private var pendingBatchDelete: PendingBatchDelete? = null
+    private var pendingBatchMove: PendingBatchMove? = null
 
     init {
         restoreUndoStack()
@@ -264,6 +278,33 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
+    fun onPhotoLongPress(photo: PhotoItem) {
+        if (_selection.value.isEmpty()) {
+            _selection.value = setOf(photo)
+            _isPagerScrollEnabled.value = false
+        }
+    }
+
+    fun onToggleSelection(photo: PhotoItem) {
+        _selection.update { current ->
+            val updated = current.toMutableSet()
+            if (!updated.add(photo)) {
+                updated.remove(photo)
+            }
+            updated
+        }
+        if (_selection.value.isEmpty()) {
+            _isPagerScrollEnabled.value = true
+        }
+    }
+
+    fun clearSelection() {
+        if (_selection.value.isNotEmpty()) {
+            _selection.value = emptySet()
+            _isPagerScrollEnabled.value = true
+        }
+    }
+
     fun onMoveToProcessing(photo: PhotoItem?) {
         if (_actionInProgress.value != null) {
             return
@@ -315,6 +356,42 @@ class ViewerViewModel @Inject constructor(
                     )
                 )
             } finally {
+                _actionInProgress.value = null
+            }
+        }
+    }
+
+    fun onMoveSelectionToProcessing(photos: List<PhotoItem>) {
+        if (_actionInProgress.value != null) {
+            return
+        }
+        if (photos.isEmpty()) {
+            return
+        }
+        viewModelScope.launch {
+            _actionInProgress.value = ViewerActionInProgress.Processing
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val mediaStoreUris = photos
+                        .map { it.uri }
+                        .filter { it.authority == MediaStore.AUTHORITY }
+                    if (mediaStoreUris.isNotEmpty()) {
+                        val pendingIntent = withContext(Dispatchers.IO) {
+                            MediaStore.createWriteRequest(context.contentResolver, mediaStoreUris)
+                        }
+                        pendingBatchMove = PendingBatchMove(photos)
+                        _events.emit(ViewerEvent.RequestWrite(pendingIntent.intentSender))
+                        return@launch
+                    }
+                }
+                finalizeBatchMove(photos)
+            } catch (error: Exception) {
+                Timber.tag("UI").e(error, "Failed to request batch move")
+                _events.emit(
+                    ViewerEvent.ShowSnackbar(
+                        messageRes = R.string.viewer_snackbar_processing_failed
+                    )
+                )
                 _actionInProgress.value = null
             }
         }
@@ -461,7 +538,72 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
+    fun onDeleteSelection(photos: List<PhotoItem>) {
+        if (_actionInProgress.value != null) {
+            return
+        }
+        if (photos.isEmpty()) {
+            return
+        }
+        Timber.tag("UI").i("Batch delete requested for %d photos", photos.size)
+        viewModelScope.launch {
+            _actionInProgress.value = ViewerActionInProgress.Delete
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val pendingIntent = withContext(Dispatchers.IO) {
+                        MediaStore.createDeleteRequest(
+                            context.contentResolver,
+                            photos.map { it.uri }
+                        )
+                    }
+                    pendingBatchDelete = PendingBatchDelete(photos)
+                    _events.emit(ViewerEvent.RequestDelete(pendingIntent.intentSender))
+                    return@launch
+                }
+                finalizeBatchDelete(photos)
+            } catch (error: Exception) {
+                pendingBatchDelete = null
+                Timber.tag("UI").e(error, "Failed to request batch delete")
+                _events.emit(
+                    ViewerEvent.ShowSnackbar(
+                        messageRes = R.string.viewer_snackbar_delete_failed
+                    )
+                )
+                _actionInProgress.value = null
+            }
+        }
+    }
+
     fun onDeleteResult(result: DeleteResult) {
+        val batch = pendingBatchDelete
+        if (batch != null) {
+            when (result) {
+                DeleteResult.Success -> {
+                    viewModelScope.launch { finalizeBatchDelete(batch.photos) }
+                }
+                DeleteResult.Cancelled -> {
+                    pendingBatchDelete = null
+                    viewModelScope.launch {
+                        _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_delete_cancelled))
+                        clearSelection()
+                        _actionInProgress.value = null
+                    }
+                }
+                DeleteResult.Failed -> {
+                    pendingBatchDelete = null
+                    viewModelScope.launch {
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_delete_failed
+                            )
+                        )
+                        clearSelection()
+                        _actionInProgress.value = null
+                    }
+                }
+            }
+            return
+        }
         val pending = pendingDelete
         if (pending == null) {
             _actionInProgress.value = null
@@ -502,6 +644,32 @@ class ViewerViewModel @Inject constructor(
                     _actionInProgress.value = null
                 }
             }
+        }
+    }
+
+    fun onWriteRequestResult(granted: Boolean) {
+        val pending = pendingBatchMove
+        if (pending == null) {
+            if (!granted) {
+                _actionInProgress.value = null
+            }
+            return
+        }
+        if (!granted) {
+            pendingBatchMove = null
+            viewModelScope.launch {
+                _events.emit(
+                    ViewerEvent.ShowSnackbar(
+                        messageRes = R.string.viewer_snackbar_processing_failed
+                    )
+                )
+                clearSelection()
+                _actionInProgress.value = null
+            }
+            return
+        }
+        viewModelScope.launch {
+            finalizeBatchMove(pending.photos)
         }
     }
 
@@ -638,6 +806,68 @@ class ViewerViewModel @Inject constructor(
         )
         _events.emit(ViewerEvent.RefreshPhotos)
         Timber.tag("UI").i("Deleted photo %s", pending.documentInfo.uri)
+        _actionInProgress.value = null
+    }
+
+    private suspend fun finalizeBatchMove(photos: List<PhotoItem>) {
+        var successCount = 0
+        photos.forEach { photo ->
+            runCatching {
+                saFileRepository.moveToProcessing(photo.uri)
+            }.onSuccess {
+                successCount += 1
+                Timber.tag("UI").i("Batch moved photo %s to processing", photo.uri)
+            }.onFailure { error ->
+                Timber.tag("UI").e(error, "Failed to move %s during batch", photo.uri)
+            }
+        }
+        if (successCount > 0) {
+            _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_processing_success))
+            _events.emit(ViewerEvent.RefreshPhotos)
+        } else {
+            _events.emit(
+                ViewerEvent.ShowSnackbar(
+                    messageRes = R.string.viewer_snackbar_processing_failed
+                )
+            )
+        }
+        pendingBatchMove = null
+        clearSelection()
+        _actionInProgress.value = null
+    }
+
+    private suspend fun finalizeBatchDelete(photos: List<PhotoItem>) {
+        val resolver = context.contentResolver
+        var successCount = 0
+        withContext(Dispatchers.IO) {
+            photos.forEach { photo ->
+                runCatching { resolver.delete(photo.uri, null, null) }
+                    .onSuccess { deleted ->
+                        if (deleted > 0) {
+                            successCount += 1
+                        }
+                    }
+                    .onFailure { error ->
+                        Timber.tag("UI").e(error, "Failed to delete %s during batch", photo.uri)
+                    }
+            }
+        }
+        if (successCount > 0) {
+            _events.emit(
+                ViewerEvent.ShowSnackbar(
+                    messageRes = R.string.viewer_snackbar_delete_success
+                )
+            )
+            _events.emit(ViewerEvent.RefreshPhotos)
+        } else {
+            _events.emit(
+                ViewerEvent.ShowSnackbar(
+                    messageRes = R.string.viewer_snackbar_delete_failed
+                )
+            )
+        }
+        pendingBatchDelete = null
+        clearSelection()
         _actionInProgress.value = null
     }
 
@@ -1033,6 +1263,7 @@ class ViewerViewModel @Inject constructor(
         ) : ViewerEvent
         data class ShowToast(@StringRes val messageRes: Int) : ViewerEvent
         data class RequestDelete(val intentSender: IntentSender) : ViewerEvent
+        data class RequestWrite(val intentSender: IntentSender) : ViewerEvent
         data object RefreshPhotos : ViewerEvent
     }
 
@@ -1090,6 +1321,14 @@ class ViewerViewModel @Inject constructor(
         val backup: DeleteBackup?,
         val fromIndex: Int,
         val toIndex: Int
+    )
+
+    private data class PendingBatchDelete(
+        val photos: List<PhotoItem>
+    )
+
+    private data class PendingBatchMove(
+        val photos: List<PhotoItem>
     )
 
     private data class DeleteBackup(val file: File) {

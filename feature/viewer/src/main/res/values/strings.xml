@@ -21,6 +21,8 @@
     <string name="viewer_snackbar_delete_success">Файл удалён</string>
     <string name="viewer_snackbar_delete_undone">Удаление отменено</string>
     <string name="viewer_toast_delete_cancelled">Удаление отменено</string>
+    <string name="viewer_selection_count">Выбрано: %1$d</string>
+    <string name="viewer_selection_cancel">Снять выбор</string>
     <string name="viewer_badge_enqueued">В очереди</string>
     <string name="viewer_error_title">Не удалось загрузить фотографии</string>
     <string name="viewer_error_body">Попробуйте обновить экран или проверить доступ к медиа.</string>
