@@ -74,7 +74,7 @@ class PhotoRepository @Inject constructor(
         val folder = folderRepository.getFolder() ?: return@withContext 0
         val spec = buildQuerySpec(folder)
         val targetMillis = date.toEpochMilli()
-        val additionalSelection = "${MediaStore.Images.Media.DATE_TAKEN} > ?"
+        val additionalSelection = "${mediaStoreDatePriorityExpression()} > ?"
         val additionalArgs = arrayOf(targetMillis.toString())
         val newerCount = queryCount(spec, additionalSelection, additionalArgs)
         val total = queryCount(spec)
@@ -204,16 +204,10 @@ class PhotoRepository @Inject constructor(
             val selection = spec.selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
             val args = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
             val bundle = Bundle().apply {
-                putStringArray(
-                    ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                    arrayOf(
-                        MediaStore.Images.Media.DATE_TAKEN,
-                        MediaStore.Images.Media.DATE_ADDED
-                    )
-                )
-                putInt(
-                    ContentResolver.QUERY_ARG_SORT_DIRECTION,
-                    ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+                val sortExpression = mediaStoreDatePriorityExpression()
+                putString(
+                    ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                    "$sortExpression DESC"
                 )
                 putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
                 putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
@@ -314,6 +308,9 @@ class PhotoRepository @Inject constructor(
         private const val DEFAULT_PREFETCH_DISTANCE = 30
     }
 }
+
+internal fun mediaStoreDatePriorityExpression(): String =
+    "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 THEN ${MediaStore.Images.Media.DATE_TAKEN} ELSE ${MediaStore.Images.Media.DATE_ADDED}*1000 END"
 
 private inline fun <T> ContentResolver.queryWithFallback(
     uris: List<Uri>,

@@ -50,12 +50,8 @@ class PhotoRepositoryPagingSourceTest {
         val bundle = bundleSlot.captured
         assertNotNull(bundle)
         assertEquals(
-            listOf(MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_ADDED),
-            bundle.getStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS)?.toList()
-        )
-        assertEquals(
-            ContentResolver.QUERY_SORT_DIRECTION_DESCENDING,
-            bundle.getInt(ContentResolver.QUERY_ARG_SORT_DIRECTION)
+            "${mediaStoreDatePriorityExpression()} DESC",
+            bundle.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
         )
     }
 
