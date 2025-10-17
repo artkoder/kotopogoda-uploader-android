@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -58,7 +59,7 @@ class UploadQueueRepository @Inject constructor(
         val existing = uploadItemDao.getByPhotoId(photo.id)
         val displayName = buildDisplayName(photo.relPath, uri)
         if (existing == null) {
-            uploadItemDao.insert(
+            val id = uploadItemDao.insert(
                 UploadItemEntity(
                     photoId = photo.id,
                     uri = photo.uri,
@@ -69,6 +70,18 @@ class UploadQueueRepository @Inject constructor(
                     updatedAt = now,
                 )
             )
+            Timber.tag("Queue").i(
+                UploadLog.message(
+                    action = "enqueue",
+                    itemId = id,
+                    photoId = photo.id,
+                    uri = uri,
+                    state = UploadItemState.QUEUED,
+                    "size" to photo.size,
+                    "displayName" to displayName,
+                    "existing" to false,
+                )
+            )
         } else {
             uploadItemDao.updateStateWithMetadata(
                 id = existing.id,
@@ -77,6 +90,18 @@ class UploadQueueRepository @Inject constructor(
                 displayName = displayName,
                 size = photo.size,
                 updatedAt = now,
+            )
+            Timber.tag("Queue").i(
+                UploadLog.message(
+                    action = "enqueue",
+                    itemId = existing.id,
+                    photoId = photo.id,
+                    uri = uri,
+                    state = UploadItemState.QUEUED,
+                    "size" to photo.size,
+                    "displayName" to displayName,
+                    "existing" to true,
+                )
             )
         }
     }
@@ -89,6 +114,15 @@ class UploadQueueRepository @Inject constructor(
             state = UploadItemState.QUEUED.rawValue,
             updatedAt = currentTimeMillis(),
         )
+        Timber.tag("Queue").i(
+            UploadLog.message(
+                action = "mark_queued",
+                itemId = existing.id,
+                photoId = photo.id,
+                uri = uri,
+                state = UploadItemState.QUEUED,
+            )
+        )
     }
 
     suspend fun markCancelled(uri: Uri): Boolean = withContext(Dispatchers.IO) {
@@ -99,6 +133,16 @@ class UploadQueueRepository @Inject constructor(
             id = existing.id,
             state = UploadItemState.FAILED.rawValue,
             updatedAt = currentTimeMillis(),
+        )
+        Timber.tag("Queue").i(
+            UploadLog.message(
+                action = "mark_cancelled",
+                itemId = existing.id,
+                photoId = photo.id,
+                uri = uri,
+                state = UploadItemState.FAILED,
+                "wasProcessing" to wasProcessing,
+            )
         )
         wasProcessing
     }
@@ -111,6 +155,12 @@ class UploadQueueRepository @Inject constructor(
             ),
             state = UploadItemState.FAILED.rawValue,
             updatedAt = currentTimeMillis(),
+        )
+        Timber.tag("Queue").w(
+            UploadLog.message(
+                action = "cancel_all",
+                state = UploadItemState.FAILED,
+            )
         )
     }
 
@@ -126,7 +176,7 @@ class UploadQueueRepository @Inject constructor(
         }
         val queued = uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, limit)
         val updateTimestamp = currentTimeMillis()
-        buildList {
+        val items = buildList {
             for (entity in queued) {
                 if (entity.uri.isBlank()) {
                     uploadItemDao.updateStateWithError(
@@ -135,6 +185,14 @@ class UploadQueueRepository @Inject constructor(
                         lastErrorKind = UploadErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
                         updatedAt = updateTimestamp,
+                    )
+                    Timber.tag("Queue").w(
+                        UploadLog.message(
+                            action = "fetch_queued_skip",
+                            itemId = entity.id,
+                            state = UploadItemState.FAILED,
+                            "reason" to "missing_uri",
+                        )
                     )
                     continue
                 }
@@ -146,6 +204,14 @@ class UploadQueueRepository @Inject constructor(
                         lastErrorKind = UploadErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
                         updatedAt = updateTimestamp,
+                    )
+                    Timber.tag("Queue").w(
+                        UploadLog.message(
+                            action = "fetch_queued_skip",
+                            itemId = entity.id,
+                            state = UploadItemState.FAILED,
+                            "reason" to "invalid_uri",
+                        )
                     )
                     continue
                 }
@@ -160,8 +226,28 @@ class UploadQueueRepository @Inject constructor(
                         size = entity.size,
                     )
                 )
+                Timber.tag("Queue").i(
+                    UploadLog.message(
+                        action = "fetch_queued_item",
+                        itemId = entity.id,
+                        photoId = entity.photoId,
+                        uri = uri,
+                        state = UploadItemState.QUEUED,
+                        "displayName" to displayName,
+                        "size" to entity.size,
+                    )
+                )
             }
         }
+        Timber.tag("Queue").i(
+            UploadLog.message(
+                action = "fetch_queued_summary",
+                state = UploadItemState.QUEUED,
+                "requested" to limit,
+                "returned" to items.size,
+            )
+        )
+        items
     }
 
     suspend fun markProcessing(id: Long): Boolean = withContext(Dispatchers.IO) {
@@ -171,7 +257,16 @@ class UploadQueueRepository @Inject constructor(
             newState = UploadItemState.PROCESSING.rawValue,
             updatedAt = currentTimeMillis(),
         )
-        updatedRows > 0
+        val success = updatedRows > 0
+        val action = if (success) "mark_processing" else "mark_processing_skipped"
+        Timber.tag("Queue").i(
+            UploadLog.message(
+                action = action,
+                itemId = id,
+                state = if (success) UploadItemState.PROCESSING else null,
+            )
+        )
+        success
     }
 
     suspend fun markSucceeded(id: Long) = withContext(Dispatchers.IO) {
@@ -179,6 +274,13 @@ class UploadQueueRepository @Inject constructor(
             id = id,
             state = UploadItemState.SUCCEEDED.rawValue,
             updatedAt = currentTimeMillis(),
+        )
+        Timber.tag("Queue").i(
+            UploadLog.message(
+                action = "mark_succeeded",
+                itemId = id,
+                state = UploadItemState.SUCCEEDED,
+            )
         )
     }
 
@@ -195,6 +297,16 @@ class UploadQueueRepository @Inject constructor(
             lastErrorKind = errorKind.rawValue,
             httpCode = httpCode,
             updatedAt = currentTimeMillis(),
+        )
+        Timber.tag("Queue").w(
+            UploadLog.message(
+                action = "mark_failed",
+                itemId = id,
+                state = state,
+                "errorKind" to errorKind,
+                "httpCode" to httpCode,
+                "requeue" to requeue,
+            )
         )
     }
 
@@ -227,11 +339,21 @@ class UploadQueueRepository @Inject constructor(
     private fun currentTimeMillis(): Long = clock.instant().toEpochMilli()
 
     private suspend fun recoverStuckProcessingInternal(now: Long): Int {
-        return uploadItemDao.requeueProcessingToQueued(
+        val requeued = uploadItemDao.requeueProcessingToQueued(
             processingState = UploadItemState.PROCESSING.rawValue,
             queuedState = UploadItemState.QUEUED.rawValue,
             updatedAt = now,
         )
+        if (requeued > 0) {
+            Timber.tag("Queue").w(
+                UploadLog.message(
+                    action = "recover_processing",
+                    state = UploadItemState.QUEUED,
+                    "requeued" to requeued,
+                )
+            )
+        }
+        return requeued
     }
 
     private fun String?.toUriOrNull(): Uri? {

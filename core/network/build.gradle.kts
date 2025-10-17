@@ -118,6 +118,7 @@ dependencies {
     implementation(libs.com.squareup.moshi.kotlin)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.timber)
     implementation("javax.inject:javax.inject:1")
     implementation(libs.dagger.hilt.android)
     kapt(libs.dagger.hilt.compiler)
