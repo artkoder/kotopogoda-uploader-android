@@ -77,9 +77,11 @@ class UploadQueueRepository @Inject constructor(
                     photoId = photo.id,
                     uri = uri,
                     state = UploadItemState.QUEUED,
-                    "size" to photo.size,
-                    "displayName" to displayName,
-                    "existing" to false,
+                    details = arrayOf(
+                        "size" to photo.size,
+                        "displayName" to displayName,
+                        "existing" to false,
+                    ),
                 )
             )
         } else {
@@ -98,9 +100,11 @@ class UploadQueueRepository @Inject constructor(
                     photoId = photo.id,
                     uri = uri,
                     state = UploadItemState.QUEUED,
-                    "size" to photo.size,
-                    "displayName" to displayName,
-                    "existing" to true,
+                    details = arrayOf(
+                        "size" to photo.size,
+                        "displayName" to displayName,
+                        "existing" to true,
+                    ),
                 )
             )
         }
@@ -141,7 +145,9 @@ class UploadQueueRepository @Inject constructor(
                 photoId = photo.id,
                 uri = uri,
                 state = UploadItemState.FAILED,
-                "wasProcessing" to wasProcessing,
+                details = arrayOf(
+                    "wasProcessing" to wasProcessing,
+                ),
             )
         )
         wasProcessing
@@ -191,7 +197,9 @@ class UploadQueueRepository @Inject constructor(
                             action = "fetch_queued_skip",
                             itemId = entity.id,
                             state = UploadItemState.FAILED,
-                            "reason" to "missing_uri",
+                            details = arrayOf(
+                                "reason" to "missing_uri",
+                            ),
                         )
                     )
                     continue
@@ -210,7 +218,9 @@ class UploadQueueRepository @Inject constructor(
                             action = "fetch_queued_skip",
                             itemId = entity.id,
                             state = UploadItemState.FAILED,
-                            "reason" to "invalid_uri",
+                            details = arrayOf(
+                                "reason" to "invalid_uri",
+                            ),
                         )
                     )
                     continue
@@ -233,8 +243,10 @@ class UploadQueueRepository @Inject constructor(
                         photoId = entity.photoId,
                         uri = uri,
                         state = UploadItemState.QUEUED,
-                        "displayName" to displayName,
-                        "size" to entity.size,
+                        details = arrayOf(
+                            "displayName" to displayName,
+                            "size" to entity.size,
+                        ),
                     )
                 )
             }
@@ -243,8 +255,10 @@ class UploadQueueRepository @Inject constructor(
             UploadLog.message(
                 action = "fetch_queued_summary",
                 state = UploadItemState.QUEUED,
-                "requested" to limit,
-                "returned" to items.size,
+                details = arrayOf(
+                    "requested" to limit,
+                    "returned" to items.size,
+                ),
             )
         )
         items
@@ -303,9 +317,11 @@ class UploadQueueRepository @Inject constructor(
                 action = "mark_failed",
                 itemId = id,
                 state = state,
-                "errorKind" to errorKind,
-                "httpCode" to httpCode,
-                "requeue" to requeue,
+                details = arrayOf(
+                    "errorKind" to errorKind,
+                    "httpCode" to httpCode,
+                    "requeue" to requeue,
+                ),
             )
         )
     }
@@ -349,7 +365,9 @@ class UploadQueueRepository @Inject constructor(
                 UploadLog.message(
                     action = "recover_processing",
                     state = UploadItemState.QUEUED,
-                    "requeued" to requeued,
+                    details = arrayOf(
+                        "requeued" to requeued,
+                    ),
                 )
             )
         }

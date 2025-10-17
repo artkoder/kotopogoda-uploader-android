@@ -40,7 +40,9 @@ class UploadProcessorWorker @AssistedInject constructor(
                 UploadLog.message(
                     action = "worker_recovered_processing",
                     state = UploadItemState.QUEUED,
-                    "requeued" to recovered,
+                    details = arrayOf(
+                        "requeued" to recovered,
+                    ),
                 )
             )
         }
@@ -49,14 +51,23 @@ class UploadProcessorWorker @AssistedInject constructor(
             UploadLog.message(
                 action = "worker_batch",
                 state = UploadItemState.QUEUED,
-                "fetched" to queued.size,
+                details = arrayOf(
+                    "fetched" to queued.size,
+                ),
             )
         )
         if (queued.isEmpty()) {
             if (repository.hasQueued()) {
                 enqueueSelf()
             }
-            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_complete", "result" to "no_items"))
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    action = "worker_complete",
+                    details = arrayOf(
+                        "result" to "no_items",
+                    ),
+                )
+            )
             return@withContext Result.success()
         }
 
@@ -68,8 +79,10 @@ class UploadProcessorWorker @AssistedInject constructor(
                     action = "worker_item_start",
                     itemId = item.id,
                     uri = item.uri,
-                    "displayName" to item.displayName,
-                    "size" to item.size,
+                    details = arrayOf(
+                        "displayName" to item.displayName,
+                        "size" to item.size,
+                    ),
                 )
             )
             val markedProcessing = repository.markProcessing(item.id)
@@ -79,7 +92,9 @@ class UploadProcessorWorker @AssistedInject constructor(
                         action = "worker_item_skip",
                         itemId = item.id,
                         uri = item.uri,
-                        "reason" to "state_changed",
+                        details = arrayOf(
+                            "reason" to "state_changed",
+                        ),
                     )
                 )
                 continue
@@ -113,8 +128,10 @@ class UploadProcessorWorker @AssistedInject constructor(
                                 itemId = item.id,
                                 uri = item.uri,
                                 state = UploadItemState.SUCCEEDED,
-                                "displayName" to item.displayName,
-                                "size" to item.size,
+                                details = arrayOf(
+                                    "displayName" to item.displayName,
+                                    "size" to item.size,
+                                ),
                             )
                         )
                     }
@@ -133,9 +150,11 @@ class UploadProcessorWorker @AssistedInject constructor(
                                 itemId = item.id,
                                 uri = item.uri,
                                 state = if (outcome.retryable) UploadItemState.QUEUED else UploadItemState.FAILED,
-                                "errorKind" to outcome.errorKind,
-                                "httpCode" to outcome.httpCode,
-                                "retry" to outcome.retryable,
+                                details = arrayOf(
+                                    "errorKind" to outcome.errorKind,
+                                    "httpCode" to outcome.httpCode,
+                                    "retry" to outcome.retryable,
+                                ),
                             )
                         )
                         if (outcome.retryable) {
@@ -152,10 +171,24 @@ class UploadProcessorWorker @AssistedInject constructor(
         }
 
         val result = if (shouldRetry) {
-            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_complete", "result" to "retry"))
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    action = "worker_complete",
+                    details = arrayOf(
+                        "result" to "retry",
+                    ),
+                )
+            )
             Result.retry()
         } else {
-            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_complete", "result" to "success"))
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    action = "worker_complete",
+                    details = arrayOf(
+                        "result" to "success",
+                    ),
+                )
+            )
             Result.success()
         }
         result
