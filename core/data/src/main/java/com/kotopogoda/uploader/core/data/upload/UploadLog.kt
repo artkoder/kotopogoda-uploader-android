@@ -10,7 +10,7 @@ object UploadLog {
         photoId: String? = null,
         uri: Uri? = null,
         state: UploadItemState? = null,
-        details: Array<out Pair<String, Any?>> = emptyArray(),
+        vararg details: Pair<String, Any?>,
     ): String {
         val parts = mutableListOf("action=$action")
         itemId?.let { parts += "itemId=$it" }
