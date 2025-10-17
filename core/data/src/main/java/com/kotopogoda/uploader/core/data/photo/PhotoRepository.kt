@@ -74,7 +74,7 @@ class PhotoRepository @Inject constructor(
         val folder = folderRepository.getFolder() ?: return@withContext 0
         val spec = buildQuerySpec(folder)
         val targetMillis = date.toEpochMilli()
-        val additionalSelection = "${MediaStore.Images.Media.DATE_TAKEN} > ?"
+        val additionalSelection = "$SORT_KEY_EXPRESSION > ?"
         val additionalArgs = arrayOf(targetMillis.toString())
         val newerCount = queryCount(spec, additionalSelection, additionalArgs)
         val total = queryCount(spec)
@@ -207,7 +207,7 @@ class PhotoRepository @Inject constructor(
                 Bundle().apply {
                     putString(
                         ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
-                        "$SORT_KEY_SQL DESC"
+                        "$SORT_KEY_EXPRESSION DESC"
                     )
                     putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
                     putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
@@ -224,7 +224,7 @@ class PhotoRepository @Inject constructor(
 
             val legacySortOrder = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
                 buildString {
-                    append("$SORT_KEY_SQL DESC")
+                    append("$SORT_KEY_EXPRESSION DESC")
                     append(" LIMIT $limit")
                     if (offset > 0) {
                         append(" OFFSET $offset")
@@ -308,7 +308,7 @@ class PhotoRepository @Inject constructor(
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
                 MediaStore.Images.Media.SIZE,
                 MediaStore.Images.Media.MIME_TYPE,
-                "$SORT_KEY_SQL AS $SORT_KEY_COLUMN"
+                "$SORT_KEY_EXPRESSION AS $SORT_KEY_COLUMN"
             )
         }
     }
@@ -317,7 +317,7 @@ class PhotoRepository @Inject constructor(
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
         private const val SORT_KEY_COLUMN = "sort_key"
-        private const val SORT_KEY_SQL =
+        private const val SORT_KEY_EXPRESSION =
             "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
                 "ELSE ${MediaStore.Images.Media.DATE_ADDED} * 1000 END"
