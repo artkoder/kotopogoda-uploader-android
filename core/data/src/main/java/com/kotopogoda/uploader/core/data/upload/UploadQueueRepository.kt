@@ -346,7 +346,7 @@ class UploadQueueRepository @Inject constructor(
         return fromRelPath ?: fromUri ?: DEFAULT_DISPLAY_NAME
     }
 
-    private fun createFallbackPhoto(uri: Uri, uriString: String): PhotoEntity {
+    private suspend fun createFallbackPhoto(uri: Uri, uriString: String): PhotoEntity {
         val metadata = metadataReader.read(uri)
         val entity = PhotoEntity(
             id = uriString,
@@ -357,14 +357,15 @@ class UploadQueueRepository @Inject constructor(
             size = metadata?.size ?: 0L,
             mime = metadata?.mimeType ?: DEFAULT_MIME,
         )
-        runCatching { photoDao.upsert(entity) }
-            .onFailure { error ->
-                Timber.tag("Queue").w(
-                    error,
-                    "Failed to upsert fallback photo metadata for %s",
-                    uri,
-                )
-            }
+        try {
+            photoDao.upsert(entity)
+        } catch (error: Throwable) {
+            Timber.tag("Queue").w(
+                error,
+                "Failed to upsert fallback photo metadata for %s",
+                uri,
+            )
+        }
         return entity
     }
 
