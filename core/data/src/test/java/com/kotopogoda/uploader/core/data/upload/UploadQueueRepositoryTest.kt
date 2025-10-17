@@ -1,9 +1,13 @@
 package com.kotopogoda.uploader.core.data.upload
 
+import android.net.Uri
+import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
+import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import kotlin.test.assertEquals
@@ -19,12 +23,51 @@ class UploadQueueRepositoryTest {
 
     private val uploadItemDao = mockk<UploadItemDao>(relaxed = true)
     private val photoDao = mockk<PhotoDao>(relaxed = true)
+    private val metadataReader = mockk<MediaStorePhotoMetadataReader>(relaxed = true)
     private lateinit var repository: UploadQueueRepository
     private val clock = Clock.fixed(Instant.ofEpochMilli(1_000_000L), ZoneOffset.UTC)
 
     @Before
     fun setUp() {
-        repository = UploadQueueRepository(uploadItemDao, photoDao, clock)
+        repository = UploadQueueRepository(uploadItemDao, photoDao, metadataReader, clock)
+    }
+
+    @Test
+    fun `enqueue inserts placeholder when photo is missing`() = runTest {
+        val uri = Uri.parse("content://media/external/images/media/1")
+        coEvery { photoDao.getByUri(uri.toString()) } returns null
+        every { metadataReader.read(uri) } returns MediaStorePhotoMetadata(
+            displayName = "IMG_0001.jpg",
+            size = 1280L,
+            mimeType = "image/png",
+            dateAddedMillis = 10_000L,
+            dateModifiedMillis = null,
+            dateTakenMillis = null,
+            relativePath = "DCIM/Camera/",
+        )
+        coEvery { photoDao.upsert(any()) } returns Unit
+        coEvery { uploadItemDao.getByPhotoId(uri.toString()) } returns null
+        coEvery { uploadItemDao.insert(any()) } returns 1L
+
+        repository.enqueue(uri)
+
+        coVerify {
+            photoDao.upsert(withArg { entity ->
+                assertEquals(uri.toString(), entity.id)
+                assertEquals("DCIM/Camera/IMG_0001.jpg", entity.relPath)
+                assertEquals("image/png", entity.mime)
+                assertEquals(1280L, entity.size)
+                assertEquals(10_000L, entity.takenAt)
+            })
+        }
+        coVerify {
+            uploadItemDao.insert(withArg { entity ->
+                assertEquals(uri.toString(), entity.photoId)
+                assertEquals(uri.toString(), entity.uri)
+                assertEquals("IMG_0001.jpg", entity.displayName)
+                assertEquals(1280L, entity.size)
+            })
+        }
     }
 
     @Test

@@ -1,7 +1,10 @@
 package com.kotopogoda.uploader.core.data.upload
 
 import android.net.Uri
+import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
+import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
+import com.kotopogoda.uploader.core.data.photo.PhotoEntity
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import java.time.Clock
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +20,7 @@ import javax.inject.Singleton
 class UploadQueueRepository @Inject constructor(
     private val uploadItemDao: UploadItemDao,
     private val photoDao: PhotoDao,
+    private val metadataReader: MediaStorePhotoMetadataReader,
     private val clock: Clock,
 ) {
 
@@ -53,8 +57,9 @@ class UploadQueueRepository @Inject constructor(
     }
 
     suspend fun enqueue(uri: Uri) = withContext(Dispatchers.IO) {
-        val photo = photoDao.getByUri(uri.toString())
-            ?: throw IllegalStateException("Photo not found for uri=$uri")
+        val uriString = uri.toString()
+        val photo = photoDao.getByUri(uriString)
+            ?: createFallbackPhoto(uri, uriString)
         val now = currentTimeMillis()
         val existing = uploadItemDao.getByPhotoId(photo.id)
         val displayName = buildDisplayName(photo.relPath, uri)
@@ -341,6 +346,45 @@ class UploadQueueRepository @Inject constructor(
         return fromRelPath ?: fromUri ?: DEFAULT_DISPLAY_NAME
     }
 
+    private fun createFallbackPhoto(uri: Uri, uriString: String): PhotoEntity {
+        val metadata = metadataReader.read(uri)
+        val entity = PhotoEntity(
+            id = uriString,
+            uri = uriString,
+            relPath = buildRelPath(metadata, uri),
+            sha256 = uriString,
+            takenAt = resolveTakenAt(metadata),
+            size = metadata?.size ?: 0L,
+            mime = metadata?.mimeType ?: DEFAULT_MIME,
+        )
+        runCatching { photoDao.upsert(entity) }
+            .onFailure { error ->
+                Timber.tag("Queue").w(
+                    error,
+                    "Failed to upsert fallback photo metadata for %s",
+                    uri,
+                )
+            }
+        return entity
+    }
+
+    private fun buildRelPath(metadata: MediaStorePhotoMetadata?, uri: Uri): String? {
+        val displayName = metadata?.displayName?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment?.takeIf { it.isNotBlank() }
+        val relative = metadata?.relativePath?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        return when {
+            relative != null && displayName != null -> "$relative/$displayName"
+            displayName != null -> displayName
+            else -> relative
+        }
+    }
+
+    private fun resolveTakenAt(metadata: MediaStorePhotoMetadata?): Long? {
+        return metadata?.dateTakenMillis
+            ?: metadata?.dateAddedMillis
+            ?: metadata?.dateModifiedMillis
+    }
+
     private fun resolveDisplayName(entity: UploadItemEntity, uri: Uri): String {
         val stored = entity.displayName.takeIf { it.isNotBlank() && it != DEFAULT_DISPLAY_NAME }
         val normalizedStored = stored?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
@@ -381,6 +425,7 @@ class UploadQueueRepository @Inject constructor(
 
     companion object {
         private const val DEFAULT_DISPLAY_NAME = "photo.jpg"
+        private const val DEFAULT_MIME = "image/jpeg"
     }
 }
 
