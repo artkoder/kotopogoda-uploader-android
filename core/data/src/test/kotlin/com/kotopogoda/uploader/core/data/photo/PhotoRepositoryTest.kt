@@ -76,6 +76,51 @@ class PhotoRepositoryTest {
         assertEquals(listOf(target.toEpochMilli().toString()), args?.toList())
     }
 
+    @Test
+    fun `findIndexAtOrAfter returns zero when latest photo comes from date added`() = runTest {
+        val folderRepository = mockk<FolderRepository>()
+        val folder = Folder(
+            id = 1,
+            treeUri = "content://com.android.externalstorage.documents/tree/primary:Pictures",
+            flags = 0,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        coEvery { folderRepository.getFolder() } returns folder
+
+        val resolver = mockk<ContentResolver>()
+        val context = mockk<Context> {
+            every { contentResolver } returns resolver
+        }
+
+        val repository = spyk(
+            PhotoRepository(folderRepository, context, Dispatchers.Unconfined),
+            recordPrivateCalls = true
+        )
+
+        val contentUri = Uri.parse("content://media/external/images/media")
+        val spec = createQuerySpec(listOf(contentUri))
+        every { repository["buildQuerySpec"](folder) } returns spec
+
+        every { resolver.query(contentUri, any(), any(), isNull()) } answers {
+            val bundle = thirdArg<Bundle?>() ?: Bundle()
+            val selection = bundle.getString(ContentResolver.QUERY_ARG_SQL_SELECTION)
+            if (selection != null && selection.contains("> ?")) {
+                MatrixCursor(arrayOf(MediaStore.Images.Media._ID))
+            } else {
+                MatrixCursor(arrayOf(MediaStore.Images.Media._ID)).apply {
+                    addRow(arrayOf(1L))
+                    addRow(arrayOf(2L))
+                }
+            }
+        }
+
+        val result = repository.findIndexAtOrAfter(Instant.parse("2025-01-01T00:00:00Z"))
+
+        assertEquals(0, result)
+    }
+
     private fun createQuerySpec(contentUris: List<Uri>): Any {
         val specClass = Class.forName(QUERY_SPEC_CLASS)
         val constructor = specClass.getDeclaredConstructor(List::class.java, List::class.java, List::class.java)
