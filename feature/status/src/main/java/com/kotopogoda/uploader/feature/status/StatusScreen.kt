@@ -59,6 +59,7 @@ fun StatusRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenPairingSettings: () -> Unit,
+    isNetworkValidated: Boolean,
     modifier: Modifier = Modifier,
     viewModel: StatusViewModel = hiltViewModel(),
 ) {
@@ -116,6 +117,7 @@ fun StatusRoute(
         onOpenQueue = viewModel::onOpenQueue,
         onOpenPairingSettings = viewModel::onOpenPairingSettings,
         onCheckFolderAccess = viewModel::onRequestFolderCheck,
+        isNetworkValidated = isNetworkValidated,
         modifier = modifier,
     )
 }
@@ -136,6 +138,7 @@ fun StatusScreen(
     onOpenPairingSettings: () -> Unit,
     onCheckFolderAccess: () -> Unit,
     modifier: Modifier = Modifier,
+    isNetworkValidated: Boolean,
 ) {
     Scaffold(
         modifier = modifier,
@@ -165,7 +168,11 @@ fun StatusScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item {
-                HealthCard(state = state, onRefresh = onRefreshHealth)
+                HealthCard(
+                    state = state,
+                    onRefresh = onRefreshHealth,
+                    isNetworkValidated = isNetworkValidated,
+                )
             }
             item {
                 PairingCard(pairing = state.pairing, onOpenPairingSettings = onOpenPairingSettings)
@@ -181,7 +188,12 @@ fun StatusScreen(
 }
 
 @Composable
-private fun HealthCard(state: StatusUiState, onRefresh: () -> Unit, modifier: Modifier = Modifier) {
+private fun HealthCard(
+    state: StatusUiState,
+    onRefresh: () -> Unit,
+    isNetworkValidated: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val formatter = remember {
         DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault())
     }
@@ -191,7 +203,12 @@ private fun HealthCard(state: StatusUiState, onRefresh: () -> Unit, modifier: Mo
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text = stringResource(id = R.string.status_section_server), style = MaterialTheme.typography.titleMedium)
-            val statusText = when (state.health.status) {
+            val status = if (isNetworkValidated) {
+                state.health.status
+            } else {
+                HealthStatus.OFFLINE
+            }
+            val statusText = when (status) {
                 HealthStatus.ONLINE -> R.string.status_health_online
                 HealthStatus.DEGRADED -> R.string.status_health_degraded
                 HealthStatus.OFFLINE -> R.string.status_health_offline

@@ -52,6 +52,7 @@ fun KotopogodaNavHost(
     navController: NavHostController = rememberNavController(),
     deviceCreds: DeviceCreds?,
     healthState: HealthState,
+    isNetworkValidated: Boolean,
     onResetPairing: () -> Unit,
     navigationEvents: Flow<AppNavigationEvent>? = null,
 ) {
@@ -145,6 +146,7 @@ fun KotopogodaNavHost(
                         onOpenStatus = { navController.navigate(STATUS_ROUTE) },
                         onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
                         healthState = healthState,
+                        isNetworkValidated = isNetworkValidated,
                     )
                 }
             }
@@ -152,6 +154,7 @@ fun KotopogodaNavHost(
                 QueueRoute(
                     onBack = navigateBack,
                     healthState = healthState,
+                    isNetworkValidated = isNetworkValidated,
                 )
             }
             composable(SETTINGS_ROUTE) {
@@ -171,6 +174,7 @@ fun KotopogodaNavHost(
                     onBack = navigateBack,
                     onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
                     onOpenPairingSettings = { navController.navigate(SETTINGS_ROUTE) },
+                    isNetworkValidated = isNetworkValidated,
                 )
             }
         }
