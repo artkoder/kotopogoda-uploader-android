@@ -8,7 +8,6 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.UnknownHostException
@@ -50,9 +49,9 @@ class UploadTaskRunner @Inject constructor(
         summaryStarter.ensureRunning()
         val uri = params.uri
         try {
-            val payload = readDocumentPayload(uri)
             val mediaType = resolveMediaType(uri)
-            val requestBody = payload.bytes.toRequestBody(mediaType)
+            val payload = readDocumentPayload(uri, mediaType)
+            val requestBody = payload.requestBody
             val filePart = MultipartBody.Part.createFormData(
                 "file",
                 params.displayName,
@@ -219,16 +218,15 @@ class UploadTaskRunner @Inject constructor(
         return mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
     }
 
-    private fun readDocumentPayload(uri: Uri): FilePayload {
+    private fun readDocumentPayload(uri: Uri, mediaType: MediaType): FilePayload {
         val resolver = appContext.contentResolver
-        val totalBytes = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-        val inputStream = resolver.openInputStream(uri)
-            ?: throw IOException("Unable to open input stream for $uri")
-        var total = 0L
+        val declaredLength = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
         val digest = MessageDigest.getInstance("SHA-256")
-        val bufferSize = if (totalBytes in 1..Int.MAX_VALUE) totalBytes.toInt() else DEFAULT_BUFFER_CAPACITY
-        val output = ByteArrayOutputStream(bufferSize)
-        inputStream.use { stream ->
+        var total = 0L
+
+        val checksumStream = resolver.openInputStream(uri)
+            ?: throw IOException("Unable to open input stream for $uri")
+        checksumStream.use { stream ->
             val buffer = ByteArray(BUFFER_SIZE)
             while (true) {
                 val read = stream.read(buffer)
@@ -238,12 +236,21 @@ class UploadTaskRunner @Inject constructor(
                 if (read > 0) {
                     total += read
                     digest.update(buffer, 0, read)
-                    output.write(buffer, 0, read)
                 }
             }
         }
+
+        val requestStream = resolver.openInputStream(uri)
+            ?: throw IOException("Unable to open input stream for $uri")
+        val requestBody = InputStreamRequestBody(
+            mediaType = mediaType,
+            inputStream = requestStream,
+            contentLength = total.takeIf { it >= 0L }
+                ?: declaredLength.takeIf { it >= 0L }
+                ?: -1L,
+        )
         return FilePayload(
-            bytes = output.toByteArray(),
+            requestBody = requestBody,
             size = total,
             sha256Hex = digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
         )
@@ -290,7 +297,7 @@ class UploadTaskRunner @Inject constructor(
     )
 
     data class FilePayload(
-        val bytes: ByteArray,
+        val requestBody: RequestBody,
         val size: Long,
         val sha256Hex: String,
     )
@@ -326,7 +333,6 @@ class UploadTaskRunner @Inject constructor(
         private const val DEFAULT_MIME_TYPE = "application/octet-stream"
         private const val DEFAULT_RETRY_DELAY_MILLIS = 30_000L
         private const val BUFFER_SIZE = 8 * 1024
-        private const val DEFAULT_BUFFER_CAPACITY = 64 * 1024
         private const val RETRY_AFTER_HEADER = "Retry-After"
     }
 }
