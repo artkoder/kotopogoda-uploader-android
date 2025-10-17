@@ -216,27 +216,8 @@ class UploadWorker @AssistedInject constructor(
                 if (read > 0) {
                     total += read
                     digest.update(buffer, 0, read)
-                    if (totalBytes > 0) {
-                        val progress = ((total * 100) / totalBytes).toInt().coerceIn(0, 99)
-                        updateProgress(
-                            displayName = displayName,
-                            progress = progress,
-                            bytesSent = total,
-                            totalBytes = totalBytes
-                        )
-                    }
                 }
             }
-        }
-        if (totalBytes <= 0) {
-            updateProgress(displayName, INDETERMINATE_PROGRESS)
-        } else {
-            updateProgress(
-                displayName = displayName,
-                progress = 99,
-                bytesSent = total,
-                totalBytes = totalBytes
-            )
         }
         val sha256Hex = digest.digest().toHexString()
         val contentLength = if (totalBytes > 0) totalBytes else total
@@ -277,20 +258,37 @@ class UploadWorker @AssistedInject constructor(
         errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
     ) {
+        val normalizedProgress = if (progress == INDETERMINATE_PROGRESS) {
+            INDETERMINATE_PROGRESS
+        } else {
+            progress.coerceIn(0, 100)
+        }
+        val resolvedProgress = when {
+            normalizedProgress == INDETERMINATE_PROGRESS -> INDETERMINATE_PROGRESS
+            lastProgressSnapshot.progress == INDETERMINATE_PROGRESS -> normalizedProgress
+            else -> maxOf(normalizedProgress, lastProgressSnapshot.progress)
+        }
+        val resolvedBytesSent = when {
+            bytesSent == null -> lastProgressSnapshot.bytesSent
+            lastProgressSnapshot.bytesSent == null -> bytesSent
+            else -> maxOf(bytesSent, lastProgressSnapshot.bytesSent!!)
+        }
+        val resolvedTotalBytes = totalBytes ?: lastProgressSnapshot.totalBytes
+
         lastProgressSnapshot = ProgressSnapshot(
-            progress = progress,
-            bytesSent = bytesSent,
-            totalBytes = totalBytes
+            progress = resolvedProgress,
+            bytesSent = resolvedBytesSent,
+            totalBytes = resolvedTotalBytes
         )
         val builder = Data.Builder()
-            .putInt(UploadEnqueuer.KEY_PROGRESS, progress)
+            .putInt(UploadEnqueuer.KEY_PROGRESS, resolvedProgress)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
-        bytesSent?.let { builder.putLong(UploadEnqueuer.KEY_BYTES_SENT, it) }
-        totalBytes?.let { builder.putLong(UploadEnqueuer.KEY_TOTAL_BYTES, it) }
+        resolvedBytesSent?.let { builder.putLong(UploadEnqueuer.KEY_BYTES_SENT, it) }
+        resolvedTotalBytes?.let { builder.putLong(UploadEnqueuer.KEY_TOTAL_BYTES, it) }
         errorKind?.let { builder.putString(UploadEnqueuer.KEY_ERROR_KIND, it.rawValue) }
         httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
         setProgress(builder.build())
-        setForeground(createForeground(displayName, progress))
+        setForeground(createForeground(displayName, resolvedProgress))
     }
 
     private suspend fun recordError(
