@@ -5,8 +5,10 @@ import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
+import androidx.lifecycle.Observer
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundUpdater
@@ -159,6 +161,49 @@ class UploadWorkerTest {
         assertTrue(body.contains(file.length().toString()))
         assertTrue(body.contains("name=\"file\"; filename=\"photo.jpg\""))
         assertTrue(body.contains("hello upload"))
+    }
+
+    @Test
+    fun uploadProgressNeverRegresses() = runBlocking {
+        val fileSize = 512 * 1024
+        val fileBytes = ByteArray(fileSize) { index -> (index % 251).toByte() }
+        val file = File.createTempFile("monotonic", ".bin", context.cacheDir).apply {
+            writeBytes(fileBytes)
+            deleteOnExit()
+        }
+        val inputData = inputDataFor(file, displayName = "progress.bin", idempotencyKey = "progress-key")
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(202)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"upload_id":"progress","status":"accepted"}""")
+        )
+
+        val worker = createWorker(inputData)
+        val observedProgress = mutableListOf<Int>()
+        val observer = Observer<Data> { data ->
+            if (data.hasKeyWithValueOfType<Int>(UploadEnqueuer.KEY_PROGRESS)) {
+                observedProgress += data.getInt(UploadEnqueuer.KEY_PROGRESS, -1)
+            }
+        }
+
+        worker.progress.observeForever(observer)
+        try {
+            val result = worker.doWork()
+            assertTrue(result is Success)
+        } finally {
+            worker.progress.removeObserver(observer)
+        }
+
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val determinateProgress = observedProgress.filter { it >= 0 }
+        assertTrue(determinateProgress.isNotEmpty(), "Expected determinate progress updates, got $determinateProgress")
+        determinateProgress.zipWithNext().forEach { (previous, current) ->
+            assertTrue(current >= previous, "Progress regressed from $previous to $current. All updates: $determinateProgress")
+        }
+        assertEquals(100, determinateProgress.last())
     }
 
     @Test
