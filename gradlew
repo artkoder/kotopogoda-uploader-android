@@ -114,7 +114,70 @@ case "$( uname )" in                #(
   NONSTOP* )        nonstop=true ;;
 esac
 
-CLASSPATH="\\\"\\\""
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+CLASSPATH="$WRAPPER_JAR"
+
+download_wrapper_jar() {
+    distribution_url=$(
+        sed -n 's/^distributionUrl=//p' "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" 2>/dev/null |
+            tr -d '\r'
+    )
+
+    case $distribution_url in
+      '')
+        die "Could not determine Gradle distribution URL to download wrapper JAR"
+        ;;
+    esac
+
+    # Remove escaping of ':' and extract Gradle version from the distribution URL
+    distribution_url=$( printf '%s\n' "$distribution_url" | sed 's#\\:#:#g' )
+    distribution_version=$( printf '%s\n' "$distribution_url" | sed -n 's/.*gradle-\([0-9][0-9\.\-]*\)-.*/\1/p' )
+
+    case $distribution_version in
+      '')
+        die "Could not extract Gradle version from distributionUrl: $distribution_url"
+        ;;
+    esac
+
+    mkdir -p "${WRAPPER_JAR%/*}" || die "Could not create directory for Gradle wrapper JAR"
+
+    tmp_jar="$WRAPPER_JAR.part"
+
+    if command -v curl >/dev/null 2>&1; then
+        downloader="curl"
+    elif command -v wget >/dev/null 2>&1; then
+        downloader="wget"
+    else
+        die "Neither curl nor wget is available to download Gradle wrapper JAR"
+    fi
+
+    last_url=
+    for candidate in "$distribution_version" "${distribution_version}.0"
+    do
+        [ -n "$candidate" ] || continue
+        wrapper_url="https://raw.githubusercontent.com/gradle/gradle/v${candidate}/gradle/wrapper/gradle-wrapper.jar"
+        last_url=$wrapper_url
+
+        if [ "$downloader" = "curl" ]; then
+            if curl -sSfL "$wrapper_url" -o "$tmp_jar"; then
+                mv "$tmp_jar" "$WRAPPER_JAR" || die "Could not move Gradle wrapper JAR into place"
+                return 0
+            fi
+        else
+            if wget -q -O "$tmp_jar" "$wrapper_url"; then
+                mv "$tmp_jar" "$WRAPPER_JAR" || die "Could not move Gradle wrapper JAR into place"
+                return 0
+            fi
+        fi
+    done
+
+    rm -f "$tmp_jar"
+    die "Could not download Gradle wrapper JAR from $last_url"
+}
+
+if [ ! -f "$WRAPPER_JAR" ]; then
+    download_wrapper_jar
+fi
 
 
 # Determine the Java command to use to start the JVM.
@@ -213,7 +276,7 @@ DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
 set -- \
         "-Dorg.gradle.appname=$APP_BASE_NAME" \
         -classpath "$CLASSPATH" \
-        -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
+        org.gradle.wrapper.GradleWrapperMain \
         "$@"
 
 # Stop when "xargs" is not available.

@@ -35,7 +35,7 @@ google-services.json
 # Android Profiling
 *.hprof
 
-# Gradle wrapper binary
+# Gradle wrapper binary (исключаем из репозитория)
 gradle/wrapper/gradle-wrapper.jar
 
 **/build/generated/openapi/
