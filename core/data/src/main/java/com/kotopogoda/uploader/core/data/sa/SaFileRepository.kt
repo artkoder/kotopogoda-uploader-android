@@ -2,10 +2,12 @@ package com.kotopogoda.uploader.core.data.sa
 
 import android.app.PendingIntent
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -96,6 +98,12 @@ class SaFileRepository @Inject constructor(
 
     private fun moveMediaStoreDocument(src: Uri, destinationDirectory: DocumentFile): Uri {
         val resolver = context.contentResolver
+
+        val inPlaceResult = tryMoveMediaStoreDocument(resolver, src, destinationDirectory)
+        if (inPlaceResult != null) {
+            return inPlaceResult
+        }
+
         val mimeType = resolver.getType(src) ?: DEFAULT_MIME
         val displayName = resolveMediaStoreDisplayName(resolver, src) ?: DEFAULT_FILE_NAME
         val destination = createUniqueFile(destinationDirectory, mimeType, displayName)
@@ -110,6 +118,41 @@ class SaFileRepository @Inject constructor(
             }
 
         return destination.uri
+    }
+
+    private fun tryMoveMediaStoreDocument(
+        resolver: ContentResolver,
+        src: Uri,
+        destinationDirectory: DocumentFile
+    ): Uri? {
+        val sourceVolume = resolveMediaStoreVolume(src) ?: return null
+        val destinationLocation = resolveDocumentLocation(destinationDirectory) ?: return null
+        if (destinationLocation.volume != sourceVolume) {
+            return null
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val pendingIntent = MediaStore.createWriteRequest(resolver, listOf(src))
+            try {
+                pendingIntent.send()
+            } catch (error: PendingIntent.CanceledException) {
+                throw IllegalStateException("Write request was cancelled for $src", error)
+            }
+        }
+
+        val updated = resolver.update(
+            src,
+            ContentValues().apply {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, ensureTrailingSlash(destinationLocation.relativePath))
+            },
+            null,
+            null
+        )
+        if (updated <= 0) {
+            throw IllegalStateException("Unable to update relative path for $src")
+        }
+
+        return src
     }
 
     private fun deleteMediaStoreSource(resolver: ContentResolver, uri: Uri) {
@@ -147,6 +190,37 @@ class SaFileRepository @Inject constructor(
 
     private fun isMediaStoreUri(uri: Uri): Boolean {
         return uri.authority == MediaStore.AUTHORITY
+    }
+
+    private fun resolveMediaStoreVolume(uri: Uri): String? {
+        val segments = uri.pathSegments
+        if (segments.isEmpty()) {
+            return null
+        }
+        return segments.firstOrNull()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun resolveDocumentLocation(document: DocumentFile): DocumentLocation? {
+        val documentId = runCatching { DocumentsContract.getDocumentId(document.uri) }.getOrNull()
+            ?: return null
+        val separatorIndex = documentId.indexOf(':')
+        if (separatorIndex <= 0 || separatorIndex >= documentId.lastIndex) {
+            return null
+        }
+        val volume = documentId.substring(0, separatorIndex)
+        val relativePath = documentId.substring(separatorIndex + 1)
+        if (volume.isEmpty() || relativePath.isEmpty()) {
+            return null
+        }
+        return DocumentLocation(volume = volume, relativePath = relativePath)
+    }
+
+    private fun ensureTrailingSlash(path: String): String {
+        return if (path.endsWith('/')) {
+            path
+        } else {
+            "$path/"
+        }
     }
 
     private fun createUniqueFile(
@@ -249,7 +323,7 @@ class SaFileRepository @Inject constructor(
     }
 
     companion object {
-        private const val BUFFER_SIZE = 64 * 1024
+        private const val BUFFER_SIZE = 1024 * 1024
         private const val DEFAULT_MIME = "application/octet-stream"
         private const val DEFAULT_FILE_NAME = "photo.jpg"
     }
@@ -268,6 +342,11 @@ private data class DisplayNameComponents(
         return baseRoot == other.baseRoot
     }
 }
+
+private data class DocumentLocation(
+    val volume: String,
+    val relativePath: String
+)
 
 private fun extensionsMatch(first: String?, second: String?): Boolean {
     if (first.isNullOrEmpty() || second.isNullOrEmpty()) {

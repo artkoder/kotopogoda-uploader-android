@@ -2,17 +2,21 @@ package com.kotopogoda.uploader.core.data.sa
 
 import android.app.PendingIntent
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Context
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
+import io.mockk.eq
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import io.mockk.slot
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlin.test.AfterTest
@@ -73,9 +77,50 @@ class SaFileRepositoryTest {
     }
 
     @Test
-    fun `moveToProcessing copies and requests deletion for MediaStore document`() = runTest {
+    fun `moveToProcessing updates relative path for MediaStore document on same volume`() = runTest {
+        val mediaUri = Uri.parse("content://media/external/images/media/42")
+        val destinationFolderUri = Uri.parse(
+            "content://com.android.providers.media.documents/tree/external%3Apictures/document/external%3Apictures%2FНа%20обработку"
+        )
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val pendingIntent = mockk<PendingIntent>(relaxed = true)
+        val valuesSlot = slot<ContentValues>()
+
+        every { destinationFolder.uri } returns destinationFolderUri
+        every { processingFolderProvider.ensure() } returns destinationFolder
+
+        mockkStatic(Build.VERSION::class)
+        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
+
+        mockkStatic(MediaStore::class)
+        every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
+
+        mockkStatic(DocumentsContract::class)
+        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "external:Pictures/На обработку"
+
+        every { pendingIntent.send() } returns Unit
+        every { contentResolver.update(eq(mediaUri), capture(valuesSlot), any(), any()) } returns 1
+
+        val result = repository.moveToProcessing(mediaUri)
+
+        assertEquals(mediaUri, result)
+        assertEquals("Pictures/На обработку/", valuesSlot.captured.getAsString(MediaStore.MediaColumns.RELATIVE_PATH))
+        verify(exactly = 1) { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) }
+        verify(exactly = 1) { pendingIntent.send() }
+        verify(exactly = 1) { contentResolver.update(eq(mediaUri), any(), any(), any()) }
+        verify(exactly = 0) { MediaStore.createDeleteRequest(any(), any()) }
+        verify(exactly = 0) { contentResolver.getType(any()) }
+        verify(exactly = 0) { contentResolver.openInputStream(any()) }
+        verify(exactly = 0) { contentResolver.openOutputStream(any()) }
+    }
+
+    @Test
+    fun `moveToProcessing copies and requests deletion for MediaStore document on different volume`() = runTest {
         val mediaUri = Uri.parse("content://media/external/images/media/42")
         val destinationUri = Uri.parse("content://com.example.destination/document/2")
+        val destinationFolderUri = Uri.parse(
+            "content://com.android.externalstorage.documents/tree/primary%3AKotopogoda/document/primary%3AKotopogoda%2FНа%20обработку"
+        )
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
         val destinationDocument = mockk<DocumentFile>(relaxed = true)
         val pendingIntent = mockk<PendingIntent>(relaxed = true)
@@ -91,11 +136,15 @@ class SaFileRepositoryTest {
         mockkStatic(MediaStore::class)
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
 
+        mockkStatic(DocumentsContract::class)
+        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "primary:Kotopogoda/На обработку"
+
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
         }
 
         every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.uri } returns destinationFolderUri
         every { destinationFolder.listFiles() } returns emptyArray()
         every { destinationFolder.createFile("image/jpeg", "bar.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
@@ -113,6 +162,8 @@ class SaFileRepositoryTest {
         verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
         verify(exactly = 1) { pendingIntent.send() }
         verify(exactly = 0) { contentResolver.delete(mediaUri, any(), any()) }
+        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
+        verify(exactly = 0) { contentResolver.update(any(), any(), any(), any()) }
     }
 
     @Test
@@ -192,6 +243,9 @@ class SaFileRepositoryTest {
     fun `moveToProcessing generates unique name when MediaStore destination has duplicate`() = runTest {
         val mediaUri = Uri.parse("content://media/external/images/media/42")
         val destinationUri = Uri.parse("content://com.example.destination/document/unique-media")
+        val destinationFolderUri = Uri.parse(
+            "content://com.android.externalstorage.documents/tree/primary%3AKotopogoda/document/primary%3AKotopogoda%2FНа%20обработку"
+        )
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
         val destinationDocument = mockk<DocumentFile>(relaxed = true)
         val existingDocument = mockk<DocumentFile>(relaxed = true)
@@ -208,11 +262,15 @@ class SaFileRepositoryTest {
         mockkStatic(MediaStore::class)
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
 
+        mockkStatic(DocumentsContract::class)
+        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "primary:Kotopogoda/На обработку"
+
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
         }
 
         every { processingFolderProvider.ensure() } returns destinationFolder
+        every { destinationFolder.uri } returns destinationFolderUri
         every { existingDocument.isFile } returns true
         every { existingDocument.name } returns "bar.jpg"
         every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
@@ -231,6 +289,7 @@ class SaFileRepositoryTest {
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "bar-1.jpg") }
         verify(exactly = 0) { destinationFolder.createFile("image/jpeg", "bar.jpg") }
+        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
     }
 
     @Test
