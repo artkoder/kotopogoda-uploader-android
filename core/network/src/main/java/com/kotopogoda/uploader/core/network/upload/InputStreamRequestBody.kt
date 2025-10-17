@@ -7,7 +7,7 @@ import okio.BufferedSink
 
 internal class InputStreamRequestBody(
     private val mediaType: MediaType?,
-    private val inputStream: InputStream,
+    private val inputStreamFactory: () -> InputStream,
     private val contentLength: Long,
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val onProgress: ((bytesSent: Long, contentLength: Long) -> Unit)? = null,
@@ -22,7 +22,7 @@ internal class InputStreamRequestBody(
         var bytesWritten = 0L
         val buffer = ByteArray(bufferSize)
 
-        inputStream.use { stream ->
+        inputStreamFactory().use { stream ->
             while (true) {
                 val read = stream.read(buffer)
                 if (read == -1) {

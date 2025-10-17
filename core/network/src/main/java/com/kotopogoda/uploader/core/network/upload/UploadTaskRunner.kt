@@ -240,11 +240,12 @@ class UploadTaskRunner @Inject constructor(
             }
         }
 
-        val requestStream = resolver.openInputStream(uri)
-            ?: throw IOException("Unable to open input stream for $uri")
         val requestBody = InputStreamRequestBody(
             mediaType = mediaType,
-            inputStream = requestStream,
+            inputStreamFactory = {
+                resolver.openInputStream(uri)
+                    ?: throw IOException("Unable to open input stream for $uri")
+            },
             contentLength = total.takeIf { it >= 0L }
                 ?: declaredLength.takeIf { it >= 0L }
                 ?: -1L,
