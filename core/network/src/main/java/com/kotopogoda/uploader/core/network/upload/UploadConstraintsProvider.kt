@@ -8,6 +8,8 @@ interface UploadConstraintsProvider {
 
     val constraintsState: StateFlow<Constraints?>
 
+    suspend fun awaitConstraints(): Constraints?
+
     fun buildConstraints(): Constraints
 
     fun shouldUseExpeditedWork(): Boolean

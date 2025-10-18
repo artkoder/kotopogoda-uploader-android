@@ -40,6 +40,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
+import timber.log.Timber
 
 @HiltWorker
 class UploadWorker @AssistedInject constructor(
@@ -374,7 +375,7 @@ class UploadWorker @AssistedInject constructor(
         return foregroundDelegate.create(displayName, progress, id, UploadForegroundKind.UPLOAD)
     }
 
-    private fun enqueuePollWork(
+    private suspend fun enqueuePollWork(
         itemId: Long,
         uploadId: String,
         uriString: String,
@@ -382,9 +383,17 @@ class UploadWorker @AssistedInject constructor(
         idempotencyKey: String,
         uri: Uri,
     ) {
+        val constraints = constraintsProvider.awaitConstraints()
+        if (constraints == null) {
+            Timber.tag("WorkManager").w(
+                "Poll constraints unavailable, skipping scheduling for %s",
+                uriString,
+            )
+            return
+        }
         val uniqueName = UploadEnqueuer.uniqueNameForUri(uri)
         val pollRequestBuilder = OneTimeWorkRequestBuilder<PollStatusWorker>()
-            .setConstraints(constraintsProvider.buildConstraints())
+            .setConstraints(constraints)
             .setInputData(
                 workDataOf(
                     UploadEnqueuer.KEY_ITEM_ID to itemId,
