@@ -20,7 +20,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.kotopogoda.uploader.feature.queue.R
@@ -38,8 +37,12 @@ class QueueViewModel @Inject constructor(
         summaryStarter.ensureRunning()
     }
 
-    private val workInfoFlow = workManager.getWorkInfosByTagFlow(UploadTags.TAG_UPLOAD)
-        .map { infos -> buildWorkLookup(infos) }
+    private val workInfoFlow = combine(
+        workManager.getWorkInfosByTagFlow(UploadTags.TAG_UPLOAD),
+        workManager.getWorkInfosByTagFlow(UploadTags.TAG_POLL),
+    ) { uploadInfos, pollInfos ->
+        buildWorkLookup(uploadInfos + pollInfos)
+    }
 
     val uiState: StateFlow<QueueUiState> = combine(
         uploadQueueRepository.observeQueue(),
@@ -110,7 +113,8 @@ class QueueViewModel @Inject constructor(
             for (info in mapped) {
                 val key = info.uniqueName
                 if (!key.isNullOrBlank()) {
-                    put(key, info)
+                    val current = this[key]
+                    put(key, (current ?: QueueItemWorkInfos()).with(info))
                 }
             }
         }
@@ -118,7 +122,8 @@ class QueueViewModel @Inject constructor(
             for (info in mapped) {
                 val key = info.uri?.toString()
                 if (!key.isNullOrBlank()) {
-                    put(key, info)
+                    val current = this[key]
+                    put(key, (current ?: QueueItemWorkInfos()).with(info))
                 }
             }
         }
@@ -128,7 +133,7 @@ class QueueViewModel @Inject constructor(
     private fun findWorkInfo(
         entry: UploadQueueEntry,
         lookup: QueueWorkLookup,
-    ): QueueItemWorkInfo? {
+    ): QueueItemWorkInfos? {
         val uri = entry.uri
         if (uri != null) {
             val uniqueName = uploadEnqueuer.uniqueName(uri)
@@ -170,7 +175,7 @@ data class QueueItemUiModel(
 }
 
 internal fun UploadQueueEntry.toQueueItemUiModel(
-    workInfo: QueueItemWorkInfo?,
+    workInfo: QueueItemWorkInfos?,
 ): QueueItemUiModel {
     val entity = this.entity
     val normalizedTitle = entity.displayName.takeIf { it.isNotBlank() }
@@ -192,13 +197,14 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
     val canRetry = state == UploadItemState.FAILED
     val highlightWarning = state == UploadItemState.FAILED && lastErrorKind == UploadErrorKind.REMOTE_FAILURE
 
-    val mergedProgressPercent = workInfo?.progressPercent ?: baseProgressPercent
-    val mergedStatusResId = workInfo?.statusResId ?: baseStatusResId
-    val mergedBytesSent = workInfo?.bytesSent
-    val mergedTotalBytes = workInfo?.totalBytes ?: entity.size.takeIf { it > 0 }
-    val mergedWaitingReasons = workInfo?.waitingReasons ?: emptyList()
-    val mergedIsActive = workInfo?.isActiveTransfer ?: false
-    val finalCanCancel = when (workInfo?.state) {
+    val resolvedWorkInfo = workInfo?.forState(state)
+    val mergedProgressPercent = resolvedWorkInfo?.progressPercent ?: baseProgressPercent
+    val mergedStatusResId = resolvedWorkInfo?.statusResId ?: baseStatusResId
+    val mergedBytesSent = resolvedWorkInfo?.bytesSent
+    val mergedTotalBytes = resolvedWorkInfo?.totalBytes ?: entity.size.takeIf { it > 0 }
+    val mergedWaitingReasons = resolvedWorkInfo?.waitingReasons ?: emptyList()
+    val mergedIsActive = resolvedWorkInfo?.isActiveTransfer ?: false
+    val finalCanCancel = when (resolvedWorkInfo?.state) {
         WorkInfo.State.SUCCEEDED,
         WorkInfo.State.FAILED,
         WorkInfo.State.CANCELLED -> false
@@ -225,12 +231,34 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
 }
 
 data class QueueWorkLookup(
-    val byUniqueName: Map<String, QueueItemWorkInfo>,
-    val byUri: Map<String, QueueItemWorkInfo>,
+    val byUniqueName: Map<String, QueueItemWorkInfos>,
+    val byUri: Map<String, QueueItemWorkInfos>,
 ) {
     companion object {
         val EMPTY = QueueWorkLookup(emptyMap(), emptyMap())
     }
+}
+
+data class QueueItemWorkInfos(
+    val upload: QueueItemWorkInfo? = null,
+    val poll: QueueItemWorkInfo? = null,
+) {
+    fun with(info: QueueItemWorkInfo): QueueItemWorkInfos {
+        return when (info.kind) {
+            UploadWorkKind.UPLOAD -> copy(upload = info)
+            UploadWorkKind.POLL -> copy(poll = info)
+        }
+    }
+
+    fun forState(state: UploadItemState): QueueItemWorkInfo? {
+        return when (state) {
+            UploadItemState.PROCESSING -> poll ?: upload
+            UploadItemState.QUEUED -> upload ?: poll
+            UploadItemState.SUCCEEDED -> poll ?: upload
+            UploadItemState.FAILED -> upload ?: poll
+        }
+    }
+
 }
 
 private const val DEFAULT_TITLE = "Загрузка"
