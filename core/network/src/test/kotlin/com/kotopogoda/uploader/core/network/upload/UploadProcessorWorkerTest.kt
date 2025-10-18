@@ -48,7 +48,7 @@ class UploadProcessorWorkerTest {
         coEvery { repository.markSucceeded(queueItem.id) } returns Unit
         coEvery { repository.hasQueued() } returns false
         coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success
-        every { constraintsHelper.buildConstraints() } returns Constraints.NONE
+        coEvery { constraintsHelper.awaitConstraints() } returns Constraints.NONE
         every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk<Operation>(relaxed = true)
 
         val worker = UploadProcessorWorker(
@@ -94,7 +94,7 @@ class UploadProcessorWorkerTest {
         coEvery { repository.getState(queueItem.id) } returns UploadItemState.FAILED
         coEvery { repository.hasQueued() } returns false
         coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success
-        every { constraintsHelper.buildConstraints() } returns Constraints.NONE
+        coEvery { constraintsHelper.awaitConstraints() } returns Constraints.NONE
         every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
 
         val worker = UploadProcessorWorker(
@@ -133,7 +133,7 @@ class UploadProcessorWorkerTest {
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns false
         coEvery { repository.hasQueued() } returns false
-        every { constraintsHelper.buildConstraints() } returns Constraints.NONE
+        coEvery { constraintsHelper.awaitConstraints() } returns Constraints.NONE
         every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
 
         val worker = UploadProcessorWorker(
@@ -150,5 +150,34 @@ class UploadProcessorWorkerTest {
         assertEquals(Result.success(), result)
         coVerify { repository.markProcessing(queueItem.id) }
         coVerify(exactly = 0) { taskRunner.run(any()) }
+    }
+
+    @Test
+    fun `worker waits for constraints before rescheduling when queue empty`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsHelper = mockk<UploadConstraintsHelper>()
+        val taskRunner = mockk<UploadTaskRunner>()
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+
+        coEvery { repository.recoverStuckProcessing() } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns emptyList()
+        coEvery { repository.hasQueued() } returns true
+        coEvery { constraintsHelper.awaitConstraints() } returns Constraints.NONE
+        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+
+        val worker = UploadProcessorWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsHelper,
+            taskRunner,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        coVerify { constraintsHelper.awaitConstraints() }
     }
 }

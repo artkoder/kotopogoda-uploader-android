@@ -194,9 +194,14 @@ class UploadProcessorWorker @AssistedInject constructor(
         result
     }
 
-    private fun enqueueSelf() {
+    private suspend fun enqueueSelf() {
+        val constraints = constraintsHelper.awaitConstraints()
+        if (constraints == null) {
+            Timber.tag("WorkManager").w("Upload constraints not available yet, skipping processor reschedule")
+            return
+        }
         val request = OneTimeWorkRequestBuilder<UploadProcessorWorker>()
-            .setConstraints(constraintsHelper.buildConstraints())
+            .setConstraints(constraints)
             .build()
         workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         Timber.tag("WorkManager").i(UploadLog.message(action = "worker_enqueue"))
