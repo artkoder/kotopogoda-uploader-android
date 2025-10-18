@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.feature.queue
 
+import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.NetworkType
@@ -12,10 +13,14 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
+import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.feature.queue.R
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -127,5 +132,46 @@ class QueueViewModelTest {
         assertEquals(R.string.queue_retry_in, item.waitingReasons[1].messageResId)
 
         job.cancel()
+    }
+
+    @Test
+    fun retryUsesStoredIdempotencyKey() = runTest(dispatcherRule.dispatcher) {
+        val uri = Uri.parse("file:///tmp/retry.jpg")
+        val entity = UploadItemEntity(
+            id = 100L,
+            photoId = "photo-retry",
+            idempotencyKey = "stored-key",
+            uri = uri.toString(),
+            displayName = "retry.jpg",
+            size = 2048L,
+            state = UploadItemState.FAILED.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = uri,
+            state = UploadItemState.FAILED,
+            lastErrorKind = null,
+            lastErrorHttpCode = null,
+        )
+        val item = entry.toQueueItemUiModel(workInfo = null)
+        every { enqueuer.uniqueName(uri) } returns "unique-retry"
+        coEvery { enqueuer.retry(any()) } returns Unit
+
+        val viewModel = QueueViewModel(
+            uploadQueueRepository = repository,
+            uploadEnqueuer = enqueuer,
+            summaryStarter = summaryStarter,
+            workManager = workManager,
+            workInfoMapper = workInfoMapper,
+        )
+
+        viewModel.onRetry(item)
+        advanceUntilIdle()
+
+        val metadataSlot = slot<UploadWorkMetadata>()
+        coVerify { enqueuer.retry(capture(metadataSlot)) }
+        assertEquals("stored-key", metadataSlot.captured.idempotencyKey)
     }
 }
