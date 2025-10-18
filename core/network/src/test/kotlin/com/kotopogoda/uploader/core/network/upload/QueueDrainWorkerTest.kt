@@ -19,6 +19,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -44,7 +45,8 @@ class QueueDrainWorkerTest {
         )
         val requestSlot = slot<OneTimeWorkRequest>()
 
-        coEvery { repository.recoverStuckProcessing() } returns 0
+        val thresholdSlot = slot<Long>()
+        coEvery { repository.recoverStuckProcessing(capture(thresholdSlot)) } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.hasQueued() } returns false
@@ -69,7 +71,7 @@ class QueueDrainWorkerTest {
         val result = worker.doWork()
 
         assertEquals(Result.success(), result)
-        coVerify { repository.recoverStuckProcessing() }
+        coVerify { repository.recoverStuckProcessing(any()) }
         coVerify { repository.fetchQueued(match { it == 5 }, recoverStuck = false) }
         coVerify { repository.markProcessing(queueItem.id) }
         verify {
@@ -95,6 +97,14 @@ class QueueDrainWorkerTest {
         assertTrue(tags.contains(UploadTags.kindTag(UploadWorkKind.UPLOAD)))
 
         assertFalse(requestSlot.captured.workSpec.expedited)
+
+        val capturedThreshold = thresholdSlot.captured
+        val now = System.currentTimeMillis()
+        val toleranceMs = 5_000L
+        assertTrue(
+            abs((capturedThreshold + UploadQueueRepository.STUCK_TIMEOUT_MS) - now) <= toleranceMs,
+            "recoverStuckProcessing threshold should correspond to current time minus timeout",
+        )
     }
 
     @Test
@@ -111,7 +121,7 @@ class QueueDrainWorkerTest {
             size = 10L,
         )
 
-        coEvery { repository.recoverStuckProcessing() } returns 0
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.hasQueued() } returns true
@@ -164,7 +174,7 @@ class QueueDrainWorkerTest {
         val names = mutableListOf<String>()
         val policies = mutableListOf<ExistingWorkPolicy>()
 
-        coEvery { repository.recoverStuckProcessing() } returns 0
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns queueItems
         coEvery { repository.markProcessing(any()) } returns true
         coEvery { repository.hasQueued() } returns true
@@ -212,7 +222,7 @@ class QueueDrainWorkerTest {
         val policies = mutableListOf<ExistingWorkPolicy>()
         val requests = mutableListOf<OneTimeWorkRequest>()
 
-        coEvery { repository.recoverStuckProcessing() } returns 0
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.hasQueued() } returns true

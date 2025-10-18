@@ -184,13 +184,20 @@ class UploadQueueRepository @Inject constructor(
 
     suspend fun recoverStuckProcessing(): Int = withContext(Dispatchers.IO) {
         val now = currentTimeMillis()
-        recoverStuckProcessingInternal(now)
+        val updatedBefore = now - STUCK_TIMEOUT_MS
+        recoverStuckProcessingInternal(now, updatedBefore)
+    }
+
+    suspend fun recoverStuckProcessing(updatedBefore: Long): Int = withContext(Dispatchers.IO) {
+        val now = currentTimeMillis()
+        recoverStuckProcessingInternal(now, updatedBefore)
     }
 
     suspend fun fetchQueued(limit: Int, recoverStuck: Boolean = true): List<UploadQueueItem> = withContext(Dispatchers.IO) {
         val now = currentTimeMillis()
         if (recoverStuck) {
-            recoverStuckProcessingInternal(now)
+            val updatedBefore = now - STUCK_TIMEOUT_MS
+            recoverStuckProcessingInternal(now, updatedBefore)
         }
         val queued = uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, limit)
         val updateTimestamp = currentTimeMillis()
@@ -418,11 +425,12 @@ class UploadQueueRepository @Inject constructor(
         return idempotencyKey.takeIf { it.isNotBlank() }
     }
 
-    private suspend fun recoverStuckProcessingInternal(now: Long): Int {
+    private suspend fun recoverStuckProcessingInternal(now: Long, updatedBefore: Long): Int {
         val requeued = uploadItemDao.requeueProcessingToQueued(
             processingState = UploadItemState.PROCESSING.rawValue,
             queuedState = UploadItemState.QUEUED.rawValue,
             updatedAt = now,
+            updatedBefore = updatedBefore,
         )
         if (requeued > 0) {
             Timber.tag("Queue").w(
@@ -446,6 +454,7 @@ class UploadQueueRepository @Inject constructor(
     companion object {
         private const val DEFAULT_DISPLAY_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
+        const val STUCK_TIMEOUT_MS: Long = 5 * 60 * 1_000L
     }
 }
 

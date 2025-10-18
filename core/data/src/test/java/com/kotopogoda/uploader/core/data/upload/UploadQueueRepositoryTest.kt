@@ -187,16 +187,19 @@ class UploadQueueRepositoryTest {
                 processingState = UploadItemState.PROCESSING.rawValue,
                 queuedState = UploadItemState.QUEUED.rawValue,
                 updatedAt = any(),
+                updatedBefore = any(),
             )
             uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, 10)
         }
 
         val expectedNow = clock.instant().toEpochMilli()
+        val expectedThreshold = expectedNow - UploadQueueRepository.STUCK_TIMEOUT_MS
         coVerify(exactly = 1) {
             uploadItemDao.requeueProcessingToQueued(
                 processingState = UploadItemState.PROCESSING.rawValue,
                 queuedState = UploadItemState.QUEUED.rawValue,
                 updatedAt = expectedNow,
+                updatedBefore = expectedThreshold,
             )
         }
     }
@@ -207,7 +210,7 @@ class UploadQueueRepositoryTest {
 
         repository.fetchQueued(limit = 3, recoverStuck = false)
 
-        coVerify(exactly = 0) { uploadItemDao.requeueProcessingToQueued(any(), any(), any()) }
+        coVerify(exactly = 0) { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) }
         coVerify { uploadItemDao.getByState(UploadItemState.QUEUED.rawValue, 3) }
     }
 
@@ -235,17 +238,38 @@ class UploadQueueRepositoryTest {
 
     @Test
     fun `recoverStuckProcessing returns affected rows`() = runTest {
-        coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any()) } returns 2
+        coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) } returns 2
 
         val affected = repository.recoverStuckProcessing()
 
         assertEquals(2, affected)
+        val expectedNow = clock.instant().toEpochMilli()
+        val expectedThreshold = expectedNow - UploadQueueRepository.STUCK_TIMEOUT_MS
+        coVerify(exactly = 1) {
+            uploadItemDao.requeueProcessingToQueued(
+                processingState = UploadItemState.PROCESSING.rawValue,
+                queuedState = UploadItemState.QUEUED.rawValue,
+                updatedAt = expectedNow,
+                updatedBefore = expectedThreshold,
+            )
+        }
+    }
+
+    @Test
+    fun `recoverStuckProcessing requeues only items older than provided threshold`() = runTest {
+        val threshold = 123L
+        coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) } returns 1
+
+        val affected = repository.recoverStuckProcessing(updatedBefore = threshold)
+
+        assertEquals(1, affected)
         val expectedNow = clock.instant().toEpochMilli()
         coVerify(exactly = 1) {
             uploadItemDao.requeueProcessingToQueued(
                 processingState = UploadItemState.PROCESSING.rawValue,
                 queuedState = UploadItemState.QUEUED.rawValue,
                 updatedAt = expectedNow,
+                updatedBefore = threshold,
             )
         }
     }
