@@ -73,20 +73,34 @@ class QueueDrainWorker @AssistedInject constructor(
     }
 
     private fun enqueueSelf() {
+        val wifiOnly = constraintsProvider.wifiOnlyUploadsState.value ?: return
+        val constraints = constraintsProvider.constraintsState.value ?: return
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
-            .setConstraints(constraintsProvider.buildConstraints())
+            .setConstraints(constraints)
         if (constraintsProvider.shouldUseExpeditedWork()) {
             builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
         val request = builder.build()
+        val policy = if (lastEnqueuedWifiOnly == null || lastEnqueuedWifiOnly != wifiOnly) {
+            ExistingWorkPolicy.REPLACE
+        } else {
+            ExistingWorkPolicy.APPEND_OR_REPLACE
+        }
+        lastEnqueuedWifiOnly = wifiOnly
         workManager.enqueueUniqueWork(
             QUEUE_DRAIN_WORK_NAME,
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            policy,
             request,
         )
     }
 
     companion object {
         private const val BATCH_SIZE = 5
+        @Volatile
+        private var lastEnqueuedWifiOnly: Boolean? = null
+
+        internal fun resetEnqueuePolicy() {
+            lastEnqueuedWifiOnly = null
+        }
     }
 }

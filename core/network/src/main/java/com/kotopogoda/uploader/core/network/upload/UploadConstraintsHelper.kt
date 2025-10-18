@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
@@ -20,15 +22,27 @@ class UploadConstraintsHelper @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val wifiOnlyState = MutableStateFlow<Boolean?>(null)
+    private val constraintsStateInternal = MutableStateFlow<Constraints?>(null)
+
+    override val wifiOnlyUploadsState: StateFlow<Boolean?> = wifiOnlyState.asStateFlow()
+
+    override val constraintsState: StateFlow<Constraints?> = constraintsStateInternal.asStateFlow()
 
     init {
         wifiOnlyUploadsFlow
-            .onEach { value -> wifiOnlyState.value = value }
+            .onEach { value ->
+                wifiOnlyState.value = value
+                constraintsStateInternal.value = value?.let(::buildConstraints)
+            }
             .launchIn(scope)
     }
 
     override fun buildConstraints(): Constraints {
         val useWifiOnly = wifiOnlyState.value ?: true
+        return buildConstraints(useWifiOnly)
+    }
+
+    private fun buildConstraints(useWifiOnly: Boolean): Constraints {
         val requiredNetworkType = if (useWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
         return Constraints.Builder()
             .setRequiredNetworkType(requiredNetworkType)

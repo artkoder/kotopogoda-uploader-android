@@ -1,8 +1,13 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import androidx.work.Constraints
+import kotlinx.coroutines.flow.StateFlow
 
 interface UploadConstraintsProvider {
+    val wifiOnlyUploadsState: StateFlow<Boolean?>
+
+    val constraintsState: StateFlow<Constraints?>
+
     fun buildConstraints(): Constraints
 
     fun shouldUseExpeditedWork(): Boolean
