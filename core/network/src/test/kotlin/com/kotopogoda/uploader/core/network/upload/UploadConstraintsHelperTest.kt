@@ -5,20 +5,19 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.Test
 
 class UploadConstraintsHelperTest {
 
     @Test
-    fun `returns wifi constraint before preference is loaded`() {
+    fun `returns null state before preference is loaded`() {
         val wifiOnlyFlow = MutableSharedFlow<Boolean>()
         val helper = UploadConstraintsHelper(wifiOnlyFlow)
 
-        val constraints = helper.buildConstraints()
-
-        assertEquals(NetworkType.UNMETERED, constraints.requiredNetworkType)
-        assertFalse(helper.shouldUseExpeditedWork())
+        assertNull(helper.constraintsState.value)
+        assertNull(helper.wifiOnlyUploadsState.value)
     }
 
     @Test
@@ -28,14 +27,18 @@ class UploadConstraintsHelperTest {
 
         wifiOnlyFlow.emit(false)
 
-        val constraints = helper.buildConstraints()
+        val constraints = helper.constraintsState.value
+
+        requireNotNull(constraints)
 
         assertEquals(NetworkType.CONNECTED, constraints.requiredNetworkType)
         assertTrue(helper.shouldUseExpeditedWork())
 
         wifiOnlyFlow.emit(true)
 
-        val updatedConstraints = helper.buildConstraints()
+        val updatedConstraints = helper.constraintsState.value
+
+        requireNotNull(updatedConstraints)
 
         assertEquals(NetworkType.UNMETERED, updatedConstraints.requiredNetworkType)
         assertFalse(helper.shouldUseExpeditedWork())

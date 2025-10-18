@@ -75,6 +75,8 @@ class UploadWorkerTest {
     private lateinit var uploadQueueRepository: UploadQueueRepository
     private lateinit var workManager: WorkManager
     private lateinit var constraintsProvider: UploadConstraintsProvider
+    private lateinit var wifiOnlyState: MutableStateFlow<Boolean?>
+    private lateinit var constraintsState: MutableStateFlow<Constraints?>
 
     @Before
     fun setUp() {
@@ -84,8 +86,12 @@ class UploadWorkerTest {
         uploadQueueRepository = mockk(relaxed = true)
         workManager = mockk(relaxed = true)
         constraintsProvider = mockk(relaxed = true)
-        every { constraintsProvider.buildConstraints() } returns Constraints.Builder().build()
-        every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        wifiOnlyState = MutableStateFlow(true)
+        constraintsState = MutableStateFlow(Constraints.Builder().build())
+        every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
+        every { constraintsProvider.constraintsState } returns constraintsState
+        every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.Builder().build() }
+        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
