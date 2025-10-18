@@ -318,6 +318,23 @@ class UploadQueueRepository @Inject constructor(
         )
     }
 
+    suspend fun updateProcessingHeartbeat(id: Long) = withContext(Dispatchers.IO) {
+        val updatedRows = uploadItemDao.touchProcessing(
+            id = id,
+            processingState = UploadItemState.PROCESSING.rawValue,
+            updatedAt = currentTimeMillis(),
+        )
+        if (updatedRows > 0) {
+            Timber.tag("Queue").v(
+                UploadLog.message(
+                    action = "processing_heartbeat",
+                    itemId = id,
+                    state = UploadItemState.PROCESSING,
+                )
+            )
+        }
+    }
+
     suspend fun markFailed(
         id: Long,
         errorKind: UploadErrorKind,

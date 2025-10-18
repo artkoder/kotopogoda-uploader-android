@@ -62,16 +62,22 @@ class PollStatusWorker @AssistedInject constructor(
                 uploadApi.getStatus(uploadId)
             } catch (io: UnknownHostException) {
                 recordError(displayName, UploadErrorKind.NETWORK)
+                uploadQueueRepository.updateProcessingHeartbeat(itemId)
                 return@withContext Result.retry()
             } catch (io: IOException) {
                 recordError(displayName, UploadErrorKind.NETWORK)
+                uploadQueueRepository.updateProcessingHeartbeat(itemId)
                 return@withContext Result.retry()
             }
             when (response.code()) {
                 200 -> {
-                    val body = response.body() ?: return@withContext Result.retry()
+                    val body = response.body() ?: run {
+                        uploadQueueRepository.updateProcessingHeartbeat(itemId)
+                        return@withContext Result.retry()
+                    }
                     when (resolveRemoteState(body)) {
                         RemoteState.QUEUED, RemoteState.PROCESSING -> {
+                            uploadQueueRepository.updateProcessingHeartbeat(itemId)
                             maybeDelayForRetryAfter(response.headers())
                             Result.retry()
                         }
@@ -93,11 +99,13 @@ class PollStatusWorker @AssistedInject constructor(
                 )
                 429 -> {
                     recordError(displayName, UploadErrorKind.HTTP, response.code())
+                    uploadQueueRepository.updateProcessingHeartbeat(itemId)
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
                 in 500..599 -> {
                     recordError(displayName, UploadErrorKind.HTTP, response.code())
+                    uploadQueueRepository.updateProcessingHeartbeat(itemId)
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
@@ -111,6 +119,7 @@ class PollStatusWorker @AssistedInject constructor(
             }
         } catch (io: IOException) {
             recordError(displayName, UploadErrorKind.NETWORK)
+            uploadQueueRepository.updateProcessingHeartbeat(itemId)
             Result.retry()
         }
     }

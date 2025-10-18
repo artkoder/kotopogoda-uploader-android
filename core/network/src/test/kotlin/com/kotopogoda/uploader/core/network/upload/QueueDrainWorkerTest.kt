@@ -121,6 +121,32 @@ class QueueDrainWorkerTest {
     }
 
     @Test
+    fun `worker triggers stuck processing recovery before draining queue`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 2
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns emptyList()
+        coEvery { repository.hasQueued() } returns false
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        coVerify(exactly = 1) { repository.recoverStuckProcessing(any()) }
+        coVerify(exactly = 1) { repository.fetchQueued(5, recoverStuck = false) }
+    }
+
+    @Test
     fun `worker uses wifi constraint before preference loaded`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()

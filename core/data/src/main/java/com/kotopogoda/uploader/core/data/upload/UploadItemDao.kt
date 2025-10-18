@@ -65,6 +65,16 @@ interface UploadItemDao {
     suspend fun updateState(id: Long, state: String, updatedAt: Long)
 
     @Query(
+        "UPDATE upload_items SET updated_at = :updatedAt " +
+            "WHERE id = :id AND state = :processingState"
+    )
+    suspend fun touchProcessing(
+        id: Long,
+        processingState: String,
+        updatedAt: Long,
+    ): Int
+
+    @Query(
         "UPDATE upload_items SET state = :newState, updated_at = :updatedAt " +
             "WHERE id = :id AND state = :expectedState"
     )

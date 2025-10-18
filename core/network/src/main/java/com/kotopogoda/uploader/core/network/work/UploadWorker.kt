@@ -54,6 +54,7 @@ class UploadWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     private var lastProgressSnapshot = ProgressSnapshot()
+    private var currentItemId: Long? = null
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         summaryStarter.ensureRunning()
@@ -67,6 +68,7 @@ class UploadWorker @AssistedInject constructor(
         val displayName = inputData.getString(UploadEnqueuer.KEY_DISPLAY_NAME) ?: DEFAULT_FILE_NAME
         val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext Result.failure()
 
+        currentItemId = itemId
         try {
             val totalBytes = appContext.contentResolver
                 .openAssetFileDescriptor(uri, "r")
@@ -195,6 +197,8 @@ class UploadWorker @AssistedInject constructor(
             throw cancelled
         } catch (error: Exception) {
             failureResult(itemId, displayName, uriString, UploadErrorKind.UNEXPECTED)
+        } finally {
+            currentItemId = null
         }
     }
 
@@ -261,6 +265,7 @@ class UploadWorker @AssistedInject constructor(
         errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
     ) {
+        currentItemId?.let { uploadQueueRepository.updateProcessingHeartbeat(it) }
         val normalizedProgress = if (progress == INDETERMINATE_PROGRESS) {
             INDETERMINATE_PROGRESS
         } else {
