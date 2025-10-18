@@ -136,6 +136,47 @@ class UploadQueueRepositoryTest {
     }
 
     @Test
+    fun `enqueue keeps stored key when new one is blank`() = runTest {
+        val uri = Uri.parse("content://media/external/images/media/30")
+        val photo = PhotoEntity(
+            id = "photo-30",
+            uri = uri.toString(),
+            relPath = "DCIM/Camera/IMG_0030.jpg",
+            sha256 = "hash",
+            takenAt = null,
+            size = 512L,
+        )
+        val existing = UploadItemEntity(
+            id = 21L,
+            photoId = photo.id,
+            idempotencyKey = "existing-key",
+            uri = photo.uri,
+            displayName = "old",
+            size = 256L,
+            state = UploadItemState.PROCESSING.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+        coEvery { photoDao.getByUri(uri.toString()) } returns photo
+        coEvery { uploadItemDao.getByPhotoId(photo.id) } returns existing
+
+        repository.enqueue(uri, idempotencyKey = "")
+
+        val expectedNow = clock.instant().toEpochMilli()
+        coVerify {
+            uploadItemDao.updateStateWithMetadata(
+                id = existing.id,
+                state = UploadItemState.QUEUED.rawValue,
+                uri = photo.uri,
+                displayName = "IMG_0030.jpg",
+                size = photo.size,
+                idempotencyKey = "existing-key",
+                updatedAt = expectedNow,
+            )
+        }
+    }
+
+    @Test
     fun `fetchQueued recovers stuck processing before fetching`() = runTest {
         coEvery { uploadItemDao.getByState(any(), any()) } returns emptyList()
 

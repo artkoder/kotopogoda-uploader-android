@@ -65,11 +65,14 @@ class UploadQueueRepository @Inject constructor(
         val now = currentTimeMillis()
         val existing = uploadItemDao.getByPhotoId(photo.id)
         val displayName = buildDisplayName(photo.relPath, uri)
+        val effectiveIdempotencyKey = idempotencyKey.takeIf { it.isNotBlank() }
+            ?: existing?.entityIdempotencyKey()
+            ?: buildIdempotencyKey(photo.id)
         if (existing == null) {
             val id = uploadItemDao.insert(
                 UploadItemEntity(
                     photoId = photo.id,
-                    idempotencyKey = idempotencyKey,
+                    idempotencyKey = effectiveIdempotencyKey,
                     uri = photo.uri,
                     displayName = displayName,
                     size = photo.size,
@@ -99,7 +102,7 @@ class UploadQueueRepository @Inject constructor(
                 uri = photo.uri,
                 displayName = displayName,
                 size = photo.size,
-                idempotencyKey = idempotencyKey,
+                idempotencyKey = effectiveIdempotencyKey,
                 updatedAt = now,
             )
             Timber.tag("Queue").i(
@@ -410,6 +413,10 @@ class UploadQueueRepository @Inject constructor(
     }
 
     private fun currentTimeMillis(): Long = clock.instant().toEpochMilli()
+
+    private fun UploadItemEntity.entityIdempotencyKey(): String? {
+        return idempotencyKey.takeIf { it.isNotBlank() }
+    }
 
     private suspend fun recoverStuckProcessingInternal(now: Long): Int {
         val requeued = uploadItemDao.requeueProcessingToQueued(

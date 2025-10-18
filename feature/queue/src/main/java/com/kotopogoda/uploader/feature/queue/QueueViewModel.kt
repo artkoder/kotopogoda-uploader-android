@@ -84,7 +84,8 @@ class QueueViewModel @Inject constructor(
         val uri = item.uri ?: return null
         val entity = item.source.entity
         val displayName = entity.displayName.takeIf { it.isNotBlank() } ?: item.title
-        val idempotencyKey = entity.photoId
+        val idempotencyKey = entity.idempotencyKey.takeIf { it.isNotBlank() }
+            ?: entity.photoId
         if (idempotencyKey.isBlank()) {
             return null
         }
