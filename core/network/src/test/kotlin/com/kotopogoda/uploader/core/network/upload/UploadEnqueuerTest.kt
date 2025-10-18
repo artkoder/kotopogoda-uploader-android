@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.network.upload
 import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
@@ -18,11 +19,13 @@ import io.mockk.match
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class UploadEnqueuerTest {
@@ -45,6 +48,40 @@ class UploadEnqueuerTest {
         uploadItemsRepository = uploadItemsRepository,
         constraintsProvider = constraintsProvider,
     )
+
+    @Test
+    fun scheduleDrain_usesWifiConstraintBeforePreferenceLoaded() {
+        val wifiOnlyFlow = MutableSharedFlow<Boolean>()
+        val constraintsHelper = UploadConstraintsHelper(wifiOnlyFlow)
+        val enqueuer = UploadEnqueuer(
+            workManager = workManager,
+            summaryStarter = summaryStarter,
+            uploadItemsRepository = uploadItemsRepository,
+            constraintsProvider = constraintsHelper,
+        )
+        val requestSlot = slot<OneTimeWorkRequest>()
+        clearMocks(workManager, answers = false)
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                capture(requestSlot),
+            )
+        } returns mockk(relaxed = true)
+
+        enqueuer.scheduleDrain()
+
+        verify {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                requestSlot.captured,
+            )
+        }
+        val constraints = requestSlot.captured.workSpec.constraints
+        assertEquals(NetworkType.UNMETERED, constraints.requiredNetworkType)
+        assertFalse(requestSlot.captured.workSpec.expedited)
+    }
 
     @Test
     fun enqueue_persistsItemAndStartsWorker() = runBlocking {
