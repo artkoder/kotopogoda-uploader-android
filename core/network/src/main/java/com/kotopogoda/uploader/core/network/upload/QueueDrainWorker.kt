@@ -9,6 +9,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.work.UploadWorker
 import dagger.assisted.Assisted
@@ -27,13 +28,30 @@ class QueueDrainWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        Timber.tag(LOG_TAG).i(UploadLog.message(action = "drain_worker_start"))
         val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
         repository.recoverStuckProcessing(updatedBefore)
         val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_batch",
+                details = arrayOf(
+                    "fetched" to queued.size,
+                ),
+            )
+        )
         if (queued.isEmpty()) {
             if (repository.hasQueued()) {
                 enqueueSelf()
             }
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_complete",
+                    details = arrayOf(
+                        "result" to "no_items",
+                    ),
+                )
+            )
             return@withContext Result.success()
         }
 
@@ -46,8 +64,28 @@ class QueueDrainWorker @AssistedInject constructor(
         for (item in queued) {
             val markedProcessing = repository.markProcessing(item.id)
             if (!markedProcessing) {
+                Timber.tag(LOG_TAG).i(
+                    UploadLog.message(
+                        action = "drain_worker_processing_skip",
+                        itemId = item.id,
+                        uri = item.uri,
+                        details = arrayOf(
+                            "reason" to "state_changed",
+                        ),
+                    )
+                )
                 continue
             }
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_processing_success",
+                    itemId = item.id,
+                    uri = item.uri,
+                    details = arrayOf(
+                        "displayName" to item.displayName,
+                    ),
+                )
+            )
             val uniqueName = UploadEnqueuer.uniqueNameForUri(item.uri)
             val requestBuilder = OneTimeWorkRequestBuilder<UploadWorker>()
                 .setConstraints(constraints)
@@ -70,21 +108,62 @@ class QueueDrainWorker @AssistedInject constructor(
             }
             val request = requestBuilder.build()
             workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_enqueue_upload",
+                    itemId = item.id,
+                    uri = item.uri,
+                    details = arrayOf(
+                        "uniqueName" to uniqueName,
+                    ),
+                )
+            )
         }
 
         if (repository.hasQueued()) {
             enqueueSelf()
         }
 
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_complete",
+                details = arrayOf(
+                    "result" to "success",
+                ),
+            )
+        )
         Result.success()
     }
 
     private fun enqueueSelf() {
-        val wifiOnly = constraintsProvider.wifiOnlyUploadsState.value ?: return
-        val constraints = constraintsProvider.constraintsState.value ?: return
+        val wifiOnly = constraintsProvider.wifiOnlyUploadsState.value
+        if (wifiOnly == null) {
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_enqueue_skip",
+                    details = arrayOf(
+                        "reason" to "wifi_only_pending",
+                    ),
+                )
+            )
+            return
+        }
+        val constraints = constraintsProvider.constraintsState.value
+        if (constraints == null) {
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_enqueue_skip",
+                    details = arrayOf(
+                        "reason" to "constraints_pending",
+                    ),
+                )
+            )
+            return
+        }
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)
-        if (constraintsProvider.shouldUseExpeditedWork()) {
+        val expedited = constraintsProvider.shouldUseExpeditedWork()
+        if (expedited) {
             builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
         val request = builder.build()
@@ -99,12 +178,24 @@ class QueueDrainWorker @AssistedInject constructor(
             policy,
             request,
         )
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_reschedule",
+                details = arrayOf(
+                    "wifiOnly" to wifiOnly,
+                    "policy" to policy.name,
+                    "expedited" to expedited,
+                ),
+            )
+        )
     }
 
     companion object {
         private const val BATCH_SIZE = 5
         @Volatile
         private var lastEnqueuedWifiOnly: Boolean? = null
+
+        private const val LOG_TAG = "WorkManager"
 
         internal fun resetEnqueuePolicy() {
             lastEnqueuedWifiOnly = null
