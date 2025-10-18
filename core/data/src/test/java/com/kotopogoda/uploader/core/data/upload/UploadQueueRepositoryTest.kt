@@ -237,7 +237,23 @@ class UploadQueueRepositoryTest {
     }
 
     @Test
-    fun `recoverStuckProcessing returns affected rows`() = runTest {
+    fun `updateProcessingHeartbeat refreshes updated timestamp`() = runTest {
+        coEvery { uploadItemDao.touchProcessing(any(), any(), any()) } returns 1
+
+        repository.updateProcessingHeartbeat(id = 42L)
+
+        val expectedNow = clock.instant().toEpochMilli()
+        coVerify(exactly = 1) {
+            uploadItemDao.touchProcessing(
+                id = 42L,
+                processingState = UploadItemState.PROCESSING.rawValue,
+                updatedAt = expectedNow,
+            )
+        }
+    }
+
+    @Test
+    fun `recoverStuckProcessing requeues stale processing items`() = runTest {
         coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) } returns 2
 
         val affected = repository.recoverStuckProcessing()
