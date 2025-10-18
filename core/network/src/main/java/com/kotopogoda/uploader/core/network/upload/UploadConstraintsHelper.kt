@@ -9,8 +9,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 
 @Singleton
 class UploadConstraintsHelper @Inject constructor(
@@ -18,24 +19,23 @@ class UploadConstraintsHelper @Inject constructor(
 ) : UploadConstraintsProvider {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val wifiOnlyState = wifiOnlyUploadsFlow.stateIn(
-        scope = scope,
-        started = SharingStarted.Eagerly,
-        initialValue = false,
-    )
+    private val wifiOnlyState = MutableStateFlow<Boolean?>(null)
+
+    init {
+        wifiOnlyUploadsFlow
+            .onEach { value -> wifiOnlyState.value = value }
+            .launchIn(scope)
+    }
 
     override fun buildConstraints(): Constraints {
-        val requiredNetworkType = if (wifiOnlyState.value) {
-            NetworkType.UNMETERED
-        } else {
-            NetworkType.CONNECTED
-        }
+        val useWifiOnly = wifiOnlyState.value ?: true
+        val requiredNetworkType = if (useWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
         return Constraints.Builder()
             .setRequiredNetworkType(requiredNetworkType)
             .build()
     }
 
     override fun shouldUseExpeditedWork(): Boolean {
-        return !wifiOnlyState.value
+        return wifiOnlyState.value?.not() ?: false
     }
 }

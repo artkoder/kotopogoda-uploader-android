@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker.Result
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.Operation
 import androidx.work.OutOfQuotaPolicy
@@ -23,6 +24,7 @@ import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -105,6 +107,54 @@ class QueueDrainWorkerTest {
             abs((capturedThreshold + UploadQueueRepository.STUCK_TIMEOUT_MS) - now) <= toleranceMs,
             "recoverStuckProcessing threshold should correspond to current time minus timeout",
         )
+    }
+
+    @Test
+    fun `worker uses wifi constraint before preference loaded`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val wifiOnlyFlow = MutableSharedFlow<Boolean>()
+        val constraintsProvider = UploadConstraintsHelper(wifiOnlyFlow)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val queueItem = UploadQueueItem(
+            id = 4L,
+            uri = Uri.parse("content://example/safe-default"),
+            idempotencyKey = "idempotency",
+            displayName = "photo.jpg",
+            size = 10L,
+        )
+        val names = mutableListOf<String>()
+        val policies = mutableListOf<ExistingWorkPolicy>()
+        val requests = mutableListOf<OneTimeWorkRequest>()
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
+        coEvery { repository.markProcessing(queueItem.id) } returns true
+        coEvery { repository.hasQueued() } returns false
+        every {
+            workManager.enqueueUniqueWork(
+                capture(names),
+                capture(policies),
+                capture(requests),
+            )
+        } returns mockk(relaxed = true)
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertEquals(listOf(UploadEnqueuer.uniqueNameForUri(queueItem.uri)), names)
+        assertEquals(listOf(ExistingWorkPolicy.KEEP), policies)
+        val uploadRequest = requests.single()
+        assertEquals(NetworkType.UNMETERED, uploadRequest.workSpec.constraints.requiredNetworkType)
+        assertFalse(uploadRequest.workSpec.expedited)
     }
 
     @Test
