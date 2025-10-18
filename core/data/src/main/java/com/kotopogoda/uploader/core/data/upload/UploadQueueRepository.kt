@@ -372,6 +372,27 @@ class UploadQueueRepository @Inject constructor(
         UploadItemState.fromRawValue(entity.state)
     }
 
+    suspend fun requeueAllProcessing(): Int = withContext(Dispatchers.IO) {
+        val now = currentTimeMillis()
+        val requeued = uploadItemDao.requeueAllProcessingToQueued(
+            processingState = UploadItemState.PROCESSING.rawValue,
+            queuedState = UploadItemState.QUEUED.rawValue,
+            updatedAt = now,
+        )
+        if (requeued > 0) {
+            Timber.tag("Queue").i(
+                UploadLog.message(
+                    action = "requeue_processing_signal",
+                    state = UploadItemState.QUEUED,
+                    details = arrayOf(
+                        "requeued" to requeued,
+                    ),
+                )
+            )
+        }
+        requeued
+    }
+
     private fun buildDisplayName(relPath: String?, uri: Uri): String {
         val fromRelPath = relPath?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
         val fromUri = uri.lastPathSegment?.takeIf { it.isNotBlank() }

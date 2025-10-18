@@ -237,6 +237,23 @@ class UploadQueueRepositoryTest {
     }
 
     @Test
+    fun `requeueAllProcessing immediately returns processing items to queue`() = runTest {
+        coEvery { uploadItemDao.requeueAllProcessingToQueued(any(), any(), any()) } returns 3
+
+        val requeued = repository.requeueAllProcessing()
+
+        val expectedNow = clock.instant().toEpochMilli()
+        assertEquals(3, requeued)
+        coVerify {
+            uploadItemDao.requeueAllProcessingToQueued(
+                processingState = UploadItemState.PROCESSING.rawValue,
+                queuedState = UploadItemState.QUEUED.rawValue,
+                updatedAt = expectedNow,
+            )
+        }
+    }
+
+    @Test
     fun `updateProcessingHeartbeat refreshes updated timestamp`() = runTest {
         coEvery { uploadItemDao.touchProcessing(any(), any(), any()) } returns 1
 

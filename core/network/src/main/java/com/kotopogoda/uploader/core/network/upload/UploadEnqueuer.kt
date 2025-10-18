@@ -120,6 +120,12 @@ class UploadEnqueuer @Inject constructor(
             .onEach { wifiOnly ->
                 val previousValue = lastObservedWifiOnly
                 lastObservedWifiOnly = wifiOnly
+                val switchedToMobile = previousValue == true && wifiOnly == false
+                if (switchedToMobile) {
+                    workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD)
+                    workManager.cancelAllWorkByTag(UploadTags.TAG_POLL)
+                    uploadItemsRepository.requeueAllProcessing()
+                }
                 val policy = if (previousValue == null || previousValue != wifiOnly) {
                     ExistingWorkPolicy.REPLACE
                 } else {
@@ -128,6 +134,9 @@ class UploadEnqueuer @Inject constructor(
                 if (policy != null) {
                     val constraints = constraintsProvider.constraintsState.value ?: return@onEach
                     enqueueDrainWork(constraints, policy)
+                }
+                if (switchedToMobile) {
+                    scheduleDrain()
                 }
             }
             .launchIn(scope)

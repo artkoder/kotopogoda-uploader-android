@@ -567,6 +567,64 @@ class QueueDrainWorkerTest {
         )
     }
 
+    @Test
+    fun `worker builds connected requests after wifi preference disabled`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val wifiOnlyState = MutableStateFlow<Boolean?>(true)
+        val initialConstraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.UNMETERED)
+            .build()
+        val constraintsState = MutableStateFlow<Constraints?>(initialConstraints)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val queueItem = UploadQueueItem(
+            id = 9L,
+            uri = Uri.parse("content://example/mobile-switch"),
+            idempotencyKey = "idempotency",
+            displayName = "photo.jpg",
+            size = 10L,
+        )
+        val requestSlot = slot<OneTimeWorkRequest>()
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
+        coEvery { repository.markProcessing(queueItem.id) } returns true
+        coEvery { repository.hasQueued() } returns false
+        every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
+        every { constraintsProvider.constraintsState } returns constraintsState
+        coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value }
+        every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
+        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+        every {
+            workManager.enqueueUniqueWork(
+                UploadEnqueuer.uniqueNameForUri(queueItem.uri),
+                ExistingWorkPolicy.KEEP,
+                capture(requestSlot),
+            )
+        } returns mockk(relaxed = true)
+
+        val connectedConstraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        constraintsState.value = connectedConstraints
+        wifiOnlyState.value = false
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertEquals(NetworkType.CONNECTED, requestSlot.captured.workSpec.constraints.requiredNetworkType)
+        assertTrue(requestSlot.captured.workSpec.expedited)
+    }
+
     private fun RecordingTree.assertActionLogged(action: String, predicate: (String) -> Boolean = { true }) {
         val messages = logs.filter { entry ->
             entry.tag == "WorkManager" &&

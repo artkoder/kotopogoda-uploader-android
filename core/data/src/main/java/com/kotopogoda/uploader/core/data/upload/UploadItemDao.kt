@@ -114,4 +114,14 @@ interface UploadItemDao {
         updatedAt: Long,
         updatedBefore: Long,
     ): Int
+
+    @Query(
+        "UPDATE upload_items SET state = :queuedState, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt " +
+            "WHERE state = :processingState"
+    )
+    suspend fun requeueAllProcessingToQueued(
+        processingState: String,
+        queuedState: String,
+        updatedAt: Long,
+    ): Int
 }
