@@ -27,16 +27,27 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import timber.log.Timber
 
 class QueueDrainWorkerTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
+    private lateinit var logTree: RecordingTree
 
     @Before
     fun setUp() {
         QueueDrainWorker.resetEnqueuePolicy()
+        Timber.uprootAll()
+        logTree = RecordingTree()
+        Timber.plant(logTree)
+    }
+
+    @After
+    fun tearDown() {
+        Timber.uprootAll()
     }
 
     @Test
@@ -118,6 +129,71 @@ class QueueDrainWorkerTest {
             abs((capturedThreshold + UploadQueueRepository.STUCK_TIMEOUT_MS) - now) <= toleranceMs,
             "recoverStuckProcessing threshold should correspond to current time minus timeout",
         )
+
+        logTree.assertActionLogged("drain_worker_start")
+        logTree.assertActionLogged("drain_worker_batch")
+        logTree.assertActionLogged(
+            action = "drain_worker_processing_success",
+            predicate = { it.contains("itemId=${queueItem.id}") },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_enqueue_upload",
+            predicate = { it.contains("uniqueName=${UploadEnqueuer.uniqueNameForUri(queueItem.uri)}") },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_complete",
+            predicate = { it.contains("result=success") },
+        )
+    }
+
+    @Test
+    fun `worker logs skip when item cannot be marked processing`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val wifiOnlyState = MutableStateFlow<Boolean?>(true)
+        val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val queueItem = UploadQueueItem(
+            id = 7L,
+            uri = Uri.parse("content://example/skip"),
+            idempotencyKey = "skip",
+            displayName = "photo.jpg",
+            size = 10L,
+        )
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
+        coEvery { repository.markProcessing(queueItem.id) } returns false
+        coEvery { repository.hasQueued() } returns false
+        every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
+        every { constraintsProvider.constraintsState } returns constraintsState
+        every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
+        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        verify(exactly = 0) {
+            workManager.enqueueUniqueWork(
+                UploadEnqueuer.uniqueNameForUri(queueItem.uri),
+                any(),
+                any(),
+            )
+        }
+
+        logTree.assertActionLogged(
+            action = "drain_worker_processing_skip",
+            predicate = { it.contains("itemId=${queueItem.id}") },
+        )
     }
 
     @Test
@@ -144,6 +220,16 @@ class QueueDrainWorkerTest {
         assertEquals(Result.success(), result)
         coVerify(exactly = 1) { repository.recoverStuckProcessing(any()) }
         coVerify(exactly = 1) { repository.fetchQueued(5, recoverStuck = false) }
+
+        logTree.assertActionLogged("drain_worker_start")
+        logTree.assertActionLogged(
+            action = "drain_worker_batch",
+            predicate = { it.contains("fetched=0") },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_complete",
+            predicate = { it.contains("result=no_items") },
+        )
     }
 
     @Test
@@ -192,6 +278,8 @@ class QueueDrainWorkerTest {
         val uploadRequest = requests.single()
         assertEquals(NetworkType.UNMETERED, uploadRequest.workSpec.constraints.requiredNetworkType)
         assertFalse(uploadRequest.workSpec.expedited)
+
+        logTree.assertActionLogged("drain_worker_enqueue_upload")
     }
 
     @Test
@@ -245,6 +333,8 @@ class QueueDrainWorkerTest {
                 any(),
             )
         }
+
+        logTree.assertActionLogged("drain_worker_reschedule")
     }
 
     @Test
@@ -286,11 +376,18 @@ class QueueDrainWorkerTest {
         assertEquals(Result.success(), firstResult)
         assertTrue(policies.isEmpty())
 
+        logTree.assertActionLogged(
+            action = "drain_worker_enqueue_skip",
+            predicate = { it.contains("reason=wifi_only_pending") },
+        )
+
         val connectedConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
         constraintsState.value = connectedConstraints
         wifiOnlyState.value = false
+
+        logTree.clear()
 
         val secondWorker = QueueDrainWorker(
             context,
@@ -307,6 +404,11 @@ class QueueDrainWorkerTest {
         val drainRequest = requests.single()
         assertEquals(NetworkType.CONNECTED, drainRequest.workSpec.constraints.requiredNetworkType)
         assertTrue(drainRequest.workSpec.expedited)
+
+        logTree.assertActionLogged(
+            action = "drain_worker_reschedule",
+            predicate = { it.contains("expedited=true") },
+        )
     }
 
     @Test
@@ -360,6 +462,8 @@ class QueueDrainWorkerTest {
         val drainIndex = names.indexOf(QUEUE_DRAIN_WORK_NAME)
         assertTrue(drainIndex >= 0)
         assertEquals(ExistingWorkPolicy.REPLACE, policies[drainIndex])
+
+        logTree.assertActionLogged("drain_worker_reschedule")
     }
 
     @Test
@@ -420,5 +524,38 @@ class QueueDrainWorkerTest {
         assertTrue(drainRequest.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, drainRequest.workSpec.outOfQuotaPolicy)
         assertEquals(ExistingWorkPolicy.REPLACE, drainPolicy)
+
+        logTree.assertActionLogged(
+            action = "drain_worker_reschedule",
+            predicate = { it.contains("expedited=true") },
+        )
     }
+
+    private fun RecordingTree.assertActionLogged(action: String, predicate: (String) -> Boolean = { true }) {
+        val messages = logs.filter { entry ->
+            entry.tag == "WorkManager" &&
+                entry.message?.contains("action=$action") == true &&
+                predicate(entry.message!!)
+        }
+        assertTrue(messages.isNotEmpty(), "Ожидалось наличие лога с action=$action")
+    }
+
+    private class RecordingTree : Timber.DebugTree() {
+        val logs = mutableListOf<LogEntry>()
+
+        override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+            logs += LogEntry(priority, tag, message, t)
+        }
+
+        fun clear() {
+            logs.clear()
+        }
+    }
+
+    private data class LogEntry(
+        val priority: Int,
+        val tag: String?,
+        val message: String?,
+        val throwable: Throwable?,
+    )
 }
