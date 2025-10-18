@@ -147,6 +147,52 @@ class UploadEnqueuerTest {
     }
 
     @Test
+    fun wifiPreferenceSwitchToWifi_cancelsActiveWorkAndRequeuesProcessing() = runBlocking {
+        val enqueuer = createEnqueuer()
+        val mobileConstraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val wifiConstraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.UNMETERED)
+            .build()
+        wifiOnlyState.value = false
+        constraintsState.value = mobileConstraints
+        resetConstraintMocks()
+        enqueuer.scheduleDrain()
+
+        clearMocks(workManager, uploadItemsRepository, constraintsProvider, answers = false)
+        constraintsState.value = wifiConstraints
+        resetConstraintMocks()
+        val policies = mutableListOf<ExistingWorkPolicy>()
+        val requests = mutableListOf<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                capture(policies),
+                capture(requests),
+            )
+        } returns mockk(relaxed = true)
+
+        wifiOnlyState.value = true
+
+        verify(timeout = 1_000) {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                any(),
+                any<OneTimeWorkRequest>(),
+            )
+        }
+        verify(timeout = 1_000) { workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD) }
+        verify(timeout = 1_000) { workManager.cancelAllWorkByTag(UploadTags.TAG_POLL) }
+        coVerify(timeout = 1_000) { uploadItemsRepository.requeueAllProcessing() }
+        assertTrue(policies.isNotEmpty())
+        val request = requests.last()
+        assertEquals(NetworkType.UNMETERED, request.workSpec.constraints.requiredNetworkType)
+        assertFalse(request.workSpec.expedited)
+        assertEquals(ExistingWorkPolicy.REPLACE, policies.last())
+    }
+
+    @Test
     fun enqueue_persistsItemAndStartsWorker() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
