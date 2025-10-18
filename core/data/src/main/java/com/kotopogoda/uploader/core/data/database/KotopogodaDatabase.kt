@@ -14,7 +14,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -87,6 +87,7 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                     CREATE TABLE IF NOT EXISTS `upload_items` (
                         `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         `photo_id` TEXT NOT NULL,
+                        `idempotency_key` TEXT NOT NULL DEFAULT '',
                         `uri` TEXT NOT NULL DEFAULT '',
                         `display_name` TEXT NOT NULL DEFAULT 'photo.jpg',
                         `size` INTEGER NOT NULL DEFAULT 0,
@@ -174,6 +175,24 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                         AND EXISTS (
                             SELECT 1 FROM photos WHERE photos.id = upload_items.photo_id
                         )
+                    """
+                        .trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = getTableColumns(db, "upload_items")
+                if ("idempotency_key" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `idempotency_key` TEXT NOT NULL DEFAULT ''")
+                }
+
+                db.execSQL(
+                    """
+                    UPDATE upload_items
+                    SET idempotency_key = photo_id
+                    WHERE TRIM(idempotency_key) = ''
                     """
                         .trimIndent()
                 )
