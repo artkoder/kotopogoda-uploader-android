@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import androidx.work.NetworkType
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import kotlin.test.assertEquals
@@ -42,5 +43,27 @@ class UploadConstraintsHelperTest {
 
         assertEquals(NetworkType.UNMETERED, updatedConstraints.requiredNetworkType)
         assertFalse(helper.shouldUseExpeditedWork())
+    }
+
+    @Test
+    fun `awaitConstraints waits for preference and caches result`() = runBlocking {
+        val wifiOnlyFlow = MutableSharedFlow<Boolean>()
+        val helper = UploadConstraintsHelper(wifiOnlyFlow)
+
+        val awaiting = async { helper.awaitConstraints() }
+
+        assertTrue(awaiting.isActive)
+
+        wifiOnlyFlow.emit(false)
+
+        val constraints = awaiting.await()
+
+        requireNotNull(constraints)
+        assertEquals(NetworkType.CONNECTED, constraints.requiredNetworkType)
+
+        val cached = helper.awaitConstraints()
+
+        requireNotNull(cached)
+        assertTrue(constraints === cached)
     }
 }

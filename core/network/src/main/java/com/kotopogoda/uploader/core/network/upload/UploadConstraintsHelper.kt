@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
@@ -32,14 +34,24 @@ class UploadConstraintsHelper @Inject constructor(
         wifiOnlyUploadsFlow
             .onEach { value ->
                 wifiOnlyState.value = value
-                constraintsStateInternal.value = value?.let(::buildConstraints)
+                constraintsStateInternal.value = buildConstraints(value)
             }
             .launchIn(scope)
     }
 
+    override suspend fun awaitConstraints(): Constraints? {
+        constraintsStateInternal.value?.let { return it }
+        val wifiOnly = wifiOnlyUploadsState.value ?: wifiOnlyUploadsState.filterNotNull().first()
+        val constraints = buildConstraints(wifiOnly)
+        constraintsStateInternal.value = constraints
+        return constraints
+    }
+
     override fun buildConstraints(): Constraints {
-        val useWifiOnly = wifiOnlyState.value ?: true
-        return buildConstraints(useWifiOnly)
+        constraintsStateInternal.value?.let { return it }
+        val useWifiOnly = wifiOnlyState.value
+            ?: error("Wi-Fi preference not loaded yet")
+        return buildConstraints(useWifiOnly).also { constraintsStateInternal.value = it }
     }
 
     private fun buildConstraints(useWifiOnly: Boolean): Constraints {

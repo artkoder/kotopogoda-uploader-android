@@ -15,6 +15,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 @HiltWorker
 class QueueDrainWorker @AssistedInject constructor(
@@ -36,6 +37,12 @@ class QueueDrainWorker @AssistedInject constructor(
             return@withContext Result.success()
         }
 
+        val constraints = constraintsProvider.awaitConstraints()
+        if (constraints == null) {
+            Timber.tag("WorkManager").w("Upload constraints not available yet, retrying queue drain")
+            return@withContext Result.retry()
+        }
+
         for (item in queued) {
             val markedProcessing = repository.markProcessing(item.id)
             if (!markedProcessing) {
@@ -43,7 +50,7 @@ class QueueDrainWorker @AssistedInject constructor(
             }
             val uniqueName = UploadEnqueuer.uniqueNameForUri(item.uri)
             val requestBuilder = OneTimeWorkRequestBuilder<UploadWorker>()
-                .setConstraints(constraintsProvider.buildConstraints())
+                .setConstraints(constraints)
                 .setInputData(
                     workDataOf(
                         UploadEnqueuer.KEY_ITEM_ID to item.id,

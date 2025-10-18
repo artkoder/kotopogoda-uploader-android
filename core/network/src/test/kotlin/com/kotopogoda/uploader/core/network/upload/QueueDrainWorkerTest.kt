@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import io.mockk.any
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -24,7 +25,6 @@ import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -63,6 +63,7 @@ class QueueDrainWorkerTest {
         coEvery { repository.hasQueued() } returns false
         every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
+        coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value }
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
         every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
         every {
@@ -147,15 +148,50 @@ class QueueDrainWorkerTest {
     }
 
     @Test
-    fun `worker uses wifi constraint before preference loaded`() = runTest {
+    fun `worker retries when constraints not yet available`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
-        val wifiOnlyFlow = MutableSharedFlow<Boolean>()
-        val constraintsProvider = UploadConstraintsHelper(wifiOnlyFlow)
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
         val queueItem = UploadQueueItem(
             id = 4L,
             uri = Uri.parse("content://example/safe-default"),
+            idempotencyKey = "idempotency",
+            displayName = "photo.jpg",
+            size = 10L,
+        )
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
+        coEvery { constraintsProvider.awaitConstraints() } returns null
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.retry(), result)
+        coVerify(exactly = 0) { repository.markProcessing(any()) }
+        verify(exactly = 0) {
+            workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>())
+        }
+    }
+
+    @Test
+    fun `worker enqueues upload work after constraints received`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val wifiOnlyFlow = MutableStateFlow(true)
+        val constraintsProvider = UploadConstraintsHelper(wifiOnlyFlow)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val queueItem = UploadQueueItem(
+            id = 5L,
+            uri = Uri.parse("content://example/after-preference"),
             idempotencyKey = "idempotency",
             displayName = "photo.jpg",
             size = 10L,

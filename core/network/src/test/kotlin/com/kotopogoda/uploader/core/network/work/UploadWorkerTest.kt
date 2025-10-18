@@ -60,6 +60,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowContentResolver
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -90,6 +91,7 @@ class UploadWorkerTest {
         constraintsState = MutableStateFlow(Constraints.Builder().build())
         every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
+        coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value }
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.Builder().build() }
         every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
         val moshi = Moshi.Builder()
@@ -266,7 +268,8 @@ class UploadWorkerTest {
         val expectedConstraints = Constraints.Builder()
             .setRequiresCharging(true)
             .build()
-        every { constraintsProvider.buildConstraints() } returns expectedConstraints
+        constraintsState.value = expectedConstraints
+        coEvery { constraintsProvider.awaitConstraints() } returns expectedConstraints
 
         mockWebServer.enqueue(
             MockResponse()
@@ -314,6 +317,7 @@ class UploadWorkerTest {
         val file = createTempFileWithContent("poll expedited")
         val inputData = inputDataFor(file, displayName = "poll-exp.jpg", idempotencyKey = "poll-exp-key")
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
+        coEvery { constraintsProvider.awaitConstraints() } returns constraintsState.value
 
         mockWebServer.enqueue(
             MockResponse()
