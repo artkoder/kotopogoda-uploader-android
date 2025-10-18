@@ -26,7 +26,8 @@ class QueueDrainWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        repository.recoverStuckProcessing()
+        val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
+        repository.recoverStuckProcessing(updatedBefore)
         val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
         if (queued.isEmpty()) {
             if (repository.hasQueued()) {
