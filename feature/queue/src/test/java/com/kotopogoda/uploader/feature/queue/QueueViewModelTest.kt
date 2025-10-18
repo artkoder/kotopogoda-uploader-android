@@ -45,6 +45,9 @@ class QueueViewModelTest {
     private val workInfoFlow = MutableSharedFlow<List<WorkInfo>>(replay = 1).apply {
         tryEmit(emptyList())
     }
+    private val pollWorkInfoFlow = MutableSharedFlow<List<WorkInfo>>(replay = 1).apply {
+        tryEmit(emptyList())
+    }
 
     private val repository: UploadQueueRepository = mockk()
     private val enqueuer: UploadEnqueuer = mockk(relaxed = true)
@@ -56,6 +59,7 @@ class QueueViewModelTest {
     init {
         every { repository.observeQueue() } returns queueFlow
         every { workManager.getWorkInfosByTagFlow(UploadTags.TAG_UPLOAD) } returns workInfoFlow
+        every { workManager.getWorkInfosByTagFlow(UploadTags.TAG_POLL) } returns pollWorkInfoFlow
     }
 
     @Test
@@ -173,5 +177,111 @@ class QueueViewModelTest {
         val metadataSlot = slot<UploadWorkMetadata>()
         coVerify { enqueuer.retry(capture(metadataSlot)) }
         assertEquals("stored-key", metadataSlot.captured.idempotencyKey)
+    }
+
+    @Test
+    fun processingEntryPrefersPollStatuses() = runTest(dispatcherRule.dispatcher) {
+        val uri = Uri.parse("file:///tmp/poll.jpg")
+        val uniqueName = "upload:test-unique"
+        val entity = UploadItemEntity(
+            id = 55L,
+            photoId = "photo-id",
+            uri = uri.toString(),
+            displayName = "poll.jpg",
+            size = 2_048L,
+            state = UploadItemState.PROCESSING.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = uri,
+            state = UploadItemState.PROCESSING,
+            lastErrorKind = null,
+            lastErrorHttpCode = null,
+        )
+        every { enqueuer.uniqueName(uri) } returns uniqueName
+
+        val uploadSucceeded = WorkInfo(
+            id = UUID.randomUUID(),
+            state = WorkInfo.State.SUCCEEDED,
+            tags = setOf(
+                UploadTags.TAG_UPLOAD,
+                UploadTags.uniqueTag(uniqueName),
+                UploadTags.uriTag(uri.toString()),
+                UploadTags.kindTag(UploadWorkKind.UPLOAD),
+            ),
+            progress = Data.EMPTY,
+            outputData = Data.EMPTY,
+            runAttemptCount = 1,
+            generation = 0,
+            constraints = Constraints.NONE,
+            nextScheduleTimeMillis = -1L,
+        )
+
+        val pollRunning = WorkInfo(
+            id = UUID.randomUUID(),
+            state = WorkInfo.State.RUNNING,
+            tags = setOf(
+                UploadTags.TAG_POLL,
+                UploadTags.uniqueTag(uniqueName),
+                UploadTags.uriTag(uri.toString()),
+                UploadTags.kindTag(UploadWorkKind.POLL),
+            ),
+            progress = Data.EMPTY,
+            outputData = Data.EMPTY,
+            runAttemptCount = 1,
+            generation = 0,
+            constraints = Constraints.NONE,
+            nextScheduleTimeMillis = -1L,
+        )
+
+        val pollSucceeded = WorkInfo(
+            id = UUID.randomUUID(),
+            state = WorkInfo.State.SUCCEEDED,
+            tags = setOf(
+                UploadTags.TAG_POLL,
+                UploadTags.uniqueTag(uniqueName),
+                UploadTags.uriTag(uri.toString()),
+                UploadTags.kindTag(UploadWorkKind.POLL),
+            ),
+            progress = Data.Builder()
+                .putString(UploadEnqueuer.KEY_COMPLETION_STATE, UploadEnqueuer.STATE_UPLOADED_AWAITING_DELETE)
+                .build(),
+            outputData = Data.Builder()
+                .putString(UploadEnqueuer.KEY_COMPLETION_STATE, UploadEnqueuer.STATE_UPLOADED_AWAITING_DELETE)
+                .build(),
+            runAttemptCount = 1,
+            generation = 0,
+            constraints = Constraints.NONE,
+            nextScheduleTimeMillis = -1L,
+        )
+
+        val viewModel = QueueViewModel(
+            uploadQueueRepository = repository,
+            uploadEnqueuer = enqueuer,
+            summaryStarter = summaryStarter,
+            workManager = workManager,
+            workInfoMapper = workInfoMapper,
+        )
+
+        val collectedStates = mutableListOf<QueueUiState>()
+        val job = launch { viewModel.uiState.collect { collectedStates += it } }
+
+        queueFlow.value = listOf(entry)
+        workInfoFlow.emit(listOf(uploadSucceeded))
+        pollWorkInfoFlow.emit(listOf(pollRunning))
+        advanceUntilIdle()
+
+        var item = collectedStates.last { it.items.isNotEmpty() }.items.single()
+        assertEquals(R.string.queue_status_poll_waiting, item.statusResId)
+
+        pollWorkInfoFlow.emit(listOf(pollSucceeded))
+        advanceUntilIdle()
+
+        item = collectedStates.last { it.items.isNotEmpty() }.items.single()
+        assertEquals(R.string.queue_status_poll_manual_delete, item.statusResId)
+
+        job.cancel()
     }
 }

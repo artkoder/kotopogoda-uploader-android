@@ -20,9 +20,6 @@ class QueueWorkInfoMapper @Inject constructor(
 
     fun map(info: WorkInfo): QueueItemWorkInfo? {
         val metadata = UploadTags.metadataFrom(info)
-        if (metadata.kind != UploadWorkKind.UPLOAD) {
-            return null
-        }
 
         val progressData = info.progress
         val progressPercent = progressData.getIntOrNull(UploadEnqueuer.KEY_PROGRESS)
@@ -30,22 +27,30 @@ class QueueWorkInfoMapper @Inject constructor(
         val bytesSent = progressData.getLongOrNull(UploadEnqueuer.KEY_BYTES_SENT)
         val totalBytes = progressData.getLongOrNull(UploadEnqueuer.KEY_TOTAL_BYTES)
 
-        val waitingReasons = buildWaitingReasons(info)
+        val waitingReasons = buildWaitingReasons(info, metadata.kind)
 
         return QueueItemWorkInfo(
             uniqueName = metadata.uniqueName,
             uri = metadata.uri,
+            kind = metadata.kind,
             state = info.state,
-            statusResId = statusFor(info.state),
+            statusResId = statusFor(metadata.kind, info),
             progressPercent = progressPercent,
             bytesSent = bytesSent,
             totalBytes = totalBytes,
             waitingReasons = waitingReasons,
-            isActiveTransfer = info.state == WorkInfo.State.RUNNING,
+            isActiveTransfer = metadata.kind == UploadWorkKind.UPLOAD && info.state == WorkInfo.State.RUNNING,
         )
     }
 
-    private fun statusFor(state: WorkInfo.State): Int {
+    private fun statusFor(kind: UploadWorkKind, info: WorkInfo): Int {
+        return when (kind) {
+            UploadWorkKind.UPLOAD -> statusForUpload(info.state)
+            UploadWorkKind.POLL -> statusForPoll(info)
+        }
+    }
+
+    private fun statusForUpload(state: WorkInfo.State): Int {
         return when (state) {
             WorkInfo.State.ENQUEUED -> R.string.queue_status_enqueued
             WorkInfo.State.RUNNING -> R.string.queue_status_running
@@ -56,9 +61,37 @@ class QueueWorkInfoMapper @Inject constructor(
         }
     }
 
-    private fun buildWaitingReasons(info: WorkInfo): List<QueueItemWaitingReason> {
+    private fun statusForPoll(info: WorkInfo): Int {
+        val completionState = completionState(info)
+        return when (info.state) {
+            WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> R.string.queue_status_poll_waiting
+            WorkInfo.State.RUNNING -> completionState?.let(::statusForPollCompletion)
+                ?: R.string.queue_status_poll_waiting
+            WorkInfo.State.SUCCEEDED -> completionState?.let(::statusForPollCompletion)
+                ?: R.string.queue_status_poll_succeeded
+            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> R.string.queue_status_poll_failed
+        }
+    }
+
+    private fun statusForPollCompletion(completionState: String): Int {
+        return when (completionState) {
+            UploadEnqueuer.STATE_UPLOADED_DELETED -> R.string.queue_status_poll_succeeded
+            UploadEnqueuer.STATE_UPLOADED_AWAITING_DELETE -> R.string.queue_status_poll_manual_delete
+            UploadEnqueuer.STATE_UPLOAD_COMPLETED_UNKNOWN -> R.string.queue_status_poll_waiting
+            else -> R.string.queue_status_poll_waiting
+        }
+    }
+
+    private fun completionState(info: WorkInfo): String? {
+        return info.progress.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
+            ?: info.outputData.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
+    }
+
+    private fun buildWaitingReasons(info: WorkInfo, kind: UploadWorkKind): List<QueueItemWaitingReason> {
         val reasons = mutableListOf<QueueItemWaitingReason>()
-        reasons += networkReasons(info.constraints)
+        if (!(kind == UploadWorkKind.POLL && info.state == WorkInfo.State.RUNNING)) {
+            reasons += networkReasons(info.constraints)
+        }
         nextRetryReason(info)?.let(reasons::add)
         return reasons
     }
@@ -111,6 +144,7 @@ class QueueWorkInfoMapper @Inject constructor(
 data class QueueItemWorkInfo(
     val uniqueName: String?,
     val uri: Uri?,
+    val kind: UploadWorkKind,
     val state: WorkInfo.State,
     @StringRes val statusResId: Int,
     val progressPercent: Int?,
