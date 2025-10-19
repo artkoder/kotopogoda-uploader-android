@@ -41,7 +41,7 @@ class SettingsRepositoryImpl @Inject constructor(
             val persistentValue = (persistentPreference ?: permissionGranted) && permissionGranted
             AppSettings(
                 baseUrl = storedBaseUrl ?: defaultBaseUrl,
-                appLogging = preferences[APP_LOGGING_KEY] ?: false,
+                appLogging = preferences[APP_LOGGING_KEY] ?: true,
                 httpLogging = preferences[HTTP_LOGGING_KEY] ?: false,
                 persistentQueueNotification = persistentValue,
             )

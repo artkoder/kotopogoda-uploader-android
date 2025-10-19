@@ -9,6 +9,7 @@
 - Jetpack Compose UI for photo review, queue/status dashboards and shortcuts to diagnostics from the viewer.
 
 ### Changed
+- Enabled application logging by default with a one-time migration that turns it on for existing installs while keeping the settings toggle available for opt-out.
 - Removed the Wi-Fi only upload switch — the app now uses any available network when scheduling uploads.
 
 ### Testing

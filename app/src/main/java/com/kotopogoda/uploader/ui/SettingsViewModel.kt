@@ -257,7 +257,7 @@ data class SettingsUiState(
     val baseUrlInput: String,
     val isBaseUrlValid: Boolean = true,
     val isBaseUrlDirty: Boolean = false,
-    val appLoggingEnabled: Boolean = false,
+    val appLoggingEnabled: Boolean = true,
     val httpLoggingEnabled: Boolean = false,
     val queueNotificationPersistent: Boolean = false,
     val queueNotificationPermissionGranted: Boolean = true,
