@@ -132,20 +132,55 @@ class UploadEnqueuer @Inject constructor(
                 return
             }
         }
-        enqueueDrainWork(constraints, ExistingWorkPolicy.APPEND_OR_REPLACE)
+        val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
+        val expedited = constraintsProvider.shouldUseExpeditedWork()
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_schedule_request",
+                details = arrayOf(
+                    "source" to "enqueuer",
+                    "policy" to policy.name,
+                    "expedited" to expedited,
+                ),
+            ),
+        )
+        enqueueDrainWork(constraints, policy, expedited)
     }
 
     private fun cancelQueueDrainWork() {
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_cancel_request",
+                details = arrayOf(
+                    "source" to "enqueuer",
+                ),
+            ),
+        )
         workManagerProvider.get().cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
     }
 
-    private fun enqueueDrainWork(constraints: Constraints, policy: ExistingWorkPolicy) {
+    private fun enqueueDrainWork(
+        constraints: Constraints,
+        policy: ExistingWorkPolicy,
+        expedited: Boolean,
+    ) {
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)
-        if (constraintsProvider.shouldUseExpeditedWork()) {
+        if (expedited) {
             builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
         val request = builder.build()
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_enqueue",
+                details = arrayOf(
+                    "source" to "enqueuer",
+                    "requestId" to request.id,
+                    "policy" to policy.name,
+                    "tags" to request.tags.joinToString(separator = ";"),
+                ),
+            ),
+        )
         workManagerProvider.get().enqueueUniqueWork(
             QUEUE_DRAIN_WORK_NAME,
             policy,
