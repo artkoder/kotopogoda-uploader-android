@@ -113,9 +113,6 @@ object NetworkModule {
         @ApplicationContext context: Context,
         configuration: Configuration,
     ): WorkManager {
-        if (!WorkManager.isInitialized()) {
-            WorkManager.initialize(context, configuration)
-        }
         return WorkManager.getInstance(context)
     }
 
