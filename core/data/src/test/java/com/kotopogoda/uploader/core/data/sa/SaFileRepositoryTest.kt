@@ -1,9 +1,11 @@
 package com.kotopogoda.uploader.core.data.sa
 
 import android.app.PendingIntent
+import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Build
@@ -24,6 +26,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 
@@ -72,7 +75,8 @@ class SaFileRepositoryTest {
 
         val result = repository.moveToProcessing(safUri)
 
-        assertEquals(destinationUri, result)
+        val success = assertIs<MoveResult.Success>(result)
+        assertEquals(destinationUri, success.uri)
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { sourceDocument.delete() }
     }
@@ -101,7 +105,8 @@ class SaFileRepositoryTest {
 
         val result = repository.moveToProcessing(mediaUri)
 
-        assertEquals(mediaUri, result)
+        val success = assertIs<MoveResult.Success>(result)
+        assertEquals(mediaUri, success.uri)
         assertEquals("Pictures/На обработку/", valuesSlot.captured.getAsString(MediaStore.MediaColumns.RELATIVE_PATH))
         verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 1) { contentResolver.update(eq(mediaUri), any(), any(), any()) }
@@ -112,15 +117,54 @@ class SaFileRepositoryTest {
     }
 
     @Test
+    fun `moveToProcessing returns write confirmation when update throws RecoverableSecurityException`() = runTest {
+        val mediaUri = Uri.parse("content://media/external/images/media/99")
+        val destinationFolderUri = Uri.parse(
+            "content://com.android.providers.media.documents/tree/external%3Apictures/document/external%3Apictures%2FНа обработку"
+        )
+        val destinationFolder = mockk<DocumentFile>(relaxed = true)
+        val pendingIntent = mockk<PendingIntent>(relaxed = true)
+        val intentSender = mockk<IntentSender>()
+
+        every { destinationFolder.uri } returns destinationFolderUri
+        every { processingFolderProvider.ensure() } returns destinationFolder
+
+        mockkStatic(Build.VERSION::class)
+        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
+
+        mockkStatic(MediaStore::class)
+        every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
+        every { pendingIntent.intentSender } returns intentSender
+
+        mockkStatic(DocumentsContract::class)
+        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "external:Pictures/На обработку"
+
+        every {
+            contentResolver.update(eq(mediaUri), any(), any(), any())
+        } throws RecoverableSecurityException(
+            SecurityException("no access"),
+            "Need write permission",
+            intentSender
+        )
+
+        val result = repository.moveToProcessing(mediaUri)
+
+        val confirmation = assertIs<MoveResult.RequiresWritePermission>(result)
+        assertEquals(pendingIntent, confirmation.pendingIntent)
+        verify(exactly = 1) { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) }
+        verify(exactly = 1) { contentResolver.update(eq(mediaUri), any(), any(), any()) }
+        verify(exactly = 0) { contentResolver.getType(any()) }
+        verify(exactly = 0) { contentResolver.openInputStream(any()) }
+        verify(exactly = 0) { contentResolver.openOutputStream(any()) }
+    }
+    @Test
     fun `moveToProcessing copies and requests deletion for MediaStore document on different volume`() = runTest {
         val mediaUri = Uri.parse("content://media/external/images/media/42")
         val destinationUri = Uri.parse("content://com.example.destination/document/2")
-        val destinationFolderUri = Uri.parse(
-            "content://com.android.externalstorage.documents/tree/primary%3AKotopogoda/document/primary%3AKotopogoda%2FНа%20обработку"
-        )
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
         val destinationDocument = mockk<DocumentFile>(relaxed = true)
         val pendingIntent = mockk<PendingIntent>(relaxed = true)
+        val intentSender = mockk<IntentSender>()
         val inputBytes = "media-bytes".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
@@ -133,18 +177,18 @@ class SaFileRepositoryTest {
         mockkStatic(MediaStore::class)
         every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
+        every { pendingIntent.intentSender } returns intentSender
 
         mockkStatic(DocumentsContract::class)
-        val destinationFolderUri = Uri.parse("content://com.android.externalstorage.documents/document/1234-5678:Kotopogoda/Processing")
-        every { destinationFolder.uri } returns destinationFolderUri
-        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "1234-5678:Kotopogoda/Processing"
+        val destinationTreeUri = Uri.parse("content://com.android.externalstorage.documents/document/1234-5678:Kotopogoda/Processing")
+        every { destinationFolder.uri } returns destinationTreeUri
+        every { DocumentsContract.getDocumentId(destinationTreeUri) } returns "1234-5678:Kotopogoda/Processing"
 
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
         }
 
         every { processingFolderProvider.ensure() } returns destinationFolder
-        every { destinationFolder.uri } returns destinationFolderUri
         every { destinationFolder.listFiles() } returns emptyArray()
         every { destinationFolder.createFile("image/jpeg", "bar.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
@@ -153,20 +197,23 @@ class SaFileRepositoryTest {
         every { contentResolver.query(mediaUri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null) } returns cursor
         every { contentResolver.openInputStream(mediaUri) } returns ByteArrayInputStream(inputBytes)
         every { contentResolver.openOutputStream(destinationUri) } returns outputStream
-        every { pendingIntent.send() } returns Unit
+        every { contentResolver.delete(mediaUri, null, null) } throws RecoverableSecurityException(
+            SecurityException("no access"),
+            "Need delete permission",
+            intentSender
+        )
 
         val result = repository.moveToProcessing(mediaUri)
 
-        assertEquals(destinationUri, result)
+        val permission = assertIs<MoveResult.RequiresDeletePermission>(result)
+        assertEquals(pendingIntent, permission.pendingIntent)
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
-        verify(exactly = 1) { pendingIntent.send() }
-        verify(exactly = 0) { contentResolver.delete(mediaUri, any(), any()) }
+        verify(exactly = 1) { contentResolver.delete(mediaUri, null, null) }
         verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 0) { contentResolver.update(any(), any(), any(), any()) }
     }
-
     @Test
     fun `moveToProcessing updates MediaStore document within same volume`() = runTest {
         val mediaUri = Uri.parse("content://media/external_primary/images/media/777")
@@ -199,7 +246,8 @@ class SaFileRepositoryTest {
 
         val result = repository.moveToProcessing(mediaUri)
 
-        assertEquals(expectedProcessingUri, result)
+        val success = assertIs<MoveResult.Success>(result)
+        assertEquals(expectedProcessingUri, success.uri)
         verify(exactly = 1) {
             contentResolver.update(
                 eq(mediaUri),
@@ -248,7 +296,8 @@ class SaFileRepositoryTest {
 
         val result = repository.moveToProcessing(safUri)
 
-        assertEquals(destinationUri, result)
+        val success = assertIs<MoveResult.Success>(result)
+        assertEquals(destinationUri, success.uri)
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "foo-1.jpg") }
         verify(exactly = 0) { destinationFolder.createFile("image/jpeg", "foo.jpg") }
@@ -285,7 +334,8 @@ class SaFileRepositoryTest {
 
         val result = repository.moveToProcessing(safUri)
 
-        assertEquals(destinationUri, result)
+        val success = assertIs<MoveResult.Success>(result)
+        assertEquals(destinationUri, success.uri)
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "foo-1.jpg") }
     }
@@ -295,12 +345,13 @@ class SaFileRepositoryTest {
         val mediaUri = Uri.parse("content://media/external/images/media/42")
         val destinationUri = Uri.parse("content://com.example.destination/document/unique-media")
         val destinationFolderUri = Uri.parse(
-            "content://com.android.externalstorage.documents/tree/primary%3AKotopogoda/document/primary%3AKotopogoda%2FНа%20обработку"
+            "content://com.android.externalstorage.documents/tree/primary%3AKotopogoda/document/primary%3AKotopogoda%2FНа обработку"
         )
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
         val destinationDocument = mockk<DocumentFile>(relaxed = true)
         val existingDocument = mockk<DocumentFile>(relaxed = true)
         val pendingIntent = mockk<PendingIntent>(relaxed = true)
+        val intentSender = mockk<IntentSender>()
         val inputBytes = "media-duplicate".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
@@ -312,6 +363,7 @@ class SaFileRepositoryTest {
 
         mockkStatic(MediaStore::class)
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
+        every { pendingIntent.intentSender } returns intentSender
 
         mockkStatic(DocumentsContract::class)
         every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "primary:Kotopogoda/На обработку"
@@ -332,17 +384,23 @@ class SaFileRepositoryTest {
         every { contentResolver.query(mediaUri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null) } returns cursor
         every { contentResolver.openInputStream(mediaUri) } returns ByteArrayInputStream(inputBytes)
         every { contentResolver.openOutputStream(destinationUri) } returns outputStream
-        every { pendingIntent.send() } returns Unit
+        every { contentResolver.delete(mediaUri, null, null) } throws RecoverableSecurityException(
+            SecurityException("no access"),
+            "Need delete permission",
+            intentSender
+        )
 
         val result = repository.moveToProcessing(mediaUri)
 
-        assertEquals(destinationUri, result)
+        val permission = assertIs<MoveResult.RequiresDeletePermission>(result)
+        assertEquals(pendingIntent, permission.pendingIntent)
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "bar-1.jpg") }
         verify(exactly = 0) { destinationFolder.createFile("image/jpeg", "bar.jpg") }
+        verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
+        verify(exactly = 1) { contentResolver.delete(mediaUri, null, null) }
         verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
     }
-
     @Test
     fun `moveBack recreates file with unique name when duplicate exists`() = runTest {
         val processingUri = Uri.parse("content://com.example.processing/document/processing")
@@ -417,7 +475,8 @@ class SaFileRepositoryTest {
 
         val result = repository.moveToProcessing(safUri)
 
-        assertEquals(destinationUri, result)
+        val success = assertIs<MoveResult.Success>(result)
+        assertEquals(destinationUri, success.uri)
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "foo-3.jpg") }
     }

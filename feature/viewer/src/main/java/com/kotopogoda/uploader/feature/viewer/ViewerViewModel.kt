@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.feature.viewer.R
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.sa.MoveResult
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
@@ -384,20 +385,8 @@ class ViewerViewModel @Inject constructor(
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Processing
             try {
-                if (isAtLeastR()) {
-                    val mediaStoreUris = photos
-                        .map { it.uri }
-                        .filter { it.authority == MediaStore.AUTHORITY }
-                    if (mediaStoreUris.isNotEmpty()) {
-                        val pendingIntent = withContext(Dispatchers.IO) {
-                            MediaStore.createWriteRequest(context.contentResolver, mediaStoreUris)
-                        }
-                        pendingBatchMove = PendingBatchMove(photos)
-                        _events.emit(ViewerEvent.RequestWrite(pendingIntent.intentSender))
-                        return@launch
-                    }
-                }
-                finalizeBatchMove(photos)
+                pendingBatchMove = PendingBatchMove(photos = photos)
+                finalizePendingBatchMove()
             } catch (error: Exception) {
                 Timber.tag("UI").e(error, "Failed to request batch move")
                 _events.emit(
@@ -405,8 +394,10 @@ class ViewerViewModel @Inject constructor(
                         messageRes = R.string.viewer_snackbar_processing_failed
                     )
                 )
+                pendingBatchMove = null
                 _actionInProgress.value = null
                 pendingSingleMove = null
+                clearSelection()
             }
         }
     }
@@ -589,6 +580,31 @@ class ViewerViewModel @Inject constructor(
     }
 
     fun onDeleteResult(result: DeleteResult) {
+        val movePending = pendingBatchMove
+        if (movePending != null && movePending.requestType == MovePermissionType.Delete) {
+            when (result) {
+                DeleteResult.Success -> {
+                    viewModelScope.launch {
+                        pendingBatchMove = movePending.copy(requestType = null)
+                        finalizePendingBatchMove()
+                    }
+                }
+                DeleteResult.Cancelled, DeleteResult.Failed -> {
+                    pendingBatchMove = null
+                    pendingSingleMove = null
+                    viewModelScope.launch {
+                        _events.emit(
+                            ViewerEvent.ShowSnackbar(
+                                messageRes = R.string.viewer_snackbar_processing_failed
+                            )
+                        )
+                        clearSelection()
+                        _actionInProgress.value = null
+                    }
+                }
+            }
+            return
+        }
         val batch = pendingBatchDelete
         if (batch != null) {
             when (result) {
@@ -663,7 +679,7 @@ class ViewerViewModel @Inject constructor(
 
     fun onWriteRequestResult(granted: Boolean) {
         val pending = pendingBatchMove
-        if (pending == null) {
+        if (pending == null || pending.requestType != MovePermissionType.Write) {
             if (!granted) {
                 _actionInProgress.value = null
             }
@@ -684,7 +700,8 @@ class ViewerViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            finalizeBatchMove(pending.photos)
+            pendingBatchMove = pending.copy(requestType = null)
+            finalizePendingBatchMove()
         }
     }
 
@@ -824,23 +841,52 @@ class ViewerViewModel @Inject constructor(
         _actionInProgress.value = null
     }
 
-    private suspend fun finalizeBatchMove(photos: List<PhotoItem>) {
-        val singleMoveContext = pendingSingleMove?.takeIf { context ->
-            photos.size == 1 && photos.firstOrNull()?.uri == context.photo.uri
+    private suspend fun finalizePendingBatchMove() {
+        val currentState = pendingBatchMove ?: return
+        val remainingPhotos = currentState.photos
+        if (remainingPhotos.isEmpty()) {
+            pendingBatchMove = null
+            pendingSingleMove = null
+            clearSelection()
+            _actionInProgress.value = null
+            return
         }
-        var successCount = 0
-        var lastSuccessUri: Uri? = null
-        photos.forEach { photo ->
-            runCatching {
-                saFileRepository.moveToProcessing(photo.uri)
-            }.onSuccess { resultUri ->
-                successCount += 1
-                lastSuccessUri = resultUri
-                Timber.tag("UI").i("Batch moved photo %s to processing", photo.uri)
-            }.onFailure { error ->
-                Timber.tag("UI").e(error, "Failed to move %s during batch", photo.uri)
+        val singleMoveContext = pendingSingleMove
+        var successCount = currentState.successCount
+        var lastSuccessUri = currentState.lastSuccessUri
+        val photosToProcess = remainingPhotos
+        pendingBatchMove = currentState.copy(requestType = null)
+
+        photosToProcess.forEachIndexed { index, photo ->
+            when (val result = saFileRepository.moveToProcessing(photo.uri)) {
+                is MoveResult.Success -> {
+                    successCount += 1
+                    lastSuccessUri = result.uri
+                    Timber.tag("UI").i("Batch moved photo %s to processing", photo.uri)
+                }
+                is MoveResult.RequiresWritePermission -> {
+                    pendingBatchMove = currentState.copy(
+                        photos = photosToProcess.drop(index),
+                        successCount = successCount,
+                        lastSuccessUri = lastSuccessUri,
+                        requestType = MovePermissionType.Write
+                    )
+                    _events.emit(ViewerEvent.RequestWrite(result.pendingIntent.intentSender))
+                    return
+                }
+                is MoveResult.RequiresDeletePermission -> {
+                    pendingBatchMove = currentState.copy(
+                        photos = photosToProcess.drop(index),
+                        successCount = successCount,
+                        lastSuccessUri = lastSuccessUri,
+                        requestType = MovePermissionType.Delete
+                    )
+                    _events.emit(ViewerEvent.RequestDelete(result.pendingIntent.intentSender))
+                    return
+                }
             }
         }
+
         if (successCount > 0) {
             if (singleMoveContext != null) {
                 val processingUri = lastSuccessUri
@@ -870,6 +916,7 @@ class ViewerViewModel @Inject constructor(
                 _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_processing_success))
                 _events.emit(ViewerEvent.RefreshPhotos)
             }
+            Timber.tag("UI").i("Batch move completed for %d photos", successCount)
         } else {
             if (singleMoveContext != null) {
                 persistUndoStack()
@@ -1387,7 +1434,10 @@ class ViewerViewModel @Inject constructor(
     )
 
     private data class PendingBatchMove(
-        val photos: List<PhotoItem>
+        val photos: List<PhotoItem>,
+        val successCount: Int = 0,
+        val lastSuccessUri: Uri? = null,
+        val requestType: MovePermissionType? = null
     )
 
     private data class PendingSingleMove(
@@ -1396,6 +1446,8 @@ class ViewerViewModel @Inject constructor(
         val fromIndex: Int,
         val toIndex: Int
     )
+
+    private enum class MovePermissionType { Write, Delete }
 
     private data class DeleteBackup(val file: File) {
         val path: String = file.absolutePath
