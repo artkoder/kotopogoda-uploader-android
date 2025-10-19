@@ -259,7 +259,7 @@ class UploadEnqueuer @Inject constructor(
         )
 
         val requeued = try {
-            runBlocking { uploadItemsRepository.requeueAllProcessing() }
+            runBlocking { uploadItemsRepository.recoverStuckProcessing(threshold) }
         } catch (error: Throwable) {
             Timber.tag(LOG_TAG).e(
                 error,

@@ -6,7 +6,11 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.google.common.util.concurrent.ListenableFuture
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
@@ -28,6 +32,7 @@ import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import java.util.UUID
 import timber.log.Timber
 import javax.inject.Provider
 
@@ -249,6 +254,61 @@ class UploadEnqueuerTest {
             )
         }
         verify(exactly = 0) { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
+    }
+
+    @Test
+    fun `scheduleDrain requeues only stale processing items when resetting stuck chain`() = runBlocking {
+        val enqueuer = createEnqueuer()
+        val stuckStartedAt = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
+        val head = mockk<WorkInfo>()
+        every { head.state } returns WorkInfo.State.RUNNING
+        every { head.progress } returns workDataOf(
+            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to stuckStartedAt,
+        )
+        every { head.nextScheduleTimeMillis } returns stuckStartedAt
+        every { head.id } returns UUID.randomUUID()
+        val future = mockk<ListenableFuture<List<WorkInfo>>>()
+        every { future.get() } returns listOf(head)
+
+        val states = mutableMapOf(
+            1L to UploadItemState.PROCESSING,
+            2L to UploadItemState.PROCESSING,
+        )
+        val updatedAt = mutableMapOf(
+            1L to stuckStartedAt,
+            2L to System.currentTimeMillis(),
+        )
+
+        coEvery { uploadItemsRepository.recoverStuckProcessing(any()) } answers {
+            val threshold = firstArg<Long>()
+            var requeued = 0
+            states.forEach { (id, state) ->
+                val lastUpdated = updatedAt.getValue(id)
+                if (state == UploadItemState.PROCESSING && lastUpdated <= threshold) {
+                    states[id] = UploadItemState.QUEUED
+                    requeued += 1
+                }
+            }
+            requeued
+        }
+
+        clearMocks(workManager, answers = false)
+        every { workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns future
+        every { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                any<OneTimeWorkRequest>(),
+            )
+        } returns mockk(relaxed = true)
+
+        enqueuer.scheduleDrain()
+
+        assertEquals(UploadItemState.QUEUED, states[1L])
+        assertEquals(UploadItemState.PROCESSING, states[2L])
+        coVerify { uploadItemsRepository.recoverStuckProcessing(any()) }
+        verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
     }
 
     @Test

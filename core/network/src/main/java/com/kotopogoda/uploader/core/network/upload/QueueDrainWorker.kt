@@ -264,7 +264,7 @@ class QueueDrainWorker @AssistedInject constructor(
         )
 
         val requeued = try {
-            repository.requeueAllProcessing()
+            repository.recoverStuckProcessing(threshold)
         } catch (error: Throwable) {
             Timber.tag(LOG_TAG).e(
                 error,
