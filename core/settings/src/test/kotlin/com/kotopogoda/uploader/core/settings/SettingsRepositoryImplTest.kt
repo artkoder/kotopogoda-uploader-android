@@ -22,6 +22,30 @@ import org.junit.Test
 class SettingsRepositoryImplTest {
 
     @Test
+    fun appLogging_defaultTrue_whenNotPersisted() = runTest {
+        val permissionProvider = FakeNotificationPermissionProvider(initial = true)
+        val dataStore = createDataStore(backgroundScope)
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+
+        val settings = repository.flow.first()
+
+        assertTrue(settings.appLogging)
+    }
+
+    @Test
+    fun httpLogging_defaultFalse_whenNotPersisted() = runTest {
+        val permissionProvider = FakeNotificationPermissionProvider(initial = true)
+        val dataStore = createDataStore(backgroundScope)
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+
+        val settings = repository.flow.first()
+
+        assertFalse(settings.httpLogging)
+    }
+
+    @Test
     fun persistentQueueNotification_defaultFalse_whenPermissionMissing() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = false)
         val dataStore = createDataStore(backgroundScope)
