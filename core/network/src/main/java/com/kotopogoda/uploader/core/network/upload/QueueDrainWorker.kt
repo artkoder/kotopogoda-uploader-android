@@ -60,10 +60,6 @@ class QueueDrainWorker @AssistedInject constructor(
         }
 
         val constraints = constraintsProvider.awaitConstraints()
-        if (constraints == null) {
-            Timber.tag("WorkManager").w("Upload constraints not available yet, retrying queue drain")
-            return@withContext Result.retry()
-        }
 
         for (item in queued) {
             val markedProcessing = repository.markProcessing(item.id)

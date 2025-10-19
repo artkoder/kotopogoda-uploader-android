@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface UploadConstraintsProvider {
     val constraintsState: StateFlow<Constraints?>
 
-    suspend fun awaitConstraints(): Constraints?
+    suspend fun awaitConstraints(): Constraints
 
     fun buildConstraints(): Constraints
 

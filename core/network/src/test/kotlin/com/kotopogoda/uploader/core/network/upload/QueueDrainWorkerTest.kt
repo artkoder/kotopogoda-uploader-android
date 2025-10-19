@@ -77,7 +77,7 @@ class QueueDrainWorkerTest {
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.hasQueued() } returns false
         every { constraintsProvider.constraintsState } returns constraintsState
-        coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value }
+        coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value ?: Constraints.NONE }
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
         every {
@@ -379,7 +379,7 @@ class QueueDrainWorkerTest {
     }
 
     @Test
-    fun `worker retries when constraints not yet available`() = runTest {
+    fun `worker proceeds when constraints available`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
         val constraintsProvider = mockk<UploadConstraintsProvider>()
@@ -394,7 +394,17 @@ class QueueDrainWorkerTest {
 
         coEvery { repository.recoverStuckProcessing(any()) } returns 0
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
-        coEvery { constraintsProvider.awaitConstraints() } returns null
+        coEvery { repository.markProcessing(queueItem.id) } returns true
+        coEvery { repository.hasQueued() } returns false
+        coEvery { constraintsProvider.awaitConstraints() } returns Constraints.NONE
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                any<OneTimeWorkRequest>()
+            )
+        } returns mockk(relaxed = true)
 
         val worker = QueueDrainWorker(
             context,
@@ -406,9 +416,9 @@ class QueueDrainWorkerTest {
 
         val result = worker.doWork()
 
-        assertEquals(Result.retry(), result)
-        coVerify(exactly = 0) { repository.markProcessing(any()) }
-        verify(exactly = 0) {
+        assertEquals(Result.success(), result)
+        coVerify { repository.markProcessing(queueItem.id) }
+        verify {
             workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>())
         }
     }

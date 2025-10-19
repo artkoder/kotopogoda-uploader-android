@@ -497,20 +497,6 @@ class UploadWorker @AssistedInject constructor(
         uri: Uri,
     ) {
         val constraints = constraintsProvider.awaitConstraints()
-        if (constraints == null) {
-            Timber.tag("WorkManager").w(
-                UploadLog.message(
-                    action = "upload_poll_skipped",
-                    itemId = itemId,
-                    uri = uri,
-                    details = arrayOf(
-                        "displayName" to displayName,
-                        "reason" to "constraints_unavailable",
-                    ),
-                )
-            )
-            return
-        }
         val uniqueName = UploadEnqueuer.uniqueNameForUri(uri)
         val pollRequestBuilder = OneTimeWorkRequestBuilder<PollStatusWorker>()
             .setConstraints(constraints)
