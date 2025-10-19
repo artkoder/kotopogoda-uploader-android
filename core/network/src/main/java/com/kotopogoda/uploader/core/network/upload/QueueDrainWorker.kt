@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.core.network.upload
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -66,7 +67,7 @@ class QueueDrainWorker @AssistedInject constructor(
             return@withContext Result.success()
         }
 
-        val constraints = constraintsProvider.awaitConstraints() ?: constraintsProvider.buildConstraints()
+        val constraints = ensureConstraints(source = "worker")
 
         for (item in queued) {
             val markedProcessing = repository.markProcessing(item.id)
@@ -146,27 +147,7 @@ class QueueDrainWorker @AssistedInject constructor(
         val workManager = workManagerProvider.get()
         maybeResetStuckDrainChain(workManager, source = "worker")
         val constraints = try {
-            constraintsProvider.awaitConstraints()
-                ?: run {
-                    Timber.tag(LOG_TAG).i(
-                        UploadLog.message(
-                            action = "drain_worker_constraints_missing",
-                            details = arrayOf(
-                                "source" to "worker",
-                            ),
-                        ),
-                    )
-                    constraintsProvider.buildConstraints().also {
-                        Timber.tag(LOG_TAG).i(
-                            UploadLog.message(
-                                action = "drain_worker_constraints_built",
-                                details = arrayOf(
-                                    "source" to "worker",
-                                ),
-                            ),
-                        )
-                    }
-                }
+            ensureConstraints(source = "worker")
         } catch (error: Throwable) {
             Timber.tag(LOG_TAG).e(
                 error,
@@ -198,6 +179,33 @@ class QueueDrainWorker @AssistedInject constructor(
                 ),
             ),
         )
+    }
+
+    private suspend fun ensureConstraints(source: String): Constraints {
+        val hadConstraints = constraintsProvider.constraintsState.value != null
+        if (!hadConstraints) {
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_constraints_missing",
+                    details = arrayOf(
+                        "source" to source,
+                    ),
+                ),
+            )
+        }
+
+        return constraintsProvider.awaitConstraints().also {
+            if (!hadConstraints) {
+                Timber.tag(LOG_TAG).i(
+                    UploadLog.message(
+                        action = "drain_worker_constraints_built",
+                        details = arrayOf(
+                            "source" to source,
+                        ),
+                    ),
+                )
+            }
+        }
     }
 
     private suspend fun maybeResetStuckDrainChain(
