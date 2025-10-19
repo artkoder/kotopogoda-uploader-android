@@ -33,7 +33,6 @@ class UploadEnqueuerTest {
     private val summaryStarter = mockk<UploadSummaryStarter>(relaxed = true)
     private val uploadItemsRepository = mockk<UploadQueueRepository>(relaxed = true)
     private val constraintsProvider = mockk<UploadConstraintsProvider>()
-    private val wifiOnlyState = MutableStateFlow<Boolean?>(false)
     private val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
 
     init {
@@ -43,7 +42,6 @@ class UploadEnqueuerTest {
     }
 
     private fun resetConstraintMocks() {
-        every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
@@ -81,7 +79,7 @@ class UploadEnqueuerTest {
         verify(timeout = 1_000L) {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 any<OneTimeWorkRequest>(),
             )
         }
@@ -90,7 +88,7 @@ class UploadEnqueuerTest {
         assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
         assertTrue(request.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, request.workSpec.outOfQuotaPolicy)
-        assertEquals(listOf(ExistingWorkPolicy.REPLACE), policies)
+        assertEquals(listOf(ExistingWorkPolicy.APPEND_OR_REPLACE), policies)
     }
 
     @Test
@@ -252,7 +250,6 @@ class UploadEnqueuerTest {
     fun enqueue_moreThanBatchSizeItems_queuesDrainSequentially() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
-        wifiOnlyState.value = true
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
         val policies = mutableListOf<ExistingWorkPolicy>()

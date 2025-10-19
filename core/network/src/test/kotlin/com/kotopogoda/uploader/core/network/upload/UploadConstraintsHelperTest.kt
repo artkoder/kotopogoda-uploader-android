@@ -10,7 +10,6 @@ class UploadConstraintsHelperTest {
     fun `returns default states`() {
         val helper = UploadConstraintsHelper()
 
-        assertEquals(false, helper.wifiOnlyUploadsState.value)
         assertEquals(NetworkType.CONNECTED, helper.constraintsState.value?.requiredNetworkType)
     }
 
