@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -31,6 +32,7 @@ class QueueDrainWorker @AssistedInject constructor(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val workManager = workManagerProvider.get()
         Timber.tag(LOG_TAG).i(UploadLog.message(action = "drain_worker_start"))
+        setProgress(workDataOf(PROGRESS_KEY_STARTED_AT to System.currentTimeMillis()))
         val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
         repository.recoverStuckProcessing(updatedBefore)
         val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
@@ -137,8 +139,9 @@ class QueueDrainWorker @AssistedInject constructor(
         Result.success()
     }
 
-    private fun enqueueSelf() {
+    private suspend fun enqueueSelf() {
         val workManager = workManagerProvider.get()
+        maybeResetStuckDrainChain(workManager, source = "worker")
         val constraints = constraintsProvider.constraintsState.value ?: run {
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(
@@ -191,6 +194,96 @@ class QueueDrainWorker @AssistedInject constructor(
                 details = arrayOf(
                     "policy" to policy.name,
                     "expedited" to expedited,
+                    "requestId" to request.id,
+                ),
+            ),
+        )
+    }
+
+    private suspend fun maybeResetStuckDrainChain(
+        workManager: WorkManager,
+        source: String,
+    ) {
+        val infos = try {
+            workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME).get()
+        } catch (error: Throwable) {
+            Timber.tag(LOG_TAG).w(
+                error,
+                UploadLog.message(
+                    action = "drain_worker_chain_inspect_error",
+                    details = arrayOf(
+                        "source" to source,
+                    ),
+                ),
+            )
+            return
+        }
+
+        val head = infos.firstOrNull() ?: return
+        if (head.state != WorkInfo.State.ENQUEUED && head.state != WorkInfo.State.RUNNING) {
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val threshold = now - UploadQueueRepository.STUCK_TIMEOUT_MS
+        val stuckSince = listOfNotNull(
+            head.progress.getLong(PROGRESS_KEY_STARTED_AT, 0L).takeIf { it > 0L && it <= now },
+            head.nextScheduleTimeMillis.takeIf { it > 0L && it <= now },
+        ).minOrNull()
+
+        if (stuckSince == null || stuckSince > threshold) {
+            return
+        }
+
+        Timber.tag(LOG_TAG).w(
+            UploadLog.message(
+                action = "drain_worker_chain_stuck",
+                details = arrayOf(
+                    "source" to source,
+                    "workId" to head.id,
+                    "state" to head.state.name,
+                    "since" to stuckSince,
+                    "now" to now,
+                    "nextSchedule" to head.nextScheduleTimeMillis,
+                    "startedAt" to head.progress.getLong(
+                        PROGRESS_KEY_STARTED_AT,
+                        0L,
+                    ),
+                ),
+            ),
+        )
+
+        workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_chain_cancel",
+                details = arrayOf(
+                    "source" to source,
+                ),
+            ),
+        )
+
+        val requeued = try {
+            repository.requeueAllProcessing()
+        } catch (error: Throwable) {
+            Timber.tag(LOG_TAG).e(
+                error,
+                UploadLog.message(
+                    action = "drain_worker_chain_requeue_error",
+                    details = arrayOf(
+                        "source" to source,
+                    ),
+                ),
+            )
+            return
+        }
+
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_chain_requeue",
+                details = arrayOf(
+                    "source" to source,
+                    "requeued" to requeued,
                 ),
             ),
         )
@@ -198,6 +291,7 @@ class QueueDrainWorker @AssistedInject constructor(
     companion object {
         private const val BATCH_SIZE = 5
         private const val LOG_TAG = "WorkManager"
+        internal const val PROGRESS_KEY_STARTED_AT = "drainWorkerStartedAt"
 
         internal fun resetEnqueuePolicy() {
         }
