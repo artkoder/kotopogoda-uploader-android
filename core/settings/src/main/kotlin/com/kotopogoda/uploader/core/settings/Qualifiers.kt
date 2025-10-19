@@ -10,6 +10,3 @@ annotation class DefaultBaseUrl
 @Retention(AnnotationRetention.BINARY)
 annotation class SettingsPreferencesStore
 
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-annotation class WifiOnlyUploadsFlow

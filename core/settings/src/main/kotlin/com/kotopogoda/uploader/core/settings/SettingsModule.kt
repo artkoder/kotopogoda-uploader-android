@@ -17,8 +17,6 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -45,13 +43,5 @@ abstract class SettingsModule {
             }
         }
 
-        @Provides
-        @Singleton
-        @WifiOnlyUploadsFlow
-        fun provideWifiOnlyUploadsFlow(
-            settingsRepository: SettingsRepository,
-        ): Flow<Boolean> {
-            return settingsRepository.flow.map { it.wifiOnlyUploads }
-        }
     }
 }
