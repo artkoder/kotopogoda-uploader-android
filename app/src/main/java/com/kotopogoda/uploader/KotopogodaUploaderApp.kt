@@ -14,7 +14,11 @@ import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadSummaryService
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
+import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,9 +28,6 @@ import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class KotopogodaUploaderApp : Application(), Configuration.Provider {
-
-    @Inject
-    lateinit var workManagerConfigurationDelegate: Configuration
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
@@ -81,11 +82,20 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     }
 
     override val workManagerConfiguration: Configuration
-        get() = workManagerConfigurationDelegate
+        get() = EntryPointAccessors.fromApplication(
+            this,
+            WorkManagerConfigurationEntryPoint::class.java
+        ).workManagerConfiguration()
 
     override fun onTerminate() {
         super.onTerminate()
         networkMonitor.stop()
         scope.cancel()
+    }
+
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface WorkManagerConfigurationEntryPoint {
+        fun workManagerConfiguration(): Configuration
     }
 }
