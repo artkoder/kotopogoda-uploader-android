@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
 import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
@@ -70,6 +71,17 @@ class UploadWorker @AssistedInject constructor(
         val displayName = inputData.getString(UploadEnqueuer.KEY_DISPLAY_NAME) ?: DEFAULT_FILE_NAME
         val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext Result.failure()
 
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                action = "upload_worker_start",
+                itemId = itemId,
+                uri = uri,
+                details = arrayOf(
+                    "displayName" to displayName,
+                ),
+            )
+        )
+
         currentItemId = itemId
         try {
             val totalBytes = appContext.contentResolver
@@ -89,6 +101,18 @@ class UploadWorker @AssistedInject constructor(
                 ?: DEFAULT_MIME_TYPE
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
             val payload = readDocumentPayload(uri, totalBytes, displayName, mediaType)
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    action = "upload_prepare_request",
+                    itemId = itemId,
+                    uri = uri,
+                    details = arrayOf(
+                        "displayName" to displayName,
+                        "mimeType" to mimeType,
+                        "size" to payload.size,
+                    ),
+                )
+            )
 
             var lastReportedPercent = -1
             var lastBytesSent: Long? = null
@@ -104,6 +128,19 @@ class UploadWorker @AssistedInject constructor(
                     lastReportedPercent = percent
                     runBlocking {
                         lastBytesSent = bytesSent
+                        Timber.tag("WorkManager").i(
+                            UploadLog.message(
+                                action = "upload_progress",
+                                itemId = itemId,
+                                uri = uri,
+                                details = buildList {
+                                    add("displayName" to displayName)
+                                    add("progress" to percent)
+                                    add("bytesSent" to bytesSent)
+                                    payload.size.takeIf { it > 0 }?.let { add("totalBytes" to it) }
+                                }.toTypedArray(),
+                            )
+                        )
                         updateProgress(
                             displayName = displayName,
                             progress = percent,
@@ -119,6 +156,17 @@ class UploadWorker @AssistedInject constructor(
                 displayName,
                 fileRequestBody
             )
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    action = "upload_request_send",
+                    itemId = itemId,
+                    uri = uri,
+                    details = arrayOf(
+                        "displayName" to displayName,
+                        "idempotencyKey" to idempotencyKey,
+                    ),
+                )
+            )
             val response = try {
                 uploadApi.upload(
                     idempotencyKey = idempotencyKey,
@@ -132,6 +180,18 @@ class UploadWorker @AssistedInject constructor(
             } catch (io: IOException) {
                 return@withContext retryResult(displayName, UploadErrorKind.NETWORK)
             }
+
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    action = "upload_response_code",
+                    itemId = itemId,
+                    uri = uri,
+                    details = arrayOf(
+                        "displayName" to displayName,
+                        "httpCode" to response.code(),
+                    ),
+                )
+            )
 
             when (response.code()) {
                 202, 409 -> {
@@ -152,6 +212,18 @@ class UploadWorker @AssistedInject constructor(
                             uploadId = uploadId,
                             bytesSent = lastProgressSnapshot.bytesSent,
                             totalBytes = lastProgressSnapshot.totalBytes
+                        )
+                        Timber.tag("WorkManager").i(
+                            UploadLog.message(
+                                action = "upload_worker_success",
+                                itemId = itemId,
+                                uri = uri,
+                                details = buildList {
+                                    add("displayName" to displayName)
+                                    add("uploadId" to uploadId)
+                                    add("bytesSent" to (lastProgressSnapshot.bytesSent ?: payload.size))
+                                }.toTypedArray(),
+                            )
                         )
                         enqueuePollWork(
                             itemId = itemId,
@@ -299,6 +371,22 @@ class UploadWorker @AssistedInject constructor(
         httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
         setProgress(builder.build())
         setForeground(createForeground(displayName, resolvedProgress))
+
+        val details = buildList {
+            add("displayName" to displayName)
+            add("progress" to resolvedProgress)
+            resolvedBytesSent?.let { add("bytesSent" to it) }
+            resolvedTotalBytes?.let { add("totalBytes" to it) }
+            errorKind?.let { add("errorKind" to it) }
+            httpCode?.let { add("httpCode" to it) }
+        }
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                action = "upload_progress_state",
+                itemId = currentItemId,
+                details = details.toTypedArray(),
+            )
+        )
     }
 
     private suspend fun recordError(
@@ -322,6 +410,17 @@ class UploadWorker @AssistedInject constructor(
         errorKind: UploadErrorKind,
         httpCode: Int? = null
     ): Result {
+        Timber.tag("WorkManager").w(
+            UploadLog.message(
+                action = "upload_retry",
+                itemId = currentItemId,
+                details = buildList {
+                    add("displayName" to displayName)
+                    add("errorKind" to errorKind)
+                    httpCode?.let { add("httpCode" to it) }
+                }.toTypedArray(),
+            )
+        )
         recordError(displayName, errorKind, httpCode)
         return Result.retry()
     }
@@ -333,6 +432,19 @@ class UploadWorker @AssistedInject constructor(
         errorKind: UploadErrorKind,
         httpCode: Int? = null
     ): Result {
+        val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
+        Timber.tag("WorkManager").e(
+            UploadLog.message(
+                action = "upload_failure",
+                itemId = itemId,
+                uri = parsedUri,
+                details = buildList {
+                    add("displayName" to displayName)
+                    add("errorKind" to errorKind)
+                    httpCode?.let { add("httpCode" to it) }
+                }.toTypedArray(),
+            )
+        )
         recordError(displayName, errorKind, httpCode)
         uploadQueueRepository.markFailed(
             id = itemId,
@@ -387,8 +499,15 @@ class UploadWorker @AssistedInject constructor(
         val constraints = constraintsProvider.awaitConstraints()
         if (constraints == null) {
             Timber.tag("WorkManager").w(
-                "Poll constraints unavailable, skipping scheduling for %s",
-                uriString,
+                UploadLog.message(
+                    action = "upload_poll_skipped",
+                    itemId = itemId,
+                    uri = uri,
+                    details = arrayOf(
+                        "displayName" to displayName,
+                        "reason" to "constraints_unavailable",
+                    ),
+                )
             )
             return
         }
@@ -419,6 +538,17 @@ class UploadWorker @AssistedInject constructor(
             "$uniqueName:poll",
             ExistingWorkPolicy.REPLACE,
             pollRequest,
+        )
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                action = "upload_poll_scheduled",
+                itemId = itemId,
+                uri = uri,
+                details = arrayOf(
+                    "displayName" to displayName,
+                    "uploadId" to uploadId,
+                ),
+            )
         )
     }
 
