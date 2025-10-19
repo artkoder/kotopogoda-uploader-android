@@ -5,7 +5,6 @@ import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
@@ -213,20 +212,15 @@ class UploadEnqueuer @Inject constructor(
             return
         }
 
-        val head = infos.firstOrNull() ?: return
-        if (head.state != WorkInfo.State.ENQUEUED && head.state != WorkInfo.State.RUNNING) {
-            return
-        }
-
         val now = System.currentTimeMillis()
-        val threshold = now - UploadItemsRepository.STUCK_TIMEOUT_MS
-        val stuckSince = listOfNotNull(
-            head.progress.getLong(QueueDrainWorker.PROGRESS_KEY_STARTED_AT, 0L)
-                .takeIf { it > 0L && it <= now },
-            head.nextScheduleTimeMillis.takeIf { it > 0L && it <= now },
-        ).minOrNull()
+        val candidate = findDrainChainCandidate(
+            infos = infos,
+            now = now,
+            progressKey = QueueDrainWorker.PROGRESS_KEY_STARTED_AT,
+        ) ?: return
 
-        if (stuckSince == null || stuckSince > threshold) {
+        val threshold = now - UploadItemsRepository.STUCK_TIMEOUT_MS
+        if (candidate.stuckSince > threshold) {
             return
         }
 
@@ -235,15 +229,16 @@ class UploadEnqueuer @Inject constructor(
                 action = "drain_worker_chain_stuck",
                 details = arrayOf(
                     "source" to source,
-                    "workId" to head.id,
-                    "state" to head.state.name,
-                    "since" to stuckSince,
+                    "workId" to candidate.info.id,
+                    "state" to candidate.info.state.name,
+                    "since" to candidate.stuckSince,
                     "now" to now,
-                    "nextSchedule" to head.nextScheduleTimeMillis,
-                    "startedAt" to head.progress.getLong(
+                    "nextSchedule" to candidate.info.nextScheduleTimeMillis,
+                    "startedAt" to candidate.info.progress.getLong(
                         QueueDrainWorker.PROGRESS_KEY_STARTED_AT,
                         0L,
                     ),
+                    "checked" to candidate.checked,
                 ),
             ),
         )
@@ -254,6 +249,7 @@ class UploadEnqueuer @Inject constructor(
                 action = "drain_worker_chain_cancel",
                 details = arrayOf(
                     "source" to source,
+                    "checked" to candidate.checked,
                 ),
             ),
         )
@@ -279,6 +275,7 @@ class UploadEnqueuer @Inject constructor(
                 details = arrayOf(
                     "source" to source,
                     "requeued" to requeued,
+                    "checked" to candidate.checked,
                 ),
             ),
         )

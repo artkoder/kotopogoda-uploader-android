@@ -309,6 +309,76 @@ class QueueDrainWorkerTest {
     }
 
     @Test
+    fun `worker chain reset inspects all enqueued work infos`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val now = System.currentTimeMillis()
+        val freshStartedAt = now - UploadQueueRepository.STUCK_TIMEOUT_MS / 2
+        val staleStartedAt = now - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
+
+        val fresh = mockk<WorkInfo>()
+        every { fresh.state } returns WorkInfo.State.ENQUEUED
+        every { fresh.progress } returns workDataOf(
+            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to freshStartedAt,
+        )
+        every { fresh.nextScheduleTimeMillis } returns freshStartedAt
+        every { fresh.id } returns UUID.randomUUID()
+
+        val staleId = UUID.randomUUID()
+        val stale = mockk<WorkInfo>()
+        every { stale.state } returns WorkInfo.State.RUNNING
+        every { stale.progress } returns workDataOf(
+            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to staleStartedAt,
+        )
+        every { stale.nextScheduleTimeMillis } returns staleStartedAt
+        every { stale.id } returns staleId
+
+        val future = mockk<ListenableFuture<List<WorkInfo>>>()
+        every { future.get() } returns listOf(fresh, stale)
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 1
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns emptyList()
+        coEvery { repository.hasQueued() } returns false
+
+        every { constraintsProvider.constraintsState } returns constraintsState
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
+        every { workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns future
+        every { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                any<OneTimeWorkRequest>(),
+            )
+        } returns mockk(relaxed = true)
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            providerOf(workManager),
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        coVerify { repository.recoverStuckProcessing(any()) }
+        verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
+        logTree.assertActionLogged(
+            action = "drain_worker_chain_stuck",
+            predicate = {
+                it.contains("workId=$staleId") &&
+                    it.contains("checked=2")
+            },
+        )
+    }
+
+    @Test
     fun `worker retries when constraints not yet available`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
