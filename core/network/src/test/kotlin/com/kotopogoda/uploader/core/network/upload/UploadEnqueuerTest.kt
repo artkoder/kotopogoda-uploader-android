@@ -312,6 +312,59 @@ class UploadEnqueuerTest {
     }
 
     @Test
+    fun `scheduleDrain resets stale entry even when it is not the first in chain`() = runBlocking {
+        val enqueuer = createEnqueuer()
+        val now = System.currentTimeMillis()
+        val freshStartedAt = now - UploadQueueRepository.STUCK_TIMEOUT_MS / 2
+        val staleStartedAt = now - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
+
+        val fresh = mockk<WorkInfo>()
+        every { fresh.state } returns WorkInfo.State.ENQUEUED
+        every { fresh.progress } returns workDataOf(
+            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to freshStartedAt,
+        )
+        every { fresh.nextScheduleTimeMillis } returns freshStartedAt
+        every { fresh.id } returns UUID.randomUUID()
+
+        val staleId = UUID.randomUUID()
+        val stale = mockk<WorkInfo>()
+        every { stale.state } returns WorkInfo.State.RUNNING
+        every { stale.progress } returns workDataOf(
+            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to staleStartedAt,
+        )
+        every { stale.nextScheduleTimeMillis } returns staleStartedAt
+        every { stale.id } returns staleId
+
+        val future = mockk<ListenableFuture<List<WorkInfo>>>()
+        every { future.get() } returns listOf(fresh, stale)
+
+        coEvery { uploadItemsRepository.recoverStuckProcessing(any()) } returns 1
+
+        clearMocks(workManager, answers = false)
+        every { workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns future
+        every { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                any<OneTimeWorkRequest>(),
+            )
+        } returns mockk(relaxed = true)
+
+        enqueuer.scheduleDrain()
+
+        verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
+        coVerify { uploadItemsRepository.recoverStuckProcessing(any()) }
+        logTree.assertActionLogged(
+            action = "drain_worker_chain_stuck",
+            predicate = {
+                it.contains("workId=$staleId") &&
+                    it.contains("checked=2")
+            },
+        )
+    }
+
+    @Test
     fun cancelAllUploads_cancelsTagsAndUpdatesRepository() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
