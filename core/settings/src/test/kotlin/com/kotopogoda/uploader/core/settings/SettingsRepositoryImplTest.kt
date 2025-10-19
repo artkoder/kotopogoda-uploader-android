@@ -5,17 +5,20 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import java.io.File
 import kotlin.io.path.createTempDirectory
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.advanceUntilIdle
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SettingsRepositoryImplTest {
 
     @Test
@@ -53,47 +56,16 @@ class SettingsRepositoryImplTest {
         assertFalse(initial.persistentQueueNotification)
 
         permissionProvider.set(true)
-        val updated = repository.flow.drop(1).first()
+        advanceUntilIdle()
+        val updated = repository.flow.first { it.persistentQueueNotification }
 
         assertTrue(updated.persistentQueueNotification)
-    }
-
-    @Test
-    fun wifiOnlyUploads_defaultsToFalse() = runTest {
-        val permissionProvider = FakeNotificationPermissionProvider(initial = true)
-        val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
-
-        val settings = repository.flow.first()
-
-        assertFalse(settings.wifiOnlyUploads)
-    }
-
-    @Test
-    fun wifiOnlyUploads_persistsChanges() = runTest {
-        val permissionProvider = FakeNotificationPermissionProvider(initial = true)
-        val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
-
-        repository.setWifiOnlyUploads(true)
-
-        val updated = repository.flow.drop(1).first()
-
-        assertTrue(updated.wifiOnlyUploads)
-
-        repository.setWifiOnlyUploads(false)
-
-        val reverted = repository.flow.drop(1).first()
-
-        assertFalse(reverted.wifiOnlyUploads)
     }
 
     private fun createRepository(
         dataStore: DataStore<Preferences>,
         permissionProvider: NotificationPermissionProvider,
-        dispatcher: StandardTestDispatcher,
+        dispatcher: CoroutineDispatcher,
     ): SettingsRepositoryImpl {
         return SettingsRepositoryImpl(
             dataStore = dataStore,

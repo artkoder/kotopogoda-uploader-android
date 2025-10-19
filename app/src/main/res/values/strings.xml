@@ -16,8 +16,6 @@
     <string name="settings_base_url_label">База URL</string>
     <string name="settings_base_url_error">Введите корректный адрес (http или https)</string>
     <string name="settings_base_url_save">Сохранить</string>
-    <string name="settings_wifi_only_uploads">Загрузка только по Wi‑Fi</string>
-    <string name="settings_wifi_only_uploads_desc">Использовать только безлимитное подключение для отправки файлов.</string>
     <string name="settings_section_logging">Логирование</string>
     <string name="settings_app_logging">Логи приложения</string>
     <string name="settings_app_logging_desc">Записывать сообщения в файл (до 5 файлов по 1 МБ).</string>

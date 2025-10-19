@@ -11,14 +11,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadI
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlin.text.Charsets
 import timber.log.Timber
 
@@ -29,10 +22,6 @@ class UploadEnqueuer @Inject constructor(
     private val uploadItemsRepository: UploadItemsRepository,
     private val constraintsProvider: UploadConstraintsProvider,
 ) {
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var constraintsObservationJob: Job? = null
-    private var lastObservedWifiOnly: Boolean? = null
 
     suspend fun enqueue(uri: Uri, idempotencyKey: String, displayName: String) {
         uploadItemsRepository.enqueue(uri, idempotencyKey)
@@ -104,67 +93,12 @@ class UploadEnqueuer @Inject constructor(
     }
 
     fun scheduleDrain() {
-        ensureConstraintsObservation()
         val constraints = constraintsProvider.constraintsState.value ?: return
         enqueueDrainWork(constraints, ExistingWorkPolicy.APPEND_OR_REPLACE)
     }
 
     private fun cancelQueueDrainWork() {
         workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
-    }
-
-    private fun ensureConstraintsObservation() {
-        if (constraintsObservationJob != null) {
-            return
-        }
-        constraintsObservationJob = constraintsProvider.wifiOnlyUploadsState
-            .filterNotNull()
-            .onEach { wifiOnly ->
-                val previousValue = lastObservedWifiOnly
-                lastObservedWifiOnly = wifiOnly
-                val switchedToMobile = previousValue == true && wifiOnly == false
-                val switchedToWifi = previousValue == false && wifiOnly == true
-                if (switchedToMobile) {
-                    Timber.tag("WorkManager").i(
-                        UploadLog.message(
-                            action = "wifi_only_disabled",
-                            details = arrayOf(
-                                "previous" to previousValue,
-                                "current" to wifiOnly,
-                            ),
-                        ),
-                    )
-                }
-                if (switchedToWifi) {
-                    Timber.tag("WorkManager").i(
-                        UploadLog.message(
-                            action = "wifi_only_enabled",
-                            details = arrayOf(
-                                "previous" to previousValue,
-                                "current" to wifiOnly,
-                            ),
-                        ),
-                    )
-                }
-                if (switchedToMobile || switchedToWifi) {
-                    workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD)
-                    workManager.cancelAllWorkByTag(UploadTags.TAG_POLL)
-                    uploadItemsRepository.requeueAllProcessing()
-                }
-                val policy = if (previousValue == null || previousValue != wifiOnly) {
-                    ExistingWorkPolicy.REPLACE
-                } else {
-                    null
-                }
-                if (policy != null) {
-                    val constraints = constraintsProvider.constraintsState.value ?: return@onEach
-                    enqueueDrainWork(constraints, policy)
-                }
-                if (switchedToMobile || switchedToWifi) {
-                    scheduleDrain()
-                }
-            }
-            .launchIn(scope)
     }
 
     private fun enqueueDrainWork(constraints: Constraints, policy: ExistingWorkPolicy) {

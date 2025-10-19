@@ -136,18 +136,6 @@ class QueueDrainWorker @AssistedInject constructor(
     }
 
     private fun enqueueSelf() {
-        val wifiOnly = constraintsProvider.wifiOnlyUploadsState.value
-        if (wifiOnly == null) {
-            Timber.tag(LOG_TAG).i(
-                UploadLog.message(
-                    action = "drain_worker_enqueue_skip",
-                    details = arrayOf(
-                        "reason" to "wifi_only_pending",
-                    ),
-                )
-            )
-            return
-        }
         val constraints = constraintsProvider.constraintsState.value
         if (constraints == null) {
             Timber.tag(LOG_TAG).i(
@@ -167,12 +155,7 @@ class QueueDrainWorker @AssistedInject constructor(
             builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
         val request = builder.build()
-        val policy = if (lastEnqueuedWifiOnly == null || lastEnqueuedWifiOnly != wifiOnly) {
-            ExistingWorkPolicy.REPLACE
-        } else {
-            ExistingWorkPolicy.APPEND_OR_REPLACE
-        }
-        lastEnqueuedWifiOnly = wifiOnly
+        val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
         workManager.enqueueUniqueWork(
             QUEUE_DRAIN_WORK_NAME,
             policy,
@@ -182,23 +165,17 @@ class QueueDrainWorker @AssistedInject constructor(
             UploadLog.message(
                 action = "drain_worker_reschedule",
                 details = arrayOf(
-                    "wifiOnly" to wifiOnly,
                     "policy" to policy.name,
                     "expedited" to expedited,
                 ),
-            )
+            ),
         )
     }
-
     companion object {
         private const val BATCH_SIZE = 5
-        @Volatile
-        private var lastEnqueuedWifiOnly: Boolean? = null
-
         private const val LOG_TAG = "WorkManager"
 
         internal fun resetEnqueuePolicy() {
-            lastEnqueuedWifiOnly = null
         }
     }
 }

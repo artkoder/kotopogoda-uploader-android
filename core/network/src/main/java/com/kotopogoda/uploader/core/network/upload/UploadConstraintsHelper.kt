@@ -11,13 +11,10 @@ import kotlinx.coroutines.flow.StateFlow
 class UploadConstraintsHelper @Inject constructor(
 ) : UploadConstraintsProvider {
 
-    private val wifiOnlyState = MutableStateFlow<Boolean?>(false)
     private val constraints = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
     private val constraintsStateInternal = MutableStateFlow<Constraints?>(constraints)
-
-    override val wifiOnlyUploadsState: StateFlow<Boolean?> = wifiOnlyState
 
     override val constraintsState: StateFlow<Constraints?> = constraintsStateInternal
 

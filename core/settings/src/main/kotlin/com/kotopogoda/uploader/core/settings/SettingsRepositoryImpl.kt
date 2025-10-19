@@ -44,7 +44,6 @@ class SettingsRepositoryImpl @Inject constructor(
                 appLogging = preferences[APP_LOGGING_KEY] ?: false,
                 httpLogging = preferences[HTTP_LOGGING_KEY] ?: false,
                 persistentQueueNotification = persistentValue,
-                wifiOnlyUploads = preferences[WIFI_ONLY_UPLOADS_KEY] ?: false,
             )
         }
         .distinctUntilChanged()
@@ -86,19 +85,10 @@ class SettingsRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun setWifiOnlyUploads(enabled: Boolean) {
-        withContext(ioDispatcher) {
-            dataStore.edit { preferences ->
-                preferences[WIFI_ONLY_UPLOADS_KEY] = enabled
-            }
-        }
-    }
-
     private companion object {
         private val BASE_URL_KEY = stringPreferencesKey("base_url")
         private val APP_LOGGING_KEY = booleanPreferencesKey("app_logging")
         private val HTTP_LOGGING_KEY = booleanPreferencesKey("http_logging")
         private val PERSISTENT_QUEUE_NOTIFICATION_KEY = booleanPreferencesKey("persistent_queue_notification")
-        private val WIFI_ONLY_UPLOADS_KEY = booleanPreferencesKey("wifi_only_uploads")
     }
 }

@@ -8,6 +8,9 @@
 - File-based logging infrastructure with optional Timber planting plus pairing-specific log capture and export helpers.
 - Jetpack Compose UI for photo review, queue/status dashboards and shortcuts to diagnostics from the viewer.
 
+### Changed
+- Removed the Wi-Fi only upload switch — the app now uses any available network when scheduling uploads.
+
 ### Testing
 - Unit tests validating health status mapping from the API.
 - Compose instrumentation coverage for the viewer screen happy path.

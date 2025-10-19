@@ -8,5 +8,4 @@ interface SettingsRepository {
     suspend fun setAppLogging(enabled: Boolean)
     suspend fun setHttpLogging(enabled: Boolean)
     suspend fun setPersistentQueueNotification(enabled: Boolean)
-    suspend fun setWifiOnlyUploads(enabled: Boolean)
 }
