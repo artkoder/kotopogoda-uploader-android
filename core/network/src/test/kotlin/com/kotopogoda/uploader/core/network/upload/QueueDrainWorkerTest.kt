@@ -17,6 +17,8 @@ import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
+import com.kotopogoda.uploader.core.network.work.TestForegroundDelegate
 import com.google.common.util.concurrent.ListenableFuture
 import io.mockk.any
 import io.mockk.coEvery
@@ -48,6 +50,7 @@ class QueueDrainWorkerTest {
         Timber.uprootAll()
         logTree = RecordingTree()
         Timber.plant(logTree)
+        TestForegroundDelegate.ensureChannel(context)
     }
 
     @After
@@ -88,12 +91,14 @@ class QueueDrainWorkerTest {
             )
         } returns mockk<Operation>(relaxed = true)
 
+        val foregroundDelegate = TestForegroundDelegate(context)
         val worker = QueueDrainWorker(
             context,
             workerParams,
             repository,
             providerOf(workManager),
             constraintsProvider,
+            foregroundDelegate,
         )
 
         val result = worker.doWork()
@@ -134,6 +139,11 @@ class QueueDrainWorkerTest {
             abs((capturedThreshold + UploadQueueRepository.STUCK_TIMEOUT_MS) - now) <= toleranceMs,
             "recoverStuckProcessing threshold should correspond to current time minus timeout",
         )
+
+        val foregroundRequest = foregroundDelegate.requests.single()
+        assertEquals(UploadForegroundKind.DRAIN, foregroundRequest.kind)
+        assertEquals(-1, foregroundRequest.progress)
+        logTree.assertActionLogged("drain_worker_foreground_start")
 
         logTree.assertActionLogged("drain_worker_start")
         logTree.assertActionLogged("drain_worker_batch")
@@ -180,6 +190,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -216,6 +227,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -297,6 +309,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -306,6 +319,15 @@ class QueueDrainWorkerTest {
         assertEquals(UploadItemState.PROCESSING, states[12L])
         coVerify { repository.recoverStuckProcessing(any()) }
         verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
+        val drainRequestSlot = slot<OneTimeWorkRequest>()
+        verify {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                capture(drainRequestSlot),
+            )
+        }
+        assertTrue(!drainRequestSlot.captured.workSpec.expedited)
     }
 
     @Test
@@ -362,6 +384,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -402,6 +425,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -448,6 +472,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -493,6 +518,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -505,13 +531,15 @@ class QueueDrainWorkerTest {
                 any(),
             )
         }
+        val drainRequestSlot = slot<OneTimeWorkRequest>()
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                any(),
+                capture(drainRequestSlot),
             )
         }
+        assertTrue(drainRequestSlot.captured.workSpec.expedited)
 
         logTree.assertActionLogged("drain_worker_reschedule")
     }
@@ -549,6 +577,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -562,13 +591,15 @@ class QueueDrainWorkerTest {
                 any(),
             )
         }
+        val drainRequestSlot = slot<OneTimeWorkRequest>()
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                any(),
+                capture(drainRequestSlot),
             )
         }
+        assertTrue(drainRequestSlot.captured.workSpec.expedited)
 
         logTree.assertActionLogged(
             action = "drain_worker_constraints_missing",
@@ -620,6 +651,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()
@@ -672,6 +704,7 @@ class QueueDrainWorkerTest {
             repository,
             providerOf(workManager),
             constraintsProvider,
+            TestForegroundDelegate(context),
         )
 
         val result = worker.doWork()

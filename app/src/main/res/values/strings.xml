@@ -4,6 +4,8 @@
     <string name="upload_notification_progress_percent">%1$d%%</string>
     <string name="upload_notification_cancel">Отмена</string>
     <string name="upload_notification_waiting_processing">Ожидание обработки…</string>
+    <string name="upload_notification_drain_title">Подготовка очереди</string>
+    <string name="upload_notification_drain_progress">Подготовка загрузок…</string>
     <string name="settings_title">Настройки</string>
     <string name="settings_back">Назад</string>
     <string name="settings_pairing_description">Сбросьте привязку устройства, если хотите подключить новый бот или переустановить приложение.</string>

@@ -79,7 +79,7 @@ class UploadEnqueuerTest {
     )
 
     @Test
-    fun scheduleDrain_enqueuesConnectedConstraintsWithoutExpeditedWork() = runBlocking {
+    fun scheduleDrain_enqueuesConnectedConstraintsWithExpeditedWork() = runBlocking {
         val constraintsHelper = UploadConstraintsHelper()
         val enqueuer = UploadEnqueuer(
             workManagerProvider = workManagerProvider,
@@ -110,7 +110,7 @@ class UploadEnqueuerTest {
 
         val request = requests.single()
         assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
-        assertTrue(!request.workSpec.expedited)
+        assertTrue(request.workSpec.expedited)
         assertEquals(listOf(ExistingWorkPolicy.APPEND_OR_REPLACE), policies)
     }
 
@@ -187,7 +187,7 @@ class UploadEnqueuerTest {
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
         verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         coVerify { uploadItemsRepository.markCancelled(uri) }
-        verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
@@ -212,7 +212,7 @@ class UploadEnqueuerTest {
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
         verify(exactly = 0) { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         coVerify { uploadItemsRepository.markCancelled(uri) }
-        verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
@@ -243,7 +243,7 @@ class UploadEnqueuerTest {
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
         coVerify { uploadItemsRepository.enqueue(uri, "key-3") }
         verify { summaryStarter.ensureRunning() }
-        verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
@@ -375,7 +375,7 @@ class UploadEnqueuerTest {
         verify { workManager.cancelAllWorkByTag(UploadTags.TAG_POLL) }
         verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         coVerify { uploadItemsRepository.cancelAll() }
-        verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
@@ -386,11 +386,12 @@ class UploadEnqueuerTest {
     }
 
     @Test
-    fun scheduleDrain_doesNotSetExpeditedEvenWhenEnabled() {
+    fun scheduleDrain_doesNotSetExpeditedWhenDisabled() {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
         val requestSlot = slot<OneTimeWorkRequest>()
         every {
             workManager.enqueueUniqueWork(
@@ -410,7 +411,7 @@ class UploadEnqueuerTest {
             )
         }
         assertTrue(!requestSlot.captured.workSpec.expedited)
-        verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
+        verify { constraintsProvider.shouldUseExpeditedWork() }
     }
 
     @Test
