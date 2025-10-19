@@ -12,6 +12,7 @@ import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.api.UploadStatusDto
@@ -32,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.Headers
+import timber.log.Timber
 
 @HiltWorker
 class PollStatusWorker @AssistedInject constructor(
@@ -55,16 +57,50 @@ class PollStatusWorker @AssistedInject constructor(
         val displayName = inputData.getString(UploadEnqueuer.KEY_DISPLAY_NAME) ?: DEFAULT_FILE_NAME
         val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext Result.failure()
 
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                action = "poll_worker_start",
+                itemId = itemId,
+                photoId = uploadId,
+                uri = uri,
+                details = arrayOf(
+                    "displayName" to displayName,
+                ),
+            ),
+        )
+
         setForeground(createForeground(displayName))
 
         try {
             val response = try {
                 uploadApi.getStatus(uploadId)
             } catch (io: UnknownHostException) {
+                Timber.tag("WorkManager").w(
+                    UploadLog.message(
+                        action = "poll_request_error",
+                        itemId = itemId,
+                        photoId = uploadId,
+                        uri = uri,
+                        details = arrayOf(
+                            "reason" to "unknown_host",
+                        ),
+                    ),
+                )
                 recordError(displayName, UploadErrorKind.NETWORK)
                 uploadQueueRepository.updateProcessingHeartbeat(itemId)
                 return@withContext Result.retry()
             } catch (io: IOException) {
+                Timber.tag("WorkManager").w(
+                    UploadLog.message(
+                        action = "poll_request_error",
+                        itemId = itemId,
+                        photoId = uploadId,
+                        uri = uri,
+                        details = arrayOf(
+                            "reason" to (io::class.simpleName ?: "io_exception"),
+                        ),
+                    ),
+                )
                 recordError(displayName, UploadErrorKind.NETWORK)
                 uploadQueueRepository.updateProcessingHeartbeat(itemId)
                 return@withContext Result.retry()
@@ -72,52 +108,176 @@ class PollStatusWorker @AssistedInject constructor(
             when (response.code()) {
                 200 -> {
                     val body = response.body() ?: run {
+                        Timber.tag("WorkManager").w(
+                            UploadLog.message(
+                                action = "poll_status_response_body_missing",
+                                itemId = itemId,
+                                photoId = uploadId,
+                                uri = uri,
+                                details = arrayOf(
+                                    "httpCode" to response.code(),
+                                ),
+                            ),
+                        )
                         uploadQueueRepository.updateProcessingHeartbeat(itemId)
                         return@withContext Result.retry()
                     }
-                    when (resolveRemoteState(body)) {
+                    val remoteState = resolveRemoteState(body)
+                    when (remoteState) {
                         RemoteState.QUEUED, RemoteState.PROCESSING -> {
+                            Timber.tag("WorkManager").i(
+                                UploadLog.message(
+                                    action = "poll_status_pending",
+                                    itemId = itemId,
+                                    photoId = uploadId,
+                                    uri = uri,
+                                    details = arrayOf(
+                                        "httpCode" to response.code(),
+                                        "remoteState" to remoteState.name.lowercase(Locale.US),
+                                        "retry" to true,
+                                    ),
+                                ),
+                            )
                             uploadQueueRepository.updateProcessingHeartbeat(itemId)
                             maybeDelayForRetryAfter(response.headers())
                             Result.retry()
                         }
-                        RemoteState.DONE -> handleCompletion(itemId, uri, uriString, displayName)
-                        RemoteState.FAILED -> failureResult(
-                            itemId = itemId,
-                            displayName = displayName,
-                            uriString = uriString,
-                            errorKind = UploadErrorKind.REMOTE_FAILURE
-                        )
+                        RemoteState.DONE -> {
+                            Timber.tag("WorkManager").i(
+                                UploadLog.message(
+                                    action = "poll_status_done",
+                                    itemId = itemId,
+                                    photoId = uploadId,
+                                    uri = uri,
+                                    details = arrayOf(
+                                        "httpCode" to response.code(),
+                                    ),
+                                ),
+                            )
+                            handleCompletion(
+                                itemId = itemId,
+                                uploadId = uploadId,
+                                uri = uri,
+                                uriString = uriString,
+                                displayName = displayName,
+                            )
+                        }
+                        RemoteState.FAILED -> {
+                            Timber.tag("WorkManager").w(
+                                UploadLog.message(
+                                    action = "poll_status_failed",
+                                    itemId = itemId,
+                                    photoId = uploadId,
+                                    uri = uri,
+                                    details = arrayOf(
+                                        "httpCode" to response.code(),
+                                        "remoteState" to remoteState.name.lowercase(Locale.US),
+                                    ),
+                                ),
+                            )
+                            failureResult(
+                                itemId = itemId,
+                                uploadId = uploadId,
+                                displayName = displayName,
+                                uriString = uriString,
+                                errorKind = UploadErrorKind.REMOTE_FAILURE
+                            )
+                        }
                     }
                 }
-                404 -> failureResult(
-                    itemId = itemId,
-                    displayName = displayName,
-                    uriString = uriString,
-                    errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code()
-                )
+                404 -> {
+                    Timber.tag("WorkManager").w(
+                        UploadLog.message(
+                            action = "poll_status_not_found",
+                            itemId = itemId,
+                            photoId = uploadId,
+                            uri = uri,
+                            details = arrayOf(
+                                "httpCode" to response.code(),
+                            ),
+                        ),
+                    )
+                    failureResult(
+                        itemId = itemId,
+                        uploadId = uploadId,
+                        displayName = displayName,
+                        uriString = uriString,
+                        errorKind = UploadErrorKind.HTTP,
+                        httpCode = response.code()
+                    )
+                }
                 429 -> {
+                    val retryAfter = response.headers()[RETRY_AFTER_HEADER]
+                    Timber.tag("WorkManager").w(
+                        UploadLog.message(
+                            action = "poll_status_throttled",
+                            itemId = itemId,
+                            photoId = uploadId,
+                            uri = uri,
+                            details = arrayOf(
+                                "httpCode" to response.code(),
+                                "retryAfter" to retryAfter,
+                            ),
+                        ),
+                    )
                     recordError(displayName, UploadErrorKind.HTTP, response.code())
                     uploadQueueRepository.updateProcessingHeartbeat(itemId)
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
                 in 500..599 -> {
+                    val retryAfter = response.headers()[RETRY_AFTER_HEADER]
+                    Timber.tag("WorkManager").w(
+                        UploadLog.message(
+                            action = "poll_status_server_error",
+                            itemId = itemId,
+                            photoId = uploadId,
+                            uri = uri,
+                            details = arrayOf(
+                                "httpCode" to response.code(),
+                                "retryAfter" to retryAfter,
+                            ),
+                        ),
+                    )
                     recordError(displayName, UploadErrorKind.HTTP, response.code())
                     uploadQueueRepository.updateProcessingHeartbeat(itemId)
                     maybeDelayForRetryAfter(response.headers())
                     Result.retry()
                 }
-                else -> failureResult(
-                    itemId = itemId,
-                    displayName = displayName,
-                    uriString = uriString,
-                    errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code()
-                )
+                else -> {
+                    Timber.tag("WorkManager").w(
+                        UploadLog.message(
+                            action = "poll_status_unexpected",
+                            itemId = itemId,
+                            photoId = uploadId,
+                            uri = uri,
+                            details = arrayOf(
+                                "httpCode" to response.code(),
+                            ),
+                        ),
+                    )
+                    failureResult(
+                        itemId = itemId,
+                        uploadId = uploadId,
+                        displayName = displayName,
+                        uriString = uriString,
+                        errorKind = UploadErrorKind.HTTP,
+                        httpCode = response.code()
+                    )
+                }
             }
         } catch (io: IOException) {
+            Timber.tag("WorkManager").w(
+                UploadLog.message(
+                    action = "poll_request_error",
+                    itemId = itemId,
+                    photoId = uploadId,
+                    uri = uri,
+                    details = arrayOf(
+                        "reason" to (io::class.simpleName ?: "io_exception"),
+                    ),
+                ),
+            )
             recordError(displayName, UploadErrorKind.NETWORK)
             uploadQueueRepository.updateProcessingHeartbeat(itemId)
             Result.retry()
@@ -126,6 +286,7 @@ class PollStatusWorker @AssistedInject constructor(
 
     private suspend fun handleCompletion(
         itemId: Long,
+        uploadId: String,
         uri: Uri,
         uriString: String,
         displayName: String,
@@ -133,6 +294,18 @@ class PollStatusWorker @AssistedInject constructor(
         val completionState = deleteDocument(uri)
         recordCompletionState(completionState, displayName)
         uploadQueueRepository.markSucceeded(itemId)
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                action = "poll_worker_complete",
+                itemId = itemId,
+                photoId = uploadId,
+                uri = uri,
+                details = arrayOf(
+                    "result" to completionState.name.lowercase(Locale.US),
+                    "displayName" to displayName,
+                ),
+            ),
+        )
         val output = Data.Builder()
             .putString(UploadEnqueuer.KEY_URI, uriString)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
@@ -174,6 +347,15 @@ class PollStatusWorker @AssistedInject constructor(
     }
 
     private suspend fun recordCompletionState(state: DeleteCompletionState, displayName: String) {
+        Timber.tag("WorkManager").v(
+            UploadLog.message(
+                action = "poll_progress_completion_state",
+                details = arrayOf(
+                    "state" to state.name.lowercase(Locale.US),
+                    "displayName" to displayName,
+                ),
+            ),
+        )
         setProgress(
             workDataOf(
                 UploadEnqueuer.KEY_COMPLETION_STATE to state.toUploadState(),
@@ -187,6 +369,16 @@ class PollStatusWorker @AssistedInject constructor(
         errorKind: UploadErrorKind,
         httpCode: Int? = null
     ) {
+        Timber.tag("WorkManager").v(
+            UploadLog.message(
+                action = "poll_progress_error",
+                details = arrayOf(
+                    "displayName" to displayName,
+                    "errorKind" to errorKind,
+                    "httpCode" to httpCode,
+                ),
+            ),
+        )
         val builder = Data.Builder()
             .putInt(UploadEnqueuer.KEY_PROGRESS, INDETERMINATE_PROGRESS)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
@@ -197,6 +389,7 @@ class PollStatusWorker @AssistedInject constructor(
 
     private suspend fun failureResult(
         itemId: Long,
+        uploadId: String,
         displayName: String,
         uriString: String,
         errorKind: UploadErrorKind,
@@ -208,6 +401,21 @@ class PollStatusWorker @AssistedInject constructor(
             errorKind = errorKind,
             httpCode = httpCode,
             requeue = false,
+        )
+        val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
+        Timber.tag("WorkManager").w(
+            UploadLog.message(
+                action = "poll_worker_complete",
+                itemId = itemId,
+                photoId = uploadId,
+                uri = parsedUri,
+                details = arrayOf(
+                    "result" to "error",
+                    "errorKind" to errorKind,
+                    "httpCode" to httpCode,
+                    "displayName" to displayName,
+                ),
+            ),
         )
         val builder = Data.Builder()
             .putString(UploadEnqueuer.KEY_URI, uriString)
