@@ -17,6 +17,7 @@ import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.sa.MoveResult
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -54,6 +55,7 @@ import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import timber.log.Timber
 
 class ViewerViewModelDocumentInfoTest {
 
@@ -96,7 +98,7 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         val processingUri = Uri.parse("content://processing/saf.jpg")
-        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returns processingUri
+        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returns MoveResult.Success(processingUri)
         coEvery { environment.saFileRepository.moveBack(any(), any(), any()) } returns fileUri
 
         val photo = PhotoItem(id = "1", uri = fileUri, takenAt = Instant.ofEpochMilli(1_000))
@@ -150,20 +152,80 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         val processingUri = Uri.parse("content://processing/media.jpg")
-        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returns processingUri
+        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returns MoveResult.Success(processingUri)
         coEvery { environment.saFileRepository.moveBack(any(), any(), any()) } returns fileUri
 
         val photo = PhotoItem(id = "2", uri = fileUri, takenAt = Instant.ofEpochMilli(2_000))
         environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
 
         ViewerViewModel.buildVersionOverride = Build.VERSION_CODES.R
+
+        environment.viewModel.onMoveToProcessing(photo)
+        advanceUntilIdle()
+
+        environment.viewModel.onUndo()
+        advanceUntilIdle()
+
+        val expectedParent = DocumentsContract.buildDocumentUriUsingTree(treeUri, "primary:Kotopogoda/Sub")
+
+        coVerify(exactly = 1) { environment.saFileRepository.moveToProcessing(fileUri) }
+        coVerify(exactly = 1) {
+            environment.saFileRepository.moveBack(
+                processingUri,
+                expectedParent,
+                "media.jpg"
+            )
+        }
+    }
+    @Test
+    fun moveToProcessingWithRecoverableWriteShowsRequestAndCompletes() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val fileUri = Uri.parse("content://media/external/images/media/43")
+        val resolver = TestContentResolver { uri, _ ->
+            if (uri == fileUri) {
+                createMediaStoreCursor(
+                    displayName = "media.jpg",
+                    size = 2048L,
+                    dateModifiedSeconds = 10L,
+                    dateTaken = 0L,
+                    relativePath = "Kotopogoda/Sub/"
+                )
+            } else {
+                null
+            }
+        }
+        val context = TestContext(resolver)
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val processingUri = Uri.parse("content://processing/media.jpg")
         val pendingIntent = mockk<PendingIntent>()
         val intentSender = mockk<IntentSender>()
         every { pendingIntent.intentSender } returns intentSender
-        mockkStatic(MediaStore::class)
-        try {
-            every { MediaStore.createWriteRequest(context.contentResolver, listOf(fileUri)) } returns pendingIntent
+        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returnsMany listOf(
+            MoveResult.RequiresWritePermission(pendingIntent),
+            MoveResult.Success(processingUri)
+        )
+        coEvery { environment.saFileRepository.moveBack(any(), any(), any()) } returns fileUri
 
+        val photo = PhotoItem(id = "3", uri = fileUri, takenAt = Instant.ofEpochMilli(3_000))
+        environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
+
+        ViewerViewModel.buildVersionOverride = Build.VERSION_CODES.R
+
+        mockkStatic(Timber::class)
+        val tree = mockk<Timber.Tree>(relaxed = true)
+        every { Timber.tag("UI") } returns tree
+
+        try {
             val requestEventDeferred = async {
                 environment.viewModel.events.first { it is ViewerViewModel.ViewerEvent.RequestWrite }
             }
@@ -180,13 +242,15 @@ class ViewerViewModelDocumentInfoTest {
 
             environment.viewModel.onUndo()
             advanceUntilIdle()
+
+            verify { tree.i("Batch move completed for %d photos", 1) }
         } finally {
-            unmockkStatic(MediaStore::class)
+            unmockkStatic(Timber::class)
         }
 
         val expectedParent = DocumentsContract.buildDocumentUriUsingTree(treeUri, "primary:Kotopogoda/Sub")
 
-        coVerify(exactly = 1) { environment.saFileRepository.moveToProcessing(fileUri) }
+        coVerify(exactly = 2) { environment.saFileRepository.moveToProcessing(fileUri) }
         coVerify(exactly = 1) {
             environment.saFileRepository.moveBack(
                 processingUri,
@@ -195,6 +259,7 @@ class ViewerViewModelDocumentInfoTest {
             )
         }
     }
+
 
     @Test
     fun enqueueUploadWithSafUriUsesDocumentsContractMetadata() = runTest(context = dispatcher) {
@@ -475,8 +540,8 @@ class ViewerViewModelDocumentInfoTest {
         environment.viewModel.onPhotoLongPress(first)
         environment.viewModel.onToggleSelection(second)
 
-        coEvery { environment.saFileRepository.moveToProcessing(first.uri) } returns Uri.parse("content://processing/1")
-        coEvery { environment.saFileRepository.moveToProcessing(second.uri) } returns Uri.parse("content://processing/2")
+        coEvery { environment.saFileRepository.moveToProcessing(first.uri) } returns MoveResult.Success(Uri.parse("content://processing/1"))
+        coEvery { environment.saFileRepository.moveToProcessing(second.uri) } returns MoveResult.Success(Uri.parse("content://processing/2"))
 
         ViewerViewModel.buildVersionOverride = Build.VERSION_CODES.Q
 
@@ -514,7 +579,7 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         val processingUri = Uri.parse("content://processing/saf.jpg")
-        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returns processingUri
+        coEvery { environment.saFileRepository.moveToProcessing(fileUri) } returns MoveResult.Success(processingUri)
 
         val photo = PhotoItem(id = "1", uri = fileUri, takenAt = Instant.ofEpochMilli(1_000))
         environment.viewModel.updateVisiblePhoto(totalCount = 2, photo = photo)

@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.data.sa
 
 import android.app.PendingIntent
+import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
@@ -21,7 +22,7 @@ class SaFileRepository @Inject constructor(
     private val processingFolderProvider: ProcessingFolderProvider
 ) {
 
-    suspend fun moveToProcessing(src: Uri): Uri = withContext(Dispatchers.IO) {
+    suspend fun moveToProcessing(src: Uri): MoveResult = withContext(Dispatchers.IO) {
         val destinationDirectory = processingFolderProvider.ensure()
 
         if (isMediaStoreUri(src)) {
@@ -77,7 +78,7 @@ class SaFileRepository @Inject constructor(
         }
     }
 
-    private fun moveSafDocument(src: Uri, destinationDirectory: DocumentFile): Uri {
+    private fun moveSafDocument(src: Uri, destinationDirectory: DocumentFile): MoveResult {
         val source = DocumentFile.fromSingleUri(context, src)
             ?: throw IllegalStateException("Source document not found for $src")
 
@@ -93,10 +94,10 @@ class SaFileRepository @Inject constructor(
             throw IllegalStateException("Unable to delete source document $src")
         }
 
-        return destination.uri
+        return MoveResult.Success(destination.uri)
     }
 
-    private fun moveMediaStoreDocument(src: Uri, destinationDirectory: DocumentFile): Uri {
+    private fun moveMediaStoreDocument(src: Uri, destinationDirectory: DocumentFile): MoveResult {
         val resolver = context.contentResolver
 
         val inPlaceResult = tryMoveMediaStoreDocument(resolver, src, destinationDirectory)
@@ -127,13 +128,19 @@ class SaFileRepository @Inject constructor(
                 }
             }
 
-            val updated = resolver.update(src, updateValues, null, null)
+            val updateResult = runCatching { resolver.update(src, updateValues, null, null) }
+            val updated = updateResult.getOrElse { error ->
+                return handleRecoverableWrite(resolver, src, error)
+                    ?: throw IllegalStateException("Unable to update destination for $src", error)
+            }
             if (updated <= 0) {
                 throw IllegalStateException("Unable to update destination for $src")
             }
 
             val targetDocumentId = "$destinationDocumentId/$uniqueDisplayName"
-            return DocumentsContract.buildDocumentUriUsingTree(destinationDirectory.uri, targetDocumentId)
+            return MoveResult.Success(
+                DocumentsContract.buildDocumentUriUsingTree(destinationDirectory.uri, targetDocumentId)
+            )
         }
 
         val destination = createUniqueFile(destinationDirectory, mimeType, displayName)
@@ -141,56 +148,84 @@ class SaFileRepository @Inject constructor(
 
         copyDocument(src, destination.uri)
 
-        runCatching { deleteMediaStoreSource(resolver, src) }
-            .onFailure {
-                destination.delete()
-                throw IllegalStateException("Unable to delete source document $src", it)
-            }
+        val deleteResult = deleteMediaStoreSource(resolver, src)
+        if (deleteResult != null) {
+            destination.delete()
+            return deleteResult
+        }
 
-        return destination.uri
+        return MoveResult.Success(destination.uri)
     }
 
     private fun tryMoveMediaStoreDocument(
         resolver: ContentResolver,
         src: Uri,
         destinationDirectory: DocumentFile
-    ): Uri? {
+    ): MoveResult? {
         val sourceVolume = resolveMediaStoreVolume(src) ?: return null
         val destinationLocation = resolveDocumentLocation(destinationDirectory) ?: return null
         if (destinationLocation.volume != sourceVolume) {
             return null
         }
 
-        val updated = resolver.update(
-            src,
-            ContentValues().apply {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, ensureTrailingSlash(destinationLocation.relativePath))
-            },
-            null,
-            null
-        )
+        val updateResult = runCatching {
+            resolver.update(
+                src,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, ensureTrailingSlash(destinationLocation.relativePath))
+                },
+                null,
+                null
+            )
+        }
+        val updated = updateResult.getOrElse { error ->
+            return handleRecoverableWrite(resolver, src, error)
+        }
         if (updated <= 0) {
             throw IllegalStateException("Unable to update relative path for $src")
         }
 
-        return src
+        return MoveResult.Success(src)
     }
 
-    private fun deleteMediaStoreSource(resolver: ContentResolver, uri: Uri) {
+    private fun deleteMediaStoreSource(resolver: ContentResolver, uri: Uri): MoveResult? {
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
             val deleted = resolver.delete(uri, null, null)
             if (deleted <= 0) {
                 throw IllegalStateException("Unable to delete source document $uri")
             }
-            return
+            return null
         }
 
-        val pendingIntent = MediaStore.createDeleteRequest(resolver, listOf(uri))
-        try {
-            pendingIntent.send()
-        } catch (error: PendingIntent.CanceledException) {
-            throw IllegalStateException("Delete request was cancelled for $uri", error)
+        val deleteResult = runCatching { resolver.delete(uri, null, null) }
+        val deleted = deleteResult.getOrElse { error ->
+            val recoverable = error as? RecoverableSecurityException
+                ?: throw IllegalStateException("Unable to delete source document $uri", error)
+            return MoveResult.RequiresDeletePermission(
+                MediaStore.createDeleteRequest(resolver, listOf(uri))
+            )
         }
+        if (deleted <= 0) {
+            val stillExists = resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+                ?.use { cursor -> cursor.moveToFirst() }
+            if (stillExists != true) {
+                return null
+            }
+            throw IllegalStateException("Unable to delete source document $uri")
+        }
+        return null
+    }
+
+    private fun handleRecoverableWrite(
+        resolver: ContentResolver,
+        uri: Uri,
+        error: Throwable
+    ): MoveResult? {
+        val recoverable = error as? RecoverableSecurityException ?: return null
+        val pendingIntent = runCatching {
+            MediaStore.createWriteRequest(resolver, listOf(uri))
+        }.getOrNull()
+        return pendingIntent?.let { MoveResult.RequiresWritePermission(it) }
     }
 
     private fun resolveMediaStoreDisplayName(resolver: ContentResolver, uri: Uri): String? {
@@ -348,6 +383,12 @@ class SaFileRepository @Inject constructor(
         private const val DEFAULT_MIME = "application/octet-stream"
         private const val DEFAULT_FILE_NAME = "photo.jpg"
     }
+}
+
+sealed class MoveResult {
+    data class Success(val uri: Uri) : MoveResult()
+    data class RequiresWritePermission(val pendingIntent: PendingIntent) : MoveResult()
+    data class RequiresDeletePermission(val pendingIntent: PendingIntent) : MoveResult()
 }
 
 private fun areSameVolume(destinationVolume: String, mediaStoreVolume: String): Boolean {
