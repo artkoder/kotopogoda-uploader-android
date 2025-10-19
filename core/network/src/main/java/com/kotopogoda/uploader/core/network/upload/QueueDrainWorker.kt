@@ -12,8 +12,6 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
-import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
-import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.work.UploadWorker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -29,28 +27,11 @@ class QueueDrainWorker @AssistedInject constructor(
     private val repository: UploadQueueRepository,
     private val workManagerProvider: Provider<WorkManager>,
     private val constraintsProvider: UploadConstraintsProvider,
-    private val foregroundDelegate: UploadForegroundDelegate,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val workManager = workManagerProvider.get()
         Timber.tag(LOG_TAG).i(UploadLog.message(action = "drain_worker_start"))
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_foreground_start",
-                details = arrayOf(
-                    "workId" to id,
-                ),
-            ),
-        )
-        setForeground(
-            foregroundDelegate.create(
-                displayName = resolveForegroundDisplayName(),
-                progress = INDETERMINATE_PROGRESS,
-                workId = id,
-                kind = UploadForegroundKind.DRAIN,
-            ),
-        )
         setProgress(workDataOf(PROGRESS_KEY_STARTED_AT to System.currentTimeMillis()))
         val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
         repository.recoverStuckProcessing(updatedBefore)
@@ -196,19 +177,7 @@ class QueueDrainWorker @AssistedInject constructor(
         }
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)
-        val useExpedited = constraintsProvider.shouldUseExpeditedWork()
-        if (useExpedited) {
-            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        }
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_enqueue_mode",
-                details = arrayOf(
-                    "source" to "worker",
-                    "mode" to if (useExpedited) "expedited" else "non_expedited",
-                ),
-            ),
-        )
+        // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
         workManager.enqueueUniqueWork(
@@ -318,18 +287,8 @@ class QueueDrainWorker @AssistedInject constructor(
         private const val BATCH_SIZE = 5
         private const val LOG_TAG = "WorkManager"
         internal const val PROGRESS_KEY_STARTED_AT = "drainWorkerStartedAt"
-        private const val INDETERMINATE_PROGRESS = -1
 
         internal fun resetEnqueuePolicy() {
         }
-    }
-
-    private fun resolveForegroundDisplayName(): String {
-        val packageManager = applicationContext.packageManager
-        val label = runCatching {
-            packageManager?.getApplicationLabel(applicationContext.applicationInfo)?.toString()
-        }.getOrNull()
-        val nonLocalized = applicationContext.applicationInfo.nonLocalizedLabel?.toString()
-        return label ?: nonLocalized ?: applicationContext.applicationInfo.name ?: applicationContext.packageName
     }
 }
