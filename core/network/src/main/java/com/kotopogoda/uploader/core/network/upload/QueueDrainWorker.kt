@@ -194,28 +194,25 @@ class QueueDrainWorker @AssistedInject constructor(
                 return
             }
         }
-        val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
-            .setConstraints(constraints)
         val useExpedited = constraintsProvider.shouldUseExpeditedWork()
-        if (useExpedited) {
-            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        }
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_enqueue_mode",
-                details = arrayOf(
-                    "source" to "worker",
-                    "mode" to if (useExpedited) "expedited" else "non_expedited",
-                ),
-            ),
-        )
-        val request = builder.build()
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
-        workManager.enqueueUniqueWork(
-            QUEUE_DRAIN_WORK_NAME,
-            policy,
-            request,
-        )
+        val request = enqueueDrainWorkWithResult(
+            workManager = workManager,
+            name = QUEUE_DRAIN_WORK_NAME,
+            policy = policy,
+            source = "worker",
+            initialExpedited = useExpedited,
+            logTag = LOG_TAG,
+        ) { expedited ->
+            OneTimeWorkRequestBuilder<QueueDrainWorker>()
+                .setConstraints(constraints)
+                .apply {
+                    if (expedited) {
+                        setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    }
+                }
+                .build()
+        }
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
                 action = "drain_worker_reschedule",

@@ -5,9 +5,11 @@ import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
+import androidx.work.Operation
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
@@ -46,7 +48,7 @@ class UploadEnqueuerTest {
     private val workManagerProvider = Provider { workManager }
 
     init {
-        every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
+        every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns successOperation()
         every { workManager.cancelUniqueWork(any()) } returns mockk(relaxed = true)
         resetConstraintMocks()
     }
@@ -399,7 +401,7 @@ class UploadEnqueuerTest {
                 any(),
                 capture(requestSlot),
             )
-        } returns mockk(relaxed = true)
+        } returns successOperation()
 
         enqueuer.scheduleDrain()
 
@@ -412,6 +414,36 @@ class UploadEnqueuerTest {
         }
         assertTrue(!requestSlot.captured.workSpec.expedited)
         verify { constraintsProvider.shouldUseExpeditedWork() }
+    }
+
+    @Test
+    fun scheduleDrain_retriesWithoutExpeditedWhenOperationFails() {
+        val enqueuer = createEnqueuer()
+        clearMocks(workManager, constraintsProvider, answers = false)
+        constraintsState.value = Constraints.NONE
+        resetConstraintMocks()
+        val requests = mutableListOf<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                capture(requests),
+            )
+        } returnsMany listOf(failureOperation(), successOperation())
+
+        enqueuer.scheduleDrain()
+
+        assertEquals(2, requests.size)
+        assertTrue(requests.first().workSpec.expedited)
+        assertTrue(!requests.last().workSpec.expedited)
+        logTree.assertActionLogged(
+            action = "drain_worker_enqueue_failed",
+            predicate = { it.contains("source=enqueuer") },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_enqueue_retry",
+            predicate = { it.contains("source=enqueuer") },
+        )
     }
 
     @Test
@@ -460,6 +492,14 @@ class UploadEnqueuerTest {
                 predicate(entry.message!!)
         }
         assertTrue(messages.isNotEmpty(), "Ожидалось наличие лога с action=$action")
+    }
+
+    private fun successOperation(): Operation = mockk {
+        every { result } returns Futures.immediateFuture(Operation.State.SUCCESS)
+    }
+
+    private fun failureOperation(): Operation = mockk {
+        every { result } returns Futures.immediateFuture(Operation.State.FAILURE)
     }
 
     private class RecordingTree : Timber.DebugTree() {

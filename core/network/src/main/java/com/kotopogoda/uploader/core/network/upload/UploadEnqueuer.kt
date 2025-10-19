@@ -166,38 +166,24 @@ class UploadEnqueuer @Inject constructor(
         constraints: Constraints,
         policy: ExistingWorkPolicy,
     ) {
-        val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
-            .setConstraints(constraints)
         val useExpedited = constraintsProvider.shouldUseExpeditedWork()
-        if (useExpedited) {
-            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        enqueueDrainWorkWithResult(
+            workManager = workManager,
+            name = QUEUE_DRAIN_WORK_NAME,
+            policy = policy,
+            source = "enqueuer",
+            initialExpedited = useExpedited,
+            logTag = LOG_TAG,
+        ) { expedited ->
+            OneTimeWorkRequestBuilder<QueueDrainWorker>()
+                .setConstraints(constraints)
+                .apply {
+                    if (expedited) {
+                        setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    }
+                }
+                .build()
         }
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_enqueue_mode",
-                details = arrayOf(
-                    "source" to "enqueuer",
-                    "mode" to if (useExpedited) "expedited" else "non_expedited",
-                ),
-            ),
-        )
-        val request = builder.build()
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_enqueue",
-                details = arrayOf(
-                    "source" to "enqueuer",
-                    "requestId" to request.id,
-                    "policy" to policy.name,
-                    "tags" to request.tags.joinToString(separator = ";"),
-                ),
-            ),
-        )
-        workManager.enqueueUniqueWork(
-            QUEUE_DRAIN_WORK_NAME,
-            policy,
-            request,
-        )
     }
 
     private fun maybeResetStuckDrainChain(

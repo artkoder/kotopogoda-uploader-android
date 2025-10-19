@@ -19,6 +19,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.work.TestForegroundDelegate
+import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import io.mockk.any
 import io.mockk.coEvery
@@ -89,7 +90,7 @@ class QueueDrainWorkerTest {
                 any(),
                 capture(requestSlot)
             )
-        } returns mockk<Operation>(relaxed = true)
+        } returns successOperation()
 
         val foregroundDelegate = TestForegroundDelegate(context)
         val worker = QueueDrainWorker(
@@ -301,7 +302,7 @@ class QueueDrainWorkerTest {
                 any(),
                 any<OneTimeWorkRequest>(),
             )
-        } returns mockk(relaxed = true)
+        } returns successOperation()
 
         val worker = QueueDrainWorker(
             context,
@@ -376,7 +377,7 @@ class QueueDrainWorkerTest {
                 any(),
                 any<OneTimeWorkRequest>(),
             )
-        } returns mockk(relaxed = true)
+        } returns successOperation()
 
         val worker = QueueDrainWorker(
             context,
@@ -464,7 +465,7 @@ class QueueDrainWorkerTest {
                 capture(policies),
                 capture(requests),
             )
-        } returns mockk(relaxed = true)
+        } returns successOperation()
 
         val worker = QueueDrainWorker(
             context,
@@ -510,7 +511,7 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns successOperation()
 
         val worker = QueueDrainWorker(
             context,
@@ -569,7 +570,7 @@ class QueueDrainWorkerTest {
             Constraints.NONE.also { constraintsState.value = it }
         }
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns successOperation()
 
         val worker = QueueDrainWorker(
             context,
@@ -643,7 +644,7 @@ class QueueDrainWorkerTest {
                 capture(policies),
                 any(),
             )
-        } returns mockk(relaxed = true)
+        } returns successOperation()
 
         val worker = QueueDrainWorker(
             context,
@@ -663,6 +664,72 @@ class QueueDrainWorkerTest {
         assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, policies[drainIndex])
 
         logTree.assertActionLogged("drain_worker_reschedule")
+    }
+
+    @Test
+    fun `worker retries drain without expedited when enqueue fails`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns emptyList()
+        coEvery { repository.hasQueued() } returns true
+        every { constraintsProvider.constraintsState } returns constraintsState
+        every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
+
+        val emptyInfos = mockk<ListenableFuture<List<WorkInfo>>>()
+        every { emptyInfos.get() } returns emptyList()
+        every { workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns emptyInfos
+
+        val drainRequests = mutableListOf<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                any<OneTimeWorkRequest>(),
+            )
+        } answers {
+            val name = firstArg<String>()
+            val request = thirdArg<OneTimeWorkRequest>()
+            if (name == QUEUE_DRAIN_WORK_NAME) {
+                drainRequests += request
+                if (drainRequests.size == 1) {
+                    failureOperation()
+                } else {
+                    successOperation()
+                }
+            } else {
+                successOperation()
+            }
+        }
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            providerOf(workManager),
+            constraintsProvider,
+            TestForegroundDelegate(context),
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertEquals(2, drainRequests.size)
+        assertTrue(drainRequests.first().workSpec.expedited)
+        assertTrue(!drainRequests.last().workSpec.expedited)
+        logTree.assertActionLogged(
+            action = "drain_worker_enqueue_failed",
+            predicate = { it.contains("source=worker") },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_enqueue_retry",
+            predicate = { it.contains("source=worker") },
+        )
     }
 
     @Test
@@ -696,7 +763,7 @@ class QueueDrainWorkerTest {
                 capture(policies),
                 capture(requests),
             )
-        } returns mockk(relaxed = true)
+        } returns successOperation()
 
         val worker = QueueDrainWorker(
             context,
@@ -735,6 +802,14 @@ class QueueDrainWorkerTest {
                 predicate(entry.message!!)
         }
         assertTrue(messages.isNotEmpty(), "Ожидалось наличие лога с action=$action")
+    }
+
+    private fun successOperation(): Operation = mockk {
+        every { result } returns Futures.immediateFuture(Operation.State.SUCCESS)
+    }
+
+    private fun failureOperation(): Operation = mockk {
+        every { result } returns Futures.immediateFuture(Operation.State.FAILURE)
     }
 
     private class RecordingTree : Timber.DebugTree() {
