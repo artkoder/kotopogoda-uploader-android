@@ -49,7 +49,8 @@ class ViewerViewModelJumpToDateTest {
     }
 
     @Test
-    fun `jumpToDate scrolls to first photo of the day`() = runTest(context = dispatcher) {
+    fun `jumpToDate scrolls to first photo even when date taken missing`() =
+        runTest(context = dispatcher) {
         val environment = createEnvironment()
         advanceUntilIdle()
 
