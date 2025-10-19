@@ -66,7 +66,7 @@ class QueueDrainWorker @AssistedInject constructor(
             return@withContext Result.success()
         }
 
-        val constraints = constraintsProvider.awaitConstraints()
+        val constraints = constraintsProvider.awaitConstraints() ?: constraintsProvider.buildConstraints()
 
         for (item in queued) {
             val markedProcessing = repository.markProcessing(item.id)
