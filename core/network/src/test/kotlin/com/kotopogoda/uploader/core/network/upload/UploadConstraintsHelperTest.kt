@@ -19,7 +19,6 @@ class UploadConstraintsHelperTest {
 
         val constraints = helper.awaitConstraints()
 
-        requireNotNull(constraints)
         assertEquals(NetworkType.CONNECTED, constraints.requiredNetworkType)
     }
 

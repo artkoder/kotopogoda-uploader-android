@@ -18,8 +18,8 @@ class UploadConstraintsHelper @Inject constructor(
 
     override val constraintsState: StateFlow<Constraints?> = constraintsStateInternal
 
-    override suspend fun awaitConstraints(): Constraints? {
-        return constraintsStateInternal.value
+    override suspend fun awaitConstraints(): Constraints {
+        return constraintsStateInternal.value ?: buildConstraints()
     }
 
     override fun buildConstraints(): Constraints {

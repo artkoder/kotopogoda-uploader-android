@@ -91,7 +91,7 @@ class UploadWorkerTest {
         constraintsProvider = mockk(relaxed = true)
         constraintsState = MutableStateFlow(Constraints.Builder().build())
         every { constraintsProvider.constraintsState } returns constraintsState
-        coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value }
+        coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value ?: Constraints.Builder().build() }
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.Builder().build() }
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
         val moshi = Moshi.Builder()
@@ -317,7 +317,7 @@ class UploadWorkerTest {
         val file = createTempFileWithContent("poll expedited")
         val inputData = inputDataFor(file, displayName = "poll-exp.jpg", idempotencyKey = "poll-exp-key")
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
-        coEvery { constraintsProvider.awaitConstraints() } returns constraintsState.value
+        coEvery { constraintsProvider.awaitConstraints() } returns constraintsState.value ?: Constraints.Builder().build()
 
         mockWebServer.enqueue(
             MockResponse()
