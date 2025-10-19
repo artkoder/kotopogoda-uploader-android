@@ -11,8 +11,18 @@ import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import java.util.UUID
 
+internal data class ForegroundRequest(
+    val displayName: String,
+    val progress: Int,
+    val workId: UUID,
+    val kind: UploadForegroundKind,
+)
+
 internal class TestForegroundDelegate(private val context: Context) : UploadForegroundDelegate {
+    val requests = mutableListOf<ForegroundRequest>()
+
     override fun create(displayName: String, progress: Int, workId: UUID, kind: UploadForegroundKind): ForegroundInfo {
+        requests += ForegroundRequest(displayName, progress, workId, kind)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle(displayName)
