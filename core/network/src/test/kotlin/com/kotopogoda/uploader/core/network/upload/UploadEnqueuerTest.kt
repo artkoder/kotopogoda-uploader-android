@@ -23,9 +23,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import timber.log.Timber
 
 class UploadEnqueuerTest {
 
@@ -34,11 +37,26 @@ class UploadEnqueuerTest {
     private val uploadItemsRepository = mockk<UploadQueueRepository>(relaxed = true)
     private val constraintsProvider = mockk<UploadConstraintsProvider>()
     private val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
+    private lateinit var logTree: RecordingTree
 
     init {
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
         every { workManager.cancelUniqueWork(any()) } returns mockk(relaxed = true)
         resetConstraintMocks()
+    }
+
+    @Before
+    fun setUp() {
+        Timber.uprootAll()
+        logTree = RecordingTree()
+        Timber.plant(logTree)
+        constraintsState.value = Constraints.NONE
+        resetConstraintMocks()
+    }
+
+    @After
+    fun tearDown() {
+        Timber.uprootAll()
     }
 
     private fun resetConstraintMocks() {
@@ -89,6 +107,42 @@ class UploadEnqueuerTest {
         assertTrue(request.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, request.workSpec.outOfQuotaPolicy)
         assertEquals(listOf(ExistingWorkPolicy.APPEND_OR_REPLACE), policies)
+    }
+
+    @Test
+    fun scheduleDrain_buildsConstraintsWhenStateEmpty() {
+        val enqueuer = createEnqueuer()
+        clearMocks(workManager, constraintsProvider, answers = false)
+        constraintsState.value = null
+        resetConstraintMocks()
+        val requestSlot = slot<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                capture(requestSlot),
+            )
+        } returns mockk(relaxed = true)
+
+        enqueuer.scheduleDrain()
+
+        verify { constraintsProvider.buildConstraints() }
+        verify {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                requestSlot.captured,
+            )
+        }
+
+        logTree.assertActionLogged(
+            action = "drain_worker_constraints_missing",
+            predicate = { it.contains("source=enqueuer") },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_constraints_built",
+            predicate = { it.contains("source=enqueuer") },
+        )
     }
 
     @Test
@@ -281,4 +335,31 @@ class UploadEnqueuerTest {
         assertTrue(result)
         verify { uploadItemsRepository.observeQueuedOrProcessing(uri) }
     }
+
+    private fun RecordingTree.assertActionLogged(
+        action: String,
+        predicate: (String) -> Boolean = { true },
+    ) {
+        val messages = logs.filter { entry ->
+            entry.tag == "WorkManager" &&
+                entry.message?.contains("action=$action") == true &&
+                predicate(entry.message!!)
+        }
+        assertTrue(messages.isNotEmpty(), "Ожидалось наличие лога с action=$action")
+    }
+
+    private class RecordingTree : Timber.DebugTree() {
+        val logs = mutableListOf<LogEntry>()
+
+        override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+            logs += LogEntry(priority, tag, message, t)
+        }
+    }
+
+    private data class LogEntry(
+        val priority: Int,
+        val tag: String?,
+        val message: String?,
+        val throwable: Throwable?,
+    )
 }
