@@ -74,9 +74,8 @@ class PhotoRepository @Inject constructor(
         val folder = folderRepository.getFolder() ?: return@withContext 0
         val spec = buildQuerySpec(folder)
         val targetMillis = date.toEpochMilli()
-        val additionalSelection = "$SORT_KEY_EXPRESSION > ?"
-        val additionalArgs = arrayOf(targetMillis.toString())
-        val newerCount = queryCount(spec, additionalSelection, additionalArgs)
+        val (selection, args) = buildTimestampLowerBoundSelection(targetMillis, inclusive = false)
+        val newerCount = queryCount(spec, selection, args)
         val total = queryCount(spec)
         if (total == 0) {
             0
@@ -94,16 +93,11 @@ class PhotoRepository @Inject constructor(
             val spec = buildQuerySpec(folder)
             val rangeStartMillis = start.toEpochMilli()
             val rangeEndMillis = endExclusive.toEpochMilli()
-            val beforeCount = queryCount(
-                spec,
-                "$SORT_KEY_EXPRESSION >= ?",
-                arrayOf(rangeEndMillis.toString())
-            )
-            val inRangeCount = queryCount(
-                spec,
-                "$SORT_KEY_EXPRESSION >= ? AND $SORT_KEY_EXPRESSION < ?",
-                arrayOf(rangeStartMillis.toString(), rangeEndMillis.toString())
-            )
+            val (beforeSelection, beforeArgs) =
+                buildTimestampLowerBoundSelection(rangeEndMillis, inclusive = true)
+            val beforeCount = queryCount(spec, beforeSelection, beforeArgs)
+            val (rangeSelection, rangeArgs) = buildTimestampRangeSelection(rangeStartMillis, rangeEndMillis)
+            val inRangeCount = queryCount(spec, rangeSelection, rangeArgs)
             if (inRangeCount == 0) {
                 null
             } else {
@@ -164,6 +158,67 @@ class PhotoRepository @Inject constructor(
 
     private fun Cursor.getCountSafely(): Int =
         runCatching { count }.getOrDefault(0)
+
+    private fun buildTimestampLowerBoundSelection(
+        thresholdMillis: Long,
+        inclusive: Boolean
+    ): Pair<String, Array<String>> {
+        val operator = if (inclusive) ">=" else ">"
+        val selection = buildString {
+            append("(")
+            append("(")
+            append(DATE_TAKEN_POSITIVE_CONDITION)
+            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} $operator ?)")
+            append(" OR (")
+            append(DATE_TAKEN_MISSING_CONDITION)
+            append(" AND ")
+            append(DATE_ADDED_POSITIVE_CONDITION)
+            append(" AND $DATE_ADDED_MILLIS_EXPRESSION $operator ?)")
+            append(" OR (")
+            append(DATE_TAKEN_MISSING_CONDITION)
+            append(" AND ")
+            append(DATE_ADDED_MISSING_CONDITION)
+            append(" AND ")
+            append(DATE_MODIFIED_POSITIVE_CONDITION)
+            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION $operator ?)")
+            append(")")
+        }
+        val arg = thresholdMillis.toString()
+        val args = arrayOf(arg, arg, arg)
+        return selection to args
+    }
+
+    private fun buildTimestampRangeSelection(
+        startMillisInclusive: Long,
+        endMillisExclusive: Long
+    ): Pair<String, Array<String>> {
+        val selection = buildString {
+            append("(")
+            append("(")
+            append(DATE_TAKEN_POSITIVE_CONDITION)
+            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} >= ?")
+            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} < ?)")
+            append(" OR (")
+            append(DATE_TAKEN_MISSING_CONDITION)
+            append(" AND ")
+            append(DATE_ADDED_POSITIVE_CONDITION)
+            append(" AND $DATE_ADDED_MILLIS_EXPRESSION >= ?")
+            append(" AND $DATE_ADDED_MILLIS_EXPRESSION < ?)")
+            append(" OR (")
+            append(DATE_TAKEN_MISSING_CONDITION)
+            append(" AND ")
+            append(DATE_ADDED_MISSING_CONDITION)
+            append(" AND ")
+            append(DATE_MODIFIED_POSITIVE_CONDITION)
+            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION >= ?")
+            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION < ?)")
+            append(")")
+        }
+        val start = startMillisInclusive.toString()
+        val end = endMillisExclusive.toString()
+        val args = arrayOf(start, end, start, end, start, end)
+        return selection to args
+    }
 
     private fun buildQuerySpec(folder: Folder): MediaStoreQuerySpec {
         val treeUri = Uri.parse(folder.treeUri)
@@ -354,7 +409,23 @@ class PhotoRepository @Inject constructor(
         private const val SORT_KEY_EXPRESSION =
             "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
-                "ELSE ${MediaStore.Images.Media.DATE_ADDED} * 1000 END"
+                "WHEN ${MediaStore.Images.Media.DATE_ADDED} > 0 " +
+                "THEN ${MediaStore.Images.Media.DATE_ADDED} * 1000 " +
+                "ELSE ${MediaStore.Images.Media.DATE_MODIFIED} * 1000 END"
+        private const val DATE_TAKEN_POSITIVE_CONDITION =
+            "${MediaStore.Images.Media.DATE_TAKEN} > 0"
+        private const val DATE_TAKEN_MISSING_CONDITION =
+            "(${MediaStore.Images.Media.DATE_TAKEN} IS NULL OR ${MediaStore.Images.Media.DATE_TAKEN} <= 0)"
+        private const val DATE_ADDED_POSITIVE_CONDITION =
+            "${MediaStore.Images.Media.DATE_ADDED} > 0"
+        private const val DATE_ADDED_MISSING_CONDITION =
+            "(${MediaStore.Images.Media.DATE_ADDED} IS NULL OR ${MediaStore.Images.Media.DATE_ADDED} <= 0)"
+        private const val DATE_ADDED_MILLIS_EXPRESSION =
+            "${MediaStore.Images.Media.DATE_ADDED} * 1000"
+        private const val DATE_MODIFIED_POSITIVE_CONDITION =
+            "${MediaStore.Images.Media.DATE_MODIFIED} > 0"
+        private const val DATE_MODIFIED_MILLIS_EXPRESSION =
+            "${MediaStore.Images.Media.DATE_MODIFIED} * 1000"
     }
 }
 
