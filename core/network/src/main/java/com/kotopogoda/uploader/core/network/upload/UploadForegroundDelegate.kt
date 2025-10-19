@@ -14,6 +14,5 @@ interface UploadForegroundDelegate {
 
 enum class UploadForegroundKind {
     UPLOAD,
-    POLL,
-    DRAIN,
+    POLL
 }

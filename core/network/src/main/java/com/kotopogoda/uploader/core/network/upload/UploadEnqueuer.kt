@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
@@ -168,19 +167,7 @@ class UploadEnqueuer @Inject constructor(
     ) {
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)
-        val useExpedited = constraintsProvider.shouldUseExpeditedWork()
-        if (useExpedited) {
-            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        }
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_enqueue_mode",
-                details = arrayOf(
-                    "source" to "enqueuer",
-                    "mode" to if (useExpedited) "expedited" else "non_expedited",
-                ),
-            ),
-        )
+        // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
