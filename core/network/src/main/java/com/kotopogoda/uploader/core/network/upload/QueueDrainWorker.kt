@@ -177,10 +177,7 @@ class QueueDrainWorker @AssistedInject constructor(
         }
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)
-        val expedited = constraintsProvider.shouldUseExpeditedWork()
-        if (expedited) {
-            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        }
+        // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
         workManager.enqueueUniqueWork(
@@ -193,7 +190,6 @@ class QueueDrainWorker @AssistedInject constructor(
                 action = "drain_worker_reschedule",
                 details = arrayOf(
                     "policy" to policy.name,
-                    "expedited" to expedited,
                     "requestId" to request.id,
                 ),
             ),
