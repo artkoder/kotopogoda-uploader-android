@@ -31,7 +31,14 @@ class QueueDrainWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val workManager = workManagerProvider.get()
-        Timber.tag(LOG_TAG).i(UploadLog.message(action = "drain_worker_start"))
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_start",
+                details = arrayOf(
+                    "id" to id.toString(),
+                ),
+            )
+        )
         setProgress(workDataOf(PROGRESS_KEY_STARTED_AT to System.currentTimeMillis()))
         val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
         repository.recoverStuckProcessing(updatedBefore)
