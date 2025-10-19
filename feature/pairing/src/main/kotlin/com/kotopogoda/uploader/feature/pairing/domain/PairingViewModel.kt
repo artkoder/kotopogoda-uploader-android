@@ -10,13 +10,14 @@ import com.kotopogoda.uploader.feature.pairing.normalizePairingToken
 import com.kotopogoda.uploader.feature.pairing.logging.PairingLogExportResult
 import com.kotopogoda.uploader.feature.pairing.logging.PairingLogger
 import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import javax.inject.Inject
+import timber.log.Timber
 import kotlin.text.Charsets
 
 @HiltViewModel
@@ -78,6 +79,7 @@ class PairingViewModel @Inject constructor(
             result.fold(
                 onSuccess = { response ->
                     pairingLogger.log("Attach succeeded device=${response.deviceId.takeLast(4)}")
+                    Timber.tag("Pairing").i("Attach succeeded device=${response.deviceId.takeLast(4)}")
                     credsStore.save(response.deviceId, response.hmacKey)
                     _uiState.value = PairingUiState(isPaired = true)
                     _events.send(PairingEvent.Success)
@@ -85,6 +87,7 @@ class PairingViewModel @Inject constructor(
                 onFailure = { error ->
                     lastProcessedToken = null
                     pairingLogger.log("Attach failed reason=${error.message ?: error::class.simpleName}")
+                    Timber.tag("Pairing").w("Attach failed reason=${error.message ?: error::class.simpleName}")
                     val message = when (error) {
                         is PairingException -> error.message
                         else -> error.message
