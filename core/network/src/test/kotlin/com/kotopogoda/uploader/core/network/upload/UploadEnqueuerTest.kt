@@ -19,15 +19,12 @@ import io.mockk.match
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class UploadEnqueuerTest {
@@ -36,7 +33,7 @@ class UploadEnqueuerTest {
     private val summaryStarter = mockk<UploadSummaryStarter>(relaxed = true)
     private val uploadItemsRepository = mockk<UploadQueueRepository>(relaxed = true)
     private val constraintsProvider = mockk<UploadConstraintsProvider>()
-    private val wifiOnlyState = MutableStateFlow<Boolean?>(true)
+    private val wifiOnlyState = MutableStateFlow<Boolean?>(false)
     private val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
 
     init {
@@ -49,7 +46,7 @@ class UploadEnqueuerTest {
         every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
-        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
     }
 
     private fun createEnqueuer(): UploadEnqueuer = UploadEnqueuer(
@@ -60,9 +57,8 @@ class UploadEnqueuerTest {
     )
 
     @Test
-    fun scheduleDrain_waitsForPreferenceAndReplacesWifiWork() = runBlocking {
-        val wifiOnlyFlow = MutableSharedFlow<Boolean>()
-        val constraintsHelper = UploadConstraintsHelper(wifiOnlyFlow)
+    fun scheduleDrain_enqueuesConnectedConstraintsWithExpeditedWork() = runBlocking {
+        val constraintsHelper = UploadConstraintsHelper()
         val enqueuer = UploadEnqueuer(
             workManager = workManager,
             summaryStarter = summaryStarter,
@@ -82,10 +78,6 @@ class UploadEnqueuerTest {
 
         enqueuer.scheduleDrain()
 
-        verify(exactly = 0) { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
-
-        wifiOnlyFlow.emit(false)
-
         verify(timeout = 1_000L) {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
@@ -96,107 +88,15 @@ class UploadEnqueuerTest {
 
         val request = requests.single()
         assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
-        assertFalse(request.workSpec.expedited)
-        assertEquals(listOf(ExistingWorkPolicy.REPLACE), policies)
-    }
-
-    @Test
-    fun wifiPreferenceSwitchToMobile_cancelsActiveWorkAndRequeuesProcessing() = runBlocking {
-        val enqueuer = createEnqueuer()
-        val wifiConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.UNMETERED)
-            .build()
-        val mobileConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-        wifiOnlyState.value = true
-        constraintsState.value = wifiConstraints
-        resetConstraintMocks()
-        enqueuer.scheduleDrain()
-
-        clearMocks(workManager, uploadItemsRepository, constraintsProvider, answers = false)
-        constraintsState.value = mobileConstraints
-        resetConstraintMocks()
-        val policies = mutableListOf<ExistingWorkPolicy>()
-        val requests = mutableListOf<OneTimeWorkRequest>()
-        every {
-            workManager.enqueueUniqueWork(
-                any(),
-                capture(policies),
-                capture(requests),
-            )
-        } returns mockk(relaxed = true)
-
-        wifiOnlyState.value = false
-
-        verify(timeout = 1_000) {
-            workManager.enqueueUniqueWork(
-                QUEUE_DRAIN_WORK_NAME,
-                any(),
-                any<OneTimeWorkRequest>(),
-            )
-        }
-        verify(timeout = 1_000) { workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD) }
-        verify(timeout = 1_000) { workManager.cancelAllWorkByTag(UploadTags.TAG_POLL) }
-        coVerify(timeout = 1_000) { uploadItemsRepository.requeueAllProcessing() }
-        assertTrue(policies.isNotEmpty())
-        val request = requests.last()
-        assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
         assertTrue(request.workSpec.expedited)
-        assertEquals(ExistingWorkPolicy.REPLACE, policies.last())
-    }
-
-    @Test
-    fun wifiPreferenceSwitchToWifi_cancelsActiveWorkAndRequeuesProcessing() = runBlocking {
-        val enqueuer = createEnqueuer()
-        val mobileConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-        val wifiConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.UNMETERED)
-            .build()
-        wifiOnlyState.value = false
-        constraintsState.value = mobileConstraints
-        resetConstraintMocks()
-        enqueuer.scheduleDrain()
-
-        clearMocks(workManager, uploadItemsRepository, constraintsProvider, answers = false)
-        constraintsState.value = wifiConstraints
-        resetConstraintMocks()
-        val policies = mutableListOf<ExistingWorkPolicy>()
-        val requests = mutableListOf<OneTimeWorkRequest>()
-        every {
-            workManager.enqueueUniqueWork(
-                any(),
-                capture(policies),
-                capture(requests),
-            )
-        } returns mockk(relaxed = true)
-
-        wifiOnlyState.value = true
-
-        verify(timeout = 1_000) {
-            workManager.enqueueUniqueWork(
-                QUEUE_DRAIN_WORK_NAME,
-                any(),
-                any<OneTimeWorkRequest>(),
-            )
-        }
-        verify(timeout = 1_000) { workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD) }
-        verify(timeout = 1_000) { workManager.cancelAllWorkByTag(UploadTags.TAG_POLL) }
-        coVerify(timeout = 1_000) { uploadItemsRepository.requeueAllProcessing() }
-        assertTrue(policies.isNotEmpty())
-        val request = requests.last()
-        assertEquals(NetworkType.UNMETERED, request.workSpec.constraints.requiredNetworkType)
-        assertFalse(request.workSpec.expedited)
-        assertEquals(ExistingWorkPolicy.REPLACE, policies.last())
+        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, request.workSpec.outOfQuotaPolicy)
+        assertEquals(listOf(ExistingWorkPolicy.REPLACE), policies)
     }
 
     @Test
     fun enqueue_persistsItemAndStartsWorker() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
-        wifiOnlyState.value = true
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
         val uri = Uri.parse("content://example/1")
@@ -219,7 +119,6 @@ class UploadEnqueuerTest {
     fun cancel_cancelsProcessorWhenItemProcessing() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
-        wifiOnlyState.value = true
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
         val uri = Uri.parse("content://example/2")
@@ -245,7 +144,6 @@ class UploadEnqueuerTest {
     fun cancel_skipsProcessorCancellationWhenItemNotProcessing() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
-        wifiOnlyState.value = true
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
         val uri = Uri.parse("content://example/20")
@@ -271,7 +169,6 @@ class UploadEnqueuerTest {
     fun retry_requeuesItemAndStartsWorker() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
-        wifiOnlyState.value = true
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
         val uri = Uri.parse("content://example/3")
@@ -304,7 +201,6 @@ class UploadEnqueuerTest {
     fun cancelAllUploads_cancelsTagsAndUpdatesRepository() = runBlocking {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
-        wifiOnlyState.value = true
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
 
@@ -328,10 +224,8 @@ class UploadEnqueuerTest {
     fun scheduleDrain_setsExpeditedWhenEnabled() {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
-        wifiOnlyState.value = true
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
-        wifiOnlyState.value = false
         val requestSlot = slot<OneTimeWorkRequest>()
         every {
             workManager.enqueueUniqueWork(
@@ -352,7 +246,6 @@ class UploadEnqueuerTest {
         }
         assertTrue(requestSlot.captured.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, requestSlot.captured.workSpec.outOfQuotaPolicy)
-        wifiOnlyState.value = true
     }
 
     @Test

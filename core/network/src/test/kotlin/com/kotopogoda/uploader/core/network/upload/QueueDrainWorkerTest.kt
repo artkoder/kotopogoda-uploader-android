@@ -23,7 +23,6 @@ import io.mockk.slot
 import io.mockk.verify
 import kotlin.math.abs
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -55,7 +54,7 @@ class QueueDrainWorkerTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
         val constraintsProvider = mockk<UploadConstraintsProvider>()
-        val wifiOnlyState = MutableStateFlow<Boolean?>(true)
+        val wifiOnlyState = MutableStateFlow<Boolean?>(false)
         val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
         val workerParams = mockk<WorkerParameters>(relaxed = true)
         val queueItem = UploadQueueItem(
@@ -76,7 +75,7 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.constraintsState } returns constraintsState
         coEvery { constraintsProvider.awaitConstraints() } answers { constraintsState.value }
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
-        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
         every {
             workManager.enqueueUniqueWork(
                 any(),
@@ -121,7 +120,8 @@ class QueueDrainWorkerTest {
         assertTrue(tags.contains(UploadTags.keyTag(queueItem.idempotencyKey)))
         assertTrue(tags.contains(UploadTags.kindTag(UploadWorkKind.UPLOAD)))
 
-        assertFalse(requestSlot.captured.workSpec.expedited)
+        assertTrue(requestSlot.captured.workSpec.expedited)
+        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, requestSlot.captured.workSpec.outOfQuotaPolicy)
 
         val capturedThreshold = thresholdSlot.captured
         val now = System.currentTimeMillis()
@@ -152,7 +152,7 @@ class QueueDrainWorkerTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
         val constraintsProvider = mockk<UploadConstraintsProvider>()
-        val wifiOnlyState = MutableStateFlow<Boolean?>(true)
+        val wifiOnlyState = MutableStateFlow<Boolean?>(false)
         val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
         val workerParams = mockk<WorkerParameters>(relaxed = true)
         val queueItem = UploadQueueItem(
@@ -170,7 +170,7 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
-        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
 
         val worker = QueueDrainWorker(
             context,
@@ -269,11 +269,10 @@ class QueueDrainWorkerTest {
     }
 
     @Test
-    fun `worker enqueues upload work after constraints received`() = runTest {
+    fun `worker enqueues upload work with connected constraints`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
-        val wifiOnlyFlow = MutableStateFlow(true)
-        val constraintsProvider = UploadConstraintsHelper(wifiOnlyFlow)
+        val constraintsProvider = UploadConstraintsHelper()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
         val queueItem = UploadQueueItem(
             id = 5L,
@@ -312,8 +311,9 @@ class QueueDrainWorkerTest {
         assertEquals(listOf(UploadEnqueuer.uniqueNameForUri(queueItem.uri)), names)
         assertEquals(listOf(ExistingWorkPolicy.KEEP), policies)
         val uploadRequest = requests.single()
-        assertEquals(NetworkType.UNMETERED, uploadRequest.workSpec.constraints.requiredNetworkType)
-        assertFalse(uploadRequest.workSpec.expedited)
+        assertEquals(NetworkType.CONNECTED, uploadRequest.workSpec.constraints.requiredNetworkType)
+        assertTrue(uploadRequest.workSpec.expedited)
+        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, uploadRequest.workSpec.outOfQuotaPolicy)
 
         logTree.assertActionLogged("drain_worker_enqueue_upload")
     }
@@ -323,7 +323,7 @@ class QueueDrainWorkerTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
         val constraintsProvider = mockk<UploadConstraintsProvider>()
-        val wifiOnlyState = MutableStateFlow<Boolean?>(true)
+        val wifiOnlyState = MutableStateFlow<Boolean?>(false)
         val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
         val workerParams = mockk<WorkerParameters>(relaxed = true)
         val queueItem = UploadQueueItem(
@@ -341,7 +341,7 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
-        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
         every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
 
         val worker = QueueDrainWorker(
@@ -391,7 +391,7 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
-        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
         every {
             workManager.enqueueUniqueWork(
                 any(),
@@ -452,7 +452,7 @@ class QueueDrainWorkerTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
         val constraintsProvider = mockk<UploadConstraintsProvider>()
-        val wifiOnlyState = MutableStateFlow<Boolean?>(true)
+        val wifiOnlyState = MutableStateFlow<Boolean?>(false)
         val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
         val workerParams = mockk<WorkerParameters>(relaxed = true)
         val queueItems = (0 until 5).map { index ->
@@ -474,7 +474,7 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.wifiOnlyUploadsState } returns wifiOnlyState
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
-        every { constraintsProvider.shouldUseExpeditedWork() } answers { wifiOnlyState.value?.not() ?: false }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
         every {
             workManager.enqueueUniqueWork(
                 capture(names),
