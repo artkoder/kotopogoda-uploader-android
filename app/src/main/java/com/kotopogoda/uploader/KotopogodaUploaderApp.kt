@@ -2,6 +2,7 @@ package com.kotopogoda.uploader
 
 import android.app.Application
 import androidx.work.Configuration
+import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.AppLogger
 import com.kotopogoda.uploader.core.network.connectivity.NetworkMonitor
@@ -63,6 +64,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        WorkManager.initialize(this, workManagerConfigurationDelegate)
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
         scope.launch(Dispatchers.IO) {

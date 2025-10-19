@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.core.network.di
 
 import android.content.Context
 import android.net.ConnectivityManager
+import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.api.infrastructure.ApiClient
 import com.kotopogoda.uploader.core.logging.HttpFileLogger
@@ -108,8 +109,15 @@ object NetworkModule {
     fun provideNonceProvider(): () -> String = { UUID.randomUUID().toString() }
 
     @Provides
-    fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
-        WorkManager.getInstance(context)
+    fun provideWorkManager(
+        @ApplicationContext context: Context,
+        configuration: Configuration,
+    ): WorkManager {
+        if (!WorkManager.isInitialized()) {
+            WorkManager.initialize(context, configuration)
+        }
+        return WorkManager.getInstance(context)
+    }
 
     @Provides
     fun provideConnectivityManager(@ApplicationContext context: Context): ConnectivityManager =

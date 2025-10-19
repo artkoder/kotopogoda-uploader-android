@@ -29,6 +29,7 @@ import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import timber.log.Timber
+import javax.inject.Provider
 
 class UploadEnqueuerTest {
 
@@ -38,6 +39,7 @@ class UploadEnqueuerTest {
     private val constraintsProvider = mockk<UploadConstraintsProvider>()
     private val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
     private lateinit var logTree: RecordingTree
+    private val workManagerProvider = Provider { workManager }
 
     init {
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
@@ -66,7 +68,7 @@ class UploadEnqueuerTest {
     }
 
     private fun createEnqueuer(): UploadEnqueuer = UploadEnqueuer(
-        workManager = workManager,
+        workManagerProvider = workManagerProvider,
         summaryStarter = summaryStarter,
         uploadItemsRepository = uploadItemsRepository,
         constraintsProvider = constraintsProvider,
@@ -76,7 +78,7 @@ class UploadEnqueuerTest {
     fun scheduleDrain_enqueuesConnectedConstraintsWithExpeditedWork() = runBlocking {
         val constraintsHelper = UploadConstraintsHelper()
         val enqueuer = UploadEnqueuer(
-            workManager = workManager,
+            workManagerProvider = workManagerProvider,
             summaryStarter = summaryStarter,
             uploadItemsRepository = uploadItemsRepository,
             constraintsProvider = constraintsHelper,

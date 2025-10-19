@@ -30,6 +30,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import timber.log.Timber
+import javax.inject.Provider
 
 class QueueDrainWorkerTest {
 
@@ -86,7 +87,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -172,7 +173,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -208,7 +209,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -251,7 +252,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -297,7 +298,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -342,7 +343,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -398,7 +399,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -469,7 +470,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -521,7 +522,7 @@ class QueueDrainWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            providerOf(workManager),
             constraintsProvider,
         )
 
@@ -575,3 +576,5 @@ class QueueDrainWorkerTest {
         val throwable: Throwable?,
     )
 }
+
+private fun providerOf(workManager: WorkManager): Provider<WorkManager> = Provider { workManager }

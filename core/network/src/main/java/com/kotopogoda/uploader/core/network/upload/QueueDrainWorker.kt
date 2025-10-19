@@ -17,17 +17,19 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import javax.inject.Provider
 
 @HiltWorker
 class QueueDrainWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: UploadQueueRepository,
-    private val workManager: WorkManager,
+    private val workManagerProvider: Provider<WorkManager>,
     private val constraintsProvider: UploadConstraintsProvider,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val workManager = workManagerProvider.get()
         Timber.tag(LOG_TAG).i(UploadLog.message(action = "drain_worker_start"))
         val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
         repository.recoverStuckProcessing(updatedBefore)
@@ -136,6 +138,7 @@ class QueueDrainWorker @AssistedInject constructor(
     }
 
     private fun enqueueSelf() {
+        val workManager = workManagerProvider.get()
         val constraints = constraintsProvider.constraintsState.value ?: run {
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(

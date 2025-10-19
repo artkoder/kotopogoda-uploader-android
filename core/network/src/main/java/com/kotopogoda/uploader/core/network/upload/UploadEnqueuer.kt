@@ -10,6 +10,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import java.security.MessageDigest
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlin.text.Charsets
@@ -17,7 +18,7 @@ import timber.log.Timber
 
 @Singleton
 class UploadEnqueuer @Inject constructor(
-    private val workManager: WorkManager,
+    private val workManagerProvider: Provider<WorkManager>,
     private val summaryStarter: UploadSummaryStarter,
     private val uploadItemsRepository: UploadItemsRepository,
     private val constraintsProvider: UploadConstraintsProvider,
@@ -31,6 +32,7 @@ class UploadEnqueuer @Inject constructor(
 
     suspend fun cancel(uri: Uri) {
         val uniqueName = uniqueName(uri)
+        val workManager = workManagerProvider.get()
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
         val cancelledWhileProcessing = uploadItemsRepository.markCancelled(uri)
         if (cancelledWhileProcessing) {
@@ -40,6 +42,7 @@ class UploadEnqueuer @Inject constructor(
     }
 
     suspend fun cancelAllUploads() {
+        val workManager = workManagerProvider.get()
         workManager.cancelAllWorkByTag(UploadTags.TAG_UPLOAD)
         workManager.cancelAllWorkByTag(UploadTags.TAG_POLL)
         cancelQueueDrainWork()
@@ -50,6 +53,7 @@ class UploadEnqueuer @Inject constructor(
     suspend fun retry(metadata: UploadWorkMetadata) {
         val uri = metadata.uri ?: return
         val uniqueName = uniqueName(uri)
+        val workManager = workManagerProvider.get()
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
         val key = metadata.idempotencyKey ?: sha256(uri.toString())
         uploadItemsRepository.enqueue(uri, key)
@@ -132,7 +136,7 @@ class UploadEnqueuer @Inject constructor(
     }
 
     private fun cancelQueueDrainWork() {
-        workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
+        workManagerProvider.get().cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
     }
 
     private fun enqueueDrainWork(constraints: Constraints, policy: ExistingWorkPolicy) {
@@ -142,7 +146,7 @@ class UploadEnqueuer @Inject constructor(
             builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
         val request = builder.build()
-        workManager.enqueueUniqueWork(
+        workManagerProvider.get().enqueueUniqueWork(
             QUEUE_DRAIN_WORK_NAME,
             policy,
             request,
