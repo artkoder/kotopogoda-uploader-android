@@ -136,17 +136,38 @@ class QueueDrainWorker @AssistedInject constructor(
     }
 
     private fun enqueueSelf() {
-        val constraints = constraintsProvider.constraintsState.value
-        if (constraints == null) {
+        val constraints = constraintsProvider.constraintsState.value ?: run {
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(
-                    action = "drain_worker_enqueue_skip",
+                    action = "drain_worker_constraints_missing",
                     details = arrayOf(
-                        "reason" to "constraints_pending",
+                        "source" to "worker",
+                    ),
+                ),
+            )
+            try {
+                constraintsProvider.buildConstraints().also {
+                    Timber.tag(LOG_TAG).i(
+                        UploadLog.message(
+                            action = "drain_worker_constraints_built",
+                            details = arrayOf(
+                                "source" to "worker",
+                            ),
+                        ),
+                    )
+                }
+            } catch (error: Throwable) {
+                Timber.tag(LOG_TAG).e(
+                    error,
+                    UploadLog.message(
+                        action = "drain_worker_constraints_error",
+                        details = arrayOf(
+                            "source" to "worker",
+                        ),
                     ),
                 )
-            )
-            return
+                return
+            }
         }
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)

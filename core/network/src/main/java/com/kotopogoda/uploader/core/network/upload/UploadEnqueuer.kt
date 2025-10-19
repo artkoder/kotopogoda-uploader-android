@@ -63,6 +63,8 @@ class UploadEnqueuer @Inject constructor(
     fun uniqueName(uri: Uri): String = uniqueNameForUri(uri)
 
     companion object {
+        private const val LOG_TAG = "WorkManager"
+
         const val KEY_URI = "uri"
         const val KEY_ITEM_ID = "itemId"
         const val KEY_IDEMPOTENCY_KEY = "idempotencyKey"
@@ -93,7 +95,39 @@ class UploadEnqueuer @Inject constructor(
     }
 
     fun scheduleDrain() {
-        val constraints = constraintsProvider.constraintsState.value ?: return
+        val constraints = constraintsProvider.constraintsState.value ?: run {
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_constraints_missing",
+                    details = arrayOf(
+                        "source" to "enqueuer",
+                    ),
+                ),
+            )
+            try {
+                constraintsProvider.buildConstraints().also {
+                    Timber.tag(LOG_TAG).i(
+                        UploadLog.message(
+                            action = "drain_worker_constraints_built",
+                            details = arrayOf(
+                                "source" to "enqueuer",
+                            ),
+                        ),
+                    )
+                }
+            } catch (error: Throwable) {
+                Timber.tag(LOG_TAG).e(
+                    error,
+                    UploadLog.message(
+                        action = "drain_worker_constraints_error",
+                        details = arrayOf(
+                            "source" to "enqueuer",
+                        ),
+                    ),
+                )
+                return
+            }
+        }
         enqueueDrainWork(constraints, ExistingWorkPolicy.APPEND_OR_REPLACE)
     }
 

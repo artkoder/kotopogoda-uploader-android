@@ -368,6 +368,70 @@ class QueueDrainWorkerTest {
     }
 
     @Test
+    fun `worker rebuilds constraints before rescheduling when state empty`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val constraintsState = MutableStateFlow<Constraints?>(null)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val queueItem = UploadQueueItem(
+            id = 9L,
+            uri = Uri.parse("content://example/build"),
+            idempotencyKey = "idempotency",
+            displayName = "photo.jpg",
+            size = 10L,
+        )
+
+        coEvery { repository.recoverStuckProcessing(any()) } returns 0
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
+        coEvery { repository.markProcessing(queueItem.id) } returns true
+        coEvery { repository.hasQueued() } returns true
+        coEvery { constraintsProvider.awaitConstraints() } returns Constraints.NONE
+        every { constraintsProvider.constraintsState } returns constraintsState
+        every { constraintsProvider.buildConstraints() } answers {
+            Constraints.NONE.also { constraintsState.value = it }
+        }
+        every { constraintsProvider.shouldUseExpeditedWork() } returns true
+        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            workManager,
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        verify { constraintsProvider.buildConstraints() }
+        verify {
+            workManager.enqueueUniqueWork(
+                UploadEnqueuer.uniqueNameForUri(queueItem.uri),
+                ExistingWorkPolicy.KEEP,
+                any(),
+            )
+        }
+        verify {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                any(),
+            )
+        }
+
+        logTree.assertActionLogged(
+            action = "drain_worker_constraints_missing",
+            predicate = { it.contains("source=worker") },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_constraints_built",
+            predicate = { it.contains("source=worker") },
+        )
+    }
+
+    @Test
     fun `worker queues sequential drain when queue exceeds batch size`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
