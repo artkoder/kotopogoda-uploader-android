@@ -1,5 +1,8 @@
 package com.kotopogoda.uploader.feature.viewer
 
+import android.app.PendingIntent
+import android.content.Intent
+import android.content.IntentSender
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
@@ -7,6 +10,7 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.test.mock.MockContentResolver
 import android.test.mock.MockContext
+import android.os.Build
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
 import com.kotopogoda.uploader.core.data.folder.Folder
@@ -27,7 +31,9 @@ import io.mockk.eq
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkStatic
 import io.mockk.slot
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import java.security.MessageDigest
 import java.time.Instant
@@ -43,10 +49,10 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
-import android.content.Intent
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class ViewerViewModelDocumentInfoTest {
@@ -62,6 +68,7 @@ class ViewerViewModelDocumentInfoTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+        ViewerViewModel.buildVersionOverride = null
     }
 
     @Test
@@ -149,11 +156,33 @@ class ViewerViewModelDocumentInfoTest {
         val photo = PhotoItem(id = "2", uri = fileUri, takenAt = Instant.ofEpochMilli(2_000))
         environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
 
-        environment.viewModel.onMoveToProcessing(photo)
-        advanceUntilIdle()
+        ViewerViewModel.buildVersionOverride = Build.VERSION_CODES.R
+        val pendingIntent = mockk<PendingIntent>()
+        val intentSender = mockk<IntentSender>()
+        every { pendingIntent.intentSender } returns intentSender
+        mockkStatic(MediaStore::class)
+        try {
+            every { MediaStore.createWriteRequest(context.contentResolver, listOf(fileUri)) } returns pendingIntent
 
-        environment.viewModel.onUndo()
-        advanceUntilIdle()
+            val requestEventDeferred = async {
+                environment.viewModel.events.first { it is ViewerViewModel.ViewerEvent.RequestWrite }
+            }
+
+            environment.viewModel.onMoveToProcessing(photo)
+            advanceUntilIdle()
+
+            val requestEvent = requestEventDeferred.await()
+            assertIs<ViewerViewModel.ViewerEvent.RequestWrite>(requestEvent)
+            assertEquals(intentSender, requestEvent.intentSender)
+
+            environment.viewModel.onWriteRequestResult(granted = true)
+            advanceUntilIdle()
+
+            environment.viewModel.onUndo()
+            advanceUntilIdle()
+        } finally {
+            unmockkStatic(MediaStore::class)
+        }
 
         val expectedParent = DocumentsContract.buildDocumentUriUsingTree(treeUri, "primary:Kotopogoda/Sub")
 
@@ -416,6 +445,48 @@ class ViewerViewModelDocumentInfoTest {
         environment.viewModel.clearSelection()
         assertTrue(environment.viewModel.selection.value.isEmpty())
         assertTrue(!environment.viewModel.isSelectionMode.value)
+    }
+
+    @Test
+    fun moveSelectionClearsSelectionAfterFinalize() = runTest(context = dispatcher) {
+        val folder = Folder(
+            id = 1,
+            treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda").toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val context = TestContext(MockContentResolver())
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val first = PhotoItem(
+            id = "media-1",
+            uri = Uri.parse("content://media/external/images/media/1"),
+            takenAt = Instant.ofEpochMilli(0)
+        )
+        val second = PhotoItem(
+            id = "media-2",
+            uri = Uri.parse("content://media/external/images/media/2"),
+            takenAt = Instant.ofEpochMilli(1)
+        )
+
+        environment.viewModel.onPhotoLongPress(first)
+        environment.viewModel.onToggleSelection(second)
+
+        coEvery { environment.saFileRepository.moveToProcessing(first.uri) } returns Uri.parse("content://processing/1")
+        coEvery { environment.saFileRepository.moveToProcessing(second.uri) } returns Uri.parse("content://processing/2")
+
+        ViewerViewModel.buildVersionOverride = Build.VERSION_CODES.Q
+
+        environment.viewModel.onMoveSelection()
+        advanceUntilIdle()
+
+        assertTrue(environment.viewModel.selection.value.isEmpty())
+        assertTrue(!environment.viewModel.isSelectionMode.value)
+        coVerify(exactly = 1) { environment.saFileRepository.moveToProcessing(first.uri) }
+        coVerify(exactly = 1) { environment.saFileRepository.moveToProcessing(second.uri) }
     }
 
     @Test

@@ -84,7 +84,6 @@ class SaFileRepositoryTest {
             "content://com.android.providers.media.documents/tree/external%3Apictures/document/external%3Apictures%2FНа%20обработку"
         )
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
-        val pendingIntent = mockk<PendingIntent>(relaxed = true)
         val valuesSlot = slot<ContentValues>()
 
         every { destinationFolder.uri } returns destinationFolderUri
@@ -94,20 +93,17 @@ class SaFileRepositoryTest {
         every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
 
         mockkStatic(MediaStore::class)
-        every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
 
         mockkStatic(DocumentsContract::class)
         every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "external:Pictures/На обработку"
 
-        every { pendingIntent.send() } returns Unit
         every { contentResolver.update(eq(mediaUri), capture(valuesSlot), any(), any()) } returns 1
 
         val result = repository.moveToProcessing(mediaUri)
 
         assertEquals(mediaUri, result)
         assertEquals("Pictures/На обработку/", valuesSlot.captured.getAsString(MediaStore.MediaColumns.RELATIVE_PATH))
-        verify(exactly = 1) { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) }
-        verify(exactly = 1) { pendingIntent.send() }
+        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 1) { contentResolver.update(eq(mediaUri), any(), any(), any()) }
         verify(exactly = 0) { MediaStore.createDeleteRequest(any(), any()) }
         verify(exactly = 0) { contentResolver.getType(any()) }
@@ -178,14 +174,12 @@ class SaFileRepositoryTest {
         val expectedDocumentId = "primary:Kotopogoda/Processing/bar.jpg"
         val expectedProcessingUri = Uri.parse("content://com.android.externalstorage.documents/document/$expectedDocumentId")
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
-        val pendingIntent = mockk<PendingIntent>(relaxed = true)
 
         mockkStatic(Build.VERSION::class)
         every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
 
         mockkStatic(MediaStore::class)
         every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
-        every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
 
         mockkStatic(DocumentsContract::class)
         every { destinationFolder.uri } returns destinationFolderUri
@@ -202,7 +196,6 @@ class SaFileRepositoryTest {
         every { contentResolver.getType(mediaUri) } returns "image/jpeg"
         every { contentResolver.query(mediaUri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null) } returns cursor
         every { contentResolver.update(eq(mediaUri), any(), isNull(), isNull()) } returns 1
-        every { pendingIntent.send() } returns Unit
 
         val result = repository.moveToProcessing(mediaUri)
 
@@ -218,8 +211,7 @@ class SaFileRepositoryTest {
                 null
             )
         }
-        verify(exactly = 1) { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) }
-        verify(exactly = 1) { pendingIntent.send() }
+        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 0) { contentResolver.openInputStream(any()) }
         verify(exactly = 0) { contentResolver.openOutputStream(any()) }
         verify(exactly = 0) { MediaStore.createDeleteRequest(any(), any()) }
