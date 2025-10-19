@@ -120,9 +120,6 @@ class SaFileRepository @Inject constructor(
             val relativePath = buildRelativePath(destinationDocumentId)
                 ?: throw IllegalStateException("Unable to resolve relative path for ${destinationDirectory.uri}")
 
-            runCatching { requestMediaStoreWritePermission(resolver, src) }
-                .onFailure { throw IllegalStateException("Unable to request write access for $src", it) }
-
             val updateValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                 if (uniqueDisplayName != displayName) {
@@ -164,15 +161,6 @@ class SaFileRepository @Inject constructor(
             return null
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val pendingIntent = MediaStore.createWriteRequest(resolver, listOf(src))
-            try {
-                pendingIntent.send()
-            } catch (error: PendingIntent.CanceledException) {
-                throw IllegalStateException("Write request was cancelled for $src", error)
-            }
-        }
-
         val updated = resolver.update(
             src,
             ContentValues().apply {
@@ -202,19 +190,6 @@ class SaFileRepository @Inject constructor(
             pendingIntent.send()
         } catch (error: PendingIntent.CanceledException) {
             throw IllegalStateException("Delete request was cancelled for $uri", error)
-        }
-    }
-
-    private fun requestMediaStoreWritePermission(resolver: ContentResolver, uri: Uri) {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            return
-        }
-
-        val pendingIntent = MediaStore.createWriteRequest(resolver, listOf(uri))
-        try {
-            pendingIntent.send()
-        } catch (error: PendingIntent.CanceledException) {
-            throw IllegalStateException("Write request was cancelled for $uri", error)
         }
     }
 

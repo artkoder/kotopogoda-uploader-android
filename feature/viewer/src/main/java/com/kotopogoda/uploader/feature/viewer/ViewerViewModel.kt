@@ -129,6 +129,7 @@ class ViewerViewModel @Inject constructor(
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
     private var pendingBatchMove: PendingBatchMove? = null
+    private var pendingSingleMove: PendingSingleMove? = null
 
     init {
         restoreUndoStack()
@@ -346,42 +347,22 @@ class ViewerViewModel @Inject constructor(
         val current = photo ?: return
         Timber.tag("UI").i("Move to processing requested for %s", current.uri)
         viewModelScope.launch {
-            _actionInProgress.value = ViewerActionInProgress.Processing
             try {
                 val documentInfo = loadDocumentInfo(current.uri)
                 val fromIndex = currentIndex.value
                 val toIndex = computeNextIndex(fromIndex)
-                val processingUri = saFileRepository.moveToProcessing(current.uri)
-                pushAction(
-                    UserAction.MovedToProcessing(
-                        fromUri = current.uri,
-                        toUri = processingUri,
-                        originalParent = documentInfo.parentUri,
-                        displayName = documentInfo.displayName,
-                        fromIndex = fromIndex,
-                        toIndex = toIndex
-                    )
+                pendingSingleMove = PendingSingleMove(
+                    photo = current,
+                    documentInfo = documentInfo,
+                    fromIndex = fromIndex,
+                    toIndex = toIndex
                 )
-                if (toIndex != fromIndex) {
-                    setCurrentIndex(toIndex)
-                }
-                persistProgress(toIndex, current.takenAt)
-                _events.emit(
-                    ViewerEvent.ShowToast(
-                        messageRes = R.string.viewer_toast_processing_success
-                    )
-                )
-                Timber.tag("UI").i(
-                    "Moved %s to processing (from=%d, to=%d)",
-                    current.uri,
-                    fromIndex,
-                    toIndex
-                )
+                requestMoveSelectionToProcessing(listOf(current))
             } catch (error: Exception) {
-                persistUndoStack()
+                pendingSingleMove = null
                 Timber.tag("UI").e(
                     error,
-                    "Failed to move %s to processing",
+                    "Failed to prepare move %s to processing",
                     current.uri
                 )
                 _events.emit(
@@ -389,8 +370,6 @@ class ViewerViewModel @Inject constructor(
                         messageRes = R.string.viewer_snackbar_processing_failed
                     )
                 )
-            } finally {
-                _actionInProgress.value = null
             }
         }
     }
@@ -427,6 +406,7 @@ class ViewerViewModel @Inject constructor(
                     )
                 )
                 _actionInProgress.value = null
+                pendingSingleMove = null
             }
         }
     }
@@ -691,6 +671,7 @@ class ViewerViewModel @Inject constructor(
         }
         if (!granted) {
             pendingBatchMove = null
+            pendingSingleMove = null
             viewModelScope.launch {
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
@@ -844,21 +825,55 @@ class ViewerViewModel @Inject constructor(
     }
 
     private suspend fun finalizeBatchMove(photos: List<PhotoItem>) {
+        val singleMoveContext = pendingSingleMove?.takeIf { context ->
+            photos.size == 1 && photos.firstOrNull()?.uri == context.photo.uri
+        }
         var successCount = 0
+        var lastSuccessUri: Uri? = null
         photos.forEach { photo ->
             runCatching {
                 saFileRepository.moveToProcessing(photo.uri)
-            }.onSuccess {
+            }.onSuccess { resultUri ->
                 successCount += 1
+                lastSuccessUri = resultUri
                 Timber.tag("UI").i("Batch moved photo %s to processing", photo.uri)
             }.onFailure { error ->
                 Timber.tag("UI").e(error, "Failed to move %s during batch", photo.uri)
             }
         }
         if (successCount > 0) {
-            _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_processing_success))
-            _events.emit(ViewerEvent.RefreshPhotos)
+            if (singleMoveContext != null) {
+                val processingUri = lastSuccessUri
+                    ?: throw IllegalStateException("Missing processing destination for ${singleMoveContext.photo.uri}")
+                pushAction(
+                    UserAction.MovedToProcessing(
+                        fromUri = singleMoveContext.photo.uri,
+                        toUri = processingUri,
+                        originalParent = singleMoveContext.documentInfo.parentUri,
+                        displayName = singleMoveContext.documentInfo.displayName,
+                        fromIndex = singleMoveContext.fromIndex,
+                        toIndex = singleMoveContext.toIndex
+                    )
+                )
+                if (singleMoveContext.toIndex != singleMoveContext.fromIndex) {
+                    setCurrentIndex(singleMoveContext.toIndex)
+                }
+                persistProgress(singleMoveContext.toIndex, singleMoveContext.photo.takenAt)
+                _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_processing_success))
+                Timber.tag("UI").i(
+                    "Moved %s to processing (from=%d, to=%d)",
+                    singleMoveContext.photo.uri,
+                    singleMoveContext.fromIndex,
+                    singleMoveContext.toIndex
+                )
+            } else {
+                _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_processing_success))
+                _events.emit(ViewerEvent.RefreshPhotos)
+            }
         } else {
+            if (singleMoveContext != null) {
+                persistUndoStack()
+            }
             _events.emit(
                 ViewerEvent.ShowSnackbar(
                     messageRes = R.string.viewer_snackbar_processing_failed
@@ -866,6 +881,7 @@ class ViewerViewModel @Inject constructor(
             )
         }
         pendingBatchMove = null
+        pendingSingleMove = null
         clearSelection()
         _actionInProgress.value = null
     }
@@ -1372,6 +1388,13 @@ class ViewerViewModel @Inject constructor(
 
     private data class PendingBatchMove(
         val photos: List<PhotoItem>
+    )
+
+    private data class PendingSingleMove(
+        val photo: PhotoItem,
+        val documentInfo: DocumentInfo,
+        val fromIndex: Int,
+        val toIndex: Int
     )
 
     private data class DeleteBackup(val file: File) {
