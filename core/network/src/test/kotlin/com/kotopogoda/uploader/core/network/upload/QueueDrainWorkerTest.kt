@@ -535,7 +535,7 @@ class QueueDrainWorkerTest {
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.hasQueued() } returns true
-        coEvery { constraintsProvider.awaitConstraints() } returns Constraints.NONE
+        coEvery { constraintsProvider.awaitConstraints() } returnsMany listOf(Constraints.NONE, null)
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers {
             Constraints.NONE.also { constraintsState.value = it }
