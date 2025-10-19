@@ -219,7 +219,9 @@ class QueueDrainWorker @AssistedInject constructor(
             return
         }
 
-        val head = infos.firstOrNull() ?: return
+        val head = infos.firstOrNull { info ->
+            info.state == WorkInfo.State.ENQUEUED || info.state == WorkInfo.State.RUNNING
+        } ?: return
         if (head.state != WorkInfo.State.ENQUEUED && head.state != WorkInfo.State.RUNNING) {
             return
         }
