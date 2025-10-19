@@ -11,9 +11,13 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.Operation
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.google.common.util.concurrent.ListenableFuture
 import io.mockk.any
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -30,6 +34,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import timber.log.Timber
+import java.util.UUID
 import javax.inject.Provider
 
 class QueueDrainWorkerTest {
@@ -228,6 +233,79 @@ class QueueDrainWorkerTest {
             action = "drain_worker_complete",
             predicate = { it.contains("result=no_items") },
         )
+    }
+
+    @Test
+    fun `worker chain reset requeues only stale processing items`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val stuckStartedAt = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
+
+        val head = mockk<WorkInfo>()
+        every { head.state } returns WorkInfo.State.RUNNING
+        every { head.progress } returns workDataOf(
+            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to stuckStartedAt,
+        )
+        every { head.nextScheduleTimeMillis } returns stuckStartedAt
+        every { head.id } returns UUID.randomUUID()
+        val future = mockk<ListenableFuture<List<WorkInfo>>>()
+        every { future.get() } returns listOf(head)
+
+        val states = mutableMapOf(
+            11L to UploadItemState.PROCESSING,
+            12L to UploadItemState.PROCESSING,
+        )
+        val updatedAt = mutableMapOf(
+            11L to stuckStartedAt,
+            12L to System.currentTimeMillis(),
+        )
+
+        coEvery { repository.recoverStuckProcessing(any()) } answers {
+            val threshold = firstArg<Long>()
+            var requeued = 0
+            states.forEach { (id, state) ->
+                val lastUpdated = updatedAt.getValue(id)
+                if (state == UploadItemState.PROCESSING && lastUpdated <= threshold) {
+                    states[id] = UploadItemState.QUEUED
+                    requeued += 1
+                }
+            }
+            requeued
+        }
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns emptyList()
+        coEvery { repository.hasQueued() } returns true
+
+        every { constraintsProvider.constraintsState } returns constraintsState
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
+        every { workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns future
+        every { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                any<OneTimeWorkRequest>(),
+            )
+        } returns mockk(relaxed = true)
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            providerOf(workManager),
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertEquals(UploadItemState.QUEUED, states[11L])
+        assertEquals(UploadItemState.PROCESSING, states[12L])
+        coVerify { repository.recoverStuckProcessing(any()) }
+        verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
     }
 
     @Test
