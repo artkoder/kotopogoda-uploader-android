@@ -686,13 +686,12 @@ class QueueDrainWorkerTest {
 
         assertTrue(uploadRequest.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, uploadRequest.workSpec.outOfQuotaPolicy)
-        assertTrue(drainRequest.workSpec.expedited)
-        assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, drainRequest.workSpec.outOfQuotaPolicy)
+        assertTrue(!drainRequest.workSpec.expedited)
         assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, drainPolicy)
 
         logTree.assertActionLogged(
             action = "drain_worker_reschedule",
-            predicate = { it.contains("expedited=true") },
+            predicate = { !it.contains("expedited=") },
         )
     }
 

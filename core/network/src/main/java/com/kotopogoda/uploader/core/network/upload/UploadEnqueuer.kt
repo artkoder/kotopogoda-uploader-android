@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
@@ -137,18 +136,16 @@ class UploadEnqueuer @Inject constructor(
             }
         }
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
-        val expedited = constraintsProvider.shouldUseExpeditedWork()
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
                 action = "drain_worker_schedule_request",
                 details = arrayOf(
                     "source" to "enqueuer",
                     "policy" to policy.name,
-                    "expedited" to expedited,
                 ),
             ),
         )
-        enqueueDrainWork(workManager, constraints, policy, expedited)
+        enqueueDrainWork(workManager, constraints, policy)
     }
 
     private fun cancelQueueDrainWork() {
@@ -167,13 +164,10 @@ class UploadEnqueuer @Inject constructor(
         workManager: WorkManager,
         constraints: Constraints,
         policy: ExistingWorkPolicy,
-        expedited: Boolean,
     ) {
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)
-        if (expedited) {
-            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        }
+        // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
