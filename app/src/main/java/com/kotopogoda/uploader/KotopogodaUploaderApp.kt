@@ -64,9 +64,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        if (!WorkManager.isInitialized()) {
-            WorkManager.initialize(this, workManagerConfigurationDelegate)
-        }
+        WorkManager.initialize(this, workManagerConfigurationDelegate)
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
         scope.launch(Dispatchers.IO) {
