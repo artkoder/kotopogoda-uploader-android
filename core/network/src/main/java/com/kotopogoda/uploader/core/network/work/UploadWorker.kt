@@ -41,6 +41,7 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import timber.log.Timber
+import javax.inject.Provider
 
 @HiltWorker
 class UploadWorker @AssistedInject constructor(
@@ -50,7 +51,7 @@ class UploadWorker @AssistedInject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
-    private val workManager: WorkManager,
+    private val workManagerProvider: Provider<WorkManager>,
     private val constraintsProvider: UploadConstraintsProvider,
 ) : CoroutineWorker(appContext, params) {
 
@@ -413,6 +414,7 @@ class UploadWorker @AssistedInject constructor(
         }
         val pollRequest = pollRequestBuilder.build()
 
+        val workManager = workManagerProvider.get()
         workManager.enqueueUniqueWork(
             "$uniqueName:poll",
             ExistingWorkPolicy.REPLACE,
