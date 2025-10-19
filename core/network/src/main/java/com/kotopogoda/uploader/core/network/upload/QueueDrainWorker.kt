@@ -145,38 +145,39 @@ class QueueDrainWorker @AssistedInject constructor(
     private suspend fun enqueueSelf() {
         val workManager = workManagerProvider.get()
         maybeResetStuckDrainChain(workManager, source = "worker")
-        val constraints = constraintsProvider.constraintsState.value ?: run {
-            Timber.tag(LOG_TAG).i(
-                UploadLog.message(
-                    action = "drain_worker_constraints_missing",
-                    details = arrayOf(
-                        "source" to "worker",
-                    ),
-                ),
-            )
-            try {
-                constraintsProvider.buildConstraints().also {
+        val constraints = try {
+            constraintsProvider.awaitConstraints()
+                ?: run {
                     Timber.tag(LOG_TAG).i(
                         UploadLog.message(
-                            action = "drain_worker_constraints_built",
+                            action = "drain_worker_constraints_missing",
                             details = arrayOf(
                                 "source" to "worker",
                             ),
                         ),
                     )
+                    constraintsProvider.buildConstraints().also {
+                        Timber.tag(LOG_TAG).i(
+                            UploadLog.message(
+                                action = "drain_worker_constraints_built",
+                                details = arrayOf(
+                                    "source" to "worker",
+                                ),
+                            ),
+                        )
+                    }
                 }
-            } catch (error: Throwable) {
-                Timber.tag(LOG_TAG).e(
-                    error,
-                    UploadLog.message(
-                        action = "drain_worker_constraints_error",
-                        details = arrayOf(
-                            "source" to "worker",
-                        ),
+        } catch (error: Throwable) {
+            Timber.tag(LOG_TAG).e(
+                error,
+                UploadLog.message(
+                    action = "drain_worker_constraints_error",
+                    details = arrayOf(
+                        "source" to "worker",
                     ),
-                )
-                return
-            }
+                ),
+            )
+            return
         }
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(constraints)
