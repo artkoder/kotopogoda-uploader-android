@@ -194,7 +194,16 @@ class QueueDrainWorker @AssistedInject constructor(
             )
         }
 
-        return constraintsProvider.awaitConstraints().also {
+        val constraints = runCatching { constraintsProvider.awaitConstraints() }
+            .getOrElse { error ->
+                if (error is NullPointerException) {
+                    constraintsProvider.buildConstraints()
+                } else {
+                    throw error
+                }
+            }
+
+        return constraints.also {
             if (!hadConstraints) {
                 Timber.tag(LOG_TAG).i(
                     UploadLog.message(
