@@ -22,8 +22,8 @@ import io.mockk.verify
 import io.mockk.slot
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import kotlin.test.AfterTest
-import kotlin.test.Test
+import org.junit.After
+import org.junit.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -42,7 +42,7 @@ class SaFileRepositoryTest {
         every { context.contentResolver } returns contentResolver
     }
 
-    @AfterTest
+    @After
     fun tearDown() {
         unmockkAll()
     }

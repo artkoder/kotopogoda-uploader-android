@@ -73,11 +73,12 @@ class UploadWorker @AssistedInject constructor(
 
         Timber.tag("WorkManager").i(
             UploadLog.message(
+                category = "APP/UploadWorker",
                 action = "upload_worker_start",
-                itemId = itemId,
                 uri = uri,
                 details = arrayOf(
-                    "displayName" to displayName,
+                    "queue_item_id" to itemId,
+                    "display_name" to displayName,
                 ),
             )
         )
@@ -103,12 +104,13 @@ class UploadWorker @AssistedInject constructor(
             val payload = readDocumentPayload(uri, totalBytes, displayName, mediaType)
             Timber.tag("WorkManager").i(
                 UploadLog.message(
+                    category = "APP/UploadWorker",
                     action = "upload_prepare_request",
-                    itemId = itemId,
                     uri = uri,
                     details = arrayOf(
-                        "displayName" to displayName,
-                        "mimeType" to mimeType,
+                        "queue_item_id" to itemId,
+                        "display_name" to displayName,
+                        "mime_type" to mimeType,
                         "size" to payload.size,
                     ),
                 )
@@ -130,14 +132,15 @@ class UploadWorker @AssistedInject constructor(
                         lastBytesSent = bytesSent
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
+                                category = "APP/UploadWorker",
                                 action = "upload_progress",
-                                itemId = itemId,
                                 uri = uri,
                                 details = buildList {
-                                    add("displayName" to displayName)
+                                    add("queue_item_id" to itemId)
+                                    add("display_name" to displayName)
                                     add("progress" to percent)
-                                    add("bytesSent" to bytesSent)
-                                    payload.size.takeIf { it > 0 }?.let { add("totalBytes" to it) }
+                                    add("bytes_sent" to bytesSent)
+                                    payload.size.takeIf { it > 0 }?.let { add("total_bytes" to it) }
                                 }.toTypedArray(),
                             )
                         )
@@ -158,12 +161,13 @@ class UploadWorker @AssistedInject constructor(
             )
             Timber.tag("WorkManager").i(
                 UploadLog.message(
+                    category = "APP/UploadWorker",
                     action = "upload_request_send",
-                    itemId = itemId,
                     uri = uri,
                     details = arrayOf(
-                        "displayName" to displayName,
-                        "idempotencyKey" to idempotencyKey,
+                        "queue_item_id" to itemId,
+                        "display_name" to displayName,
+                        "idempotency_key" to idempotencyKey,
                     ),
                 )
             )
@@ -183,12 +187,13 @@ class UploadWorker @AssistedInject constructor(
 
             Timber.tag("WorkManager").i(
                 UploadLog.message(
+                    category = "APP/UploadWorker",
                     action = "upload_response_code",
-                    itemId = itemId,
                     uri = uri,
                     details = arrayOf(
-                        "displayName" to displayName,
-                        "httpCode" to response.code(),
+                        "queue_item_id" to itemId,
+                        "display_name" to displayName,
+                        "http_code" to response.code(),
                     ),
                 )
             )
@@ -215,13 +220,14 @@ class UploadWorker @AssistedInject constructor(
                         )
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
+                                category = "APP/UploadWorker",
                                 action = "upload_worker_success",
-                                itemId = itemId,
                                 uri = uri,
                                 details = buildList {
-                                    add("displayName" to displayName)
-                                    add("uploadId" to uploadId)
-                                    add("bytesSent" to (lastProgressSnapshot.bytesSent ?: payload.size))
+                                    add("queue_item_id" to itemId)
+                                    add("display_name" to displayName)
+                                    add("upload_id" to uploadId)
+                                    add("bytes_sent" to (lastProgressSnapshot.bytesSent ?: payload.size))
                                 }.toTypedArray(),
                             )
                         )
@@ -373,17 +379,18 @@ class UploadWorker @AssistedInject constructor(
         setForeground(createForeground(displayName, resolvedProgress))
 
         val details = buildList {
-            add("displayName" to displayName)
+            currentItemId?.let { add("queue_item_id" to it) }
+            add("display_name" to displayName)
             add("progress" to resolvedProgress)
-            resolvedBytesSent?.let { add("bytesSent" to it) }
-            resolvedTotalBytes?.let { add("totalBytes" to it) }
-            errorKind?.let { add("errorKind" to it) }
-            httpCode?.let { add("httpCode" to it) }
+            resolvedBytesSent?.let { add("bytes_sent" to it) }
+            resolvedTotalBytes?.let { add("total_bytes" to it) }
+            errorKind?.let { add("error_kind" to it) }
+            httpCode?.let { add("http_code" to it) }
         }
         Timber.tag("WorkManager").i(
             UploadLog.message(
+                category = "APP/UploadWorker",
                 action = "upload_progress_state",
-                itemId = currentItemId,
                 details = details.toTypedArray(),
             )
         )
@@ -412,12 +419,13 @@ class UploadWorker @AssistedInject constructor(
     ): Result {
         Timber.tag("WorkManager").w(
             UploadLog.message(
+                category = "APP/UploadWorker",
                 action = "upload_retry",
-                itemId = currentItemId,
                 details = buildList {
-                    add("displayName" to displayName)
-                    add("errorKind" to errorKind)
-                    httpCode?.let { add("httpCode" to it) }
+                    currentItemId?.let { add("queue_item_id" to it) }
+                    add("display_name" to displayName)
+                    add("error_kind" to errorKind)
+                    httpCode?.let { add("http_code" to it) }
                 }.toTypedArray(),
             )
         )
@@ -435,13 +443,14 @@ class UploadWorker @AssistedInject constructor(
         val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
         Timber.tag("WorkManager").e(
             UploadLog.message(
+                category = "APP/UploadWorker",
                 action = "upload_failure",
-                itemId = itemId,
                 uri = parsedUri,
                 details = buildList {
-                    add("displayName" to displayName)
-                    add("errorKind" to errorKind)
-                    httpCode?.let { add("httpCode" to it) }
+                    add("queue_item_id" to itemId)
+                    add("display_name" to displayName)
+                    add("error_kind" to errorKind)
+                    httpCode?.let { add("http_code" to it) }
                 }.toTypedArray(),
             )
         )
@@ -527,12 +536,13 @@ class UploadWorker @AssistedInject constructor(
         )
         Timber.tag("WorkManager").i(
             UploadLog.message(
+                category = "APP/UploadWorker",
                 action = "upload_poll_scheduled",
-                itemId = itemId,
                 uri = uri,
                 details = arrayOf(
-                    "displayName" to displayName,
-                    "uploadId" to uploadId,
+                    "queue_item_id" to itemId,
+                    "display_name" to displayName,
+                    "upload_id" to uploadId,
                 ),
             )
         )

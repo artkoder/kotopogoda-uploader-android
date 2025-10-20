@@ -107,6 +107,7 @@ class UploadEnqueuer @Inject constructor(
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/Enqueuer",
                 action = "drain_worker_schedule_request",
                 details = arrayOf(
                     "source" to "enqueuer",
@@ -120,6 +121,7 @@ class UploadEnqueuer @Inject constructor(
     private fun cancelQueueDrainWork() {
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/Enqueuer",
                 action = "drain_worker_cancel_request",
                 details = arrayOf(
                     "source" to "enqueuer",
@@ -139,10 +141,11 @@ class UploadEnqueuer @Inject constructor(
         val request = builder.build()
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/Enqueuer",
                 action = "drain_worker_enqueue",
                 details = arrayOf(
                     "source" to "enqueuer",
-                    "requestId" to request.id,
+                    "request_id" to request.id,
                     "policy" to policy.name,
                     "tags" to request.tags.joinToString(separator = ";"),
                 ),
@@ -165,6 +168,7 @@ class UploadEnqueuer @Inject constructor(
             Timber.tag(LOG_TAG).w(
                 error,
                 UploadLog.message(
+                    category = "APP/Enqueuer",
                     action = "drain_worker_chain_inspect_error",
                     details = arrayOf(
                         "source" to source,
@@ -199,30 +203,32 @@ class UploadEnqueuer @Inject constructor(
             val failureMessage = candidate.info.outputData.getString(QueueDrainWorker.FAILURE_MESSAGE_KEY)
             Timber.tag(LOG_TAG).w(
                 UploadLog.message(
+                    category = "APP/Enqueuer",
                     action = "drain_worker_chain_failed",
                     details = buildList {
                         add("source" to source)
-                        add("workId" to candidate.info.id)
+                        add("work_id" to candidate.info.id)
                         add("state" to candidate.info.state.name)
                         add("since" to candidate.stuckSince)
                         add("now" to now)
                         add("checked" to candidate.checked)
-                        failureMessage?.let { add("failureMessage" to it) }
+                        failureMessage?.let { add("failure_message" to it) }
                     }.toTypedArray(),
                 ),
             )
         } else {
             Timber.tag(LOG_TAG).w(
                 UploadLog.message(
+                    category = "APP/Enqueuer",
                     action = "drain_worker_chain_stuck",
                     details = arrayOf(
                         "source" to source,
-                        "workId" to candidate.info.id,
+                        "work_id" to candidate.info.id,
                         "state" to candidate.info.state.name,
                         "since" to candidate.stuckSince,
                         "now" to now,
-                        "nextSchedule" to candidate.info.nextScheduleTimeMillis,
-                        "startedAt" to candidate.info.progress.getLong(
+                        "next_schedule" to candidate.info.nextScheduleTimeMillis,
+                        "started_at" to candidate.info.progress.getLong(
                             QueueDrainWorker.PROGRESS_KEY_STARTED_AT,
                             0L,
                         ),
@@ -235,6 +241,7 @@ class UploadEnqueuer @Inject constructor(
         workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/Enqueuer",
                 action = "drain_worker_chain_cancel",
                 details = arrayOf(
                     "source" to source,
@@ -249,6 +256,7 @@ class UploadEnqueuer @Inject constructor(
             Timber.tag(LOG_TAG).e(
                 error,
                 UploadLog.message(
+                    category = "APP/Enqueuer",
                     action = "drain_worker_chain_requeue_error",
                     details = arrayOf(
                         "source" to source,
@@ -260,6 +268,7 @@ class UploadEnqueuer @Inject constructor(
 
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/Enqueuer",
                 action = "drain_worker_chain_requeue",
                 details = arrayOf(
                     "source" to source,

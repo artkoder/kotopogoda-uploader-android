@@ -34,9 +34,10 @@ class QueueDrainWorker @AssistedInject constructor(
     init {
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/QueueDrain",
                 action = "drain_worker_init",
                 details = arrayOf(
-                    "id" to params.id,
+                    "work_id" to params.id.toString(),
                     "attempt" to params.runAttemptCount,
                     "tags" to params.tags.joinToString(),
                 ),
@@ -49,9 +50,10 @@ class QueueDrainWorker @AssistedInject constructor(
             val workManager = workManagerProvider.get()
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_start",
                     details = arrayOf(
-                        "id" to id.toString(),
+                        "work_id" to id.toString(),
                     ),
                 )
             )
@@ -61,6 +63,7 @@ class QueueDrainWorker @AssistedInject constructor(
             val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_batch",
                     details = arrayOf(
                         "fetched" to queued.size,
@@ -73,6 +76,7 @@ class QueueDrainWorker @AssistedInject constructor(
                 }
                 Timber.tag(LOG_TAG).i(
                     UploadLog.message(
+                        category = "APP/QueueDrain",
                         action = "drain_worker_complete",
                         details = arrayOf(
                             "result" to "no_items",
@@ -89,10 +93,11 @@ class QueueDrainWorker @AssistedInject constructor(
                 if (!markedProcessing) {
                     Timber.tag(LOG_TAG).i(
                         UploadLog.message(
+                            category = "APP/QueueDrain",
                             action = "drain_worker_processing_skip",
-                            itemId = item.id,
                             uri = item.uri,
                             details = arrayOf(
+                                "queue_item_id" to item.id,
                                 "reason" to "state_changed",
                             ),
                         )
@@ -101,11 +106,12 @@ class QueueDrainWorker @AssistedInject constructor(
                 }
                 Timber.tag(LOG_TAG).i(
                     UploadLog.message(
+                        category = "APP/QueueDrain",
                         action = "drain_worker_processing_success",
-                        itemId = item.id,
                         uri = item.uri,
                         details = arrayOf(
-                            "displayName" to item.displayName,
+                            "queue_item_id" to item.id,
+                            "display_name" to item.displayName,
                         ),
                     )
                 )
@@ -133,11 +139,13 @@ class QueueDrainWorker @AssistedInject constructor(
                 workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
                 Timber.tag(LOG_TAG).i(
                     UploadLog.message(
+                        category = "APP/QueueDrain",
                         action = "drain_worker_enqueue_upload",
-                        itemId = item.id,
                         uri = item.uri,
                         details = arrayOf(
-                            "uniqueName" to uniqueName,
+                            "queue_item_id" to item.id,
+                            "unique_name" to uniqueName,
+                            "request_id" to request.id,
                         ),
                     )
                 )
@@ -149,6 +157,7 @@ class QueueDrainWorker @AssistedInject constructor(
 
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_complete",
                     details = arrayOf(
                         "result" to "success",
@@ -169,11 +178,12 @@ class QueueDrainWorker @AssistedInject constructor(
         Timber.tag(LOG_TAG).e(
             error,
             UploadLog.message(
+                category = "APP/QueueDrain",
                 action = "drain_worker_error",
                 details = arrayOf(
-                    "id" to id.toString(),
+                    "work_id" to id.toString(),
                     "attempt" to runAttemptCount,
-                    "willRetry" to willRetry,
+                    "will_retry" to willRetry,
                 ),
             ),
         )
@@ -205,10 +215,11 @@ class QueueDrainWorker @AssistedInject constructor(
         )
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/QueueDrain",
                 action = "drain_worker_reschedule",
                 details = arrayOf(
                     "policy" to policy.name,
-                    "requestId" to request.id,
+                    "request_id" to request.id,
                 ),
             ),
         )
@@ -219,6 +230,7 @@ class QueueDrainWorker @AssistedInject constructor(
         if (!hadConstraints) {
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_constraints_missing",
                     details = arrayOf(
                         "source" to source,
@@ -231,6 +243,7 @@ class QueueDrainWorker @AssistedInject constructor(
             if (!hadConstraints) {
                 Timber.tag(LOG_TAG).i(
                     UploadLog.message(
+                        category = "APP/QueueDrain",
                         action = "drain_worker_constraints_built",
                         details = arrayOf(
                             "source" to source,
@@ -251,6 +264,7 @@ class QueueDrainWorker @AssistedInject constructor(
             Timber.tag(LOG_TAG).w(
                 error,
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_chain_inspect_error",
                     details = arrayOf(
                         "source" to source,
@@ -285,30 +299,32 @@ class QueueDrainWorker @AssistedInject constructor(
             val failureMessage = candidate.info.outputData.getString(FAILURE_MESSAGE_KEY)
             Timber.tag(LOG_TAG).w(
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_chain_failed",
                     details = buildList {
                         add("source" to source)
-                        add("workId" to candidate.info.id)
+                        add("work_id" to candidate.info.id)
                         add("state" to candidate.info.state.name)
                         add("since" to candidate.stuckSince)
                         add("now" to now)
                         add("checked" to candidate.checked)
-                        failureMessage?.let { add("failureMessage" to it) }
+                        failureMessage?.let { add("failure_message" to it) }
                     }.toTypedArray(),
                 ),
             )
         } else {
             Timber.tag(LOG_TAG).w(
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_chain_stuck",
                     details = arrayOf(
                         "source" to source,
-                        "workId" to candidate.info.id,
+                        "work_id" to candidate.info.id,
                         "state" to candidate.info.state.name,
                         "since" to candidate.stuckSince,
                         "now" to now,
-                        "nextSchedule" to candidate.info.nextScheduleTimeMillis,
-                        "startedAt" to candidate.info.progress.getLong(
+                        "next_schedule" to candidate.info.nextScheduleTimeMillis,
+                        "started_at" to candidate.info.progress.getLong(
                             PROGRESS_KEY_STARTED_AT,
                             0L,
                         ),
@@ -321,6 +337,7 @@ class QueueDrainWorker @AssistedInject constructor(
         workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/QueueDrain",
                 action = "drain_worker_chain_cancel",
                 details = arrayOf(
                     "source" to source,
@@ -335,6 +352,7 @@ class QueueDrainWorker @AssistedInject constructor(
             Timber.tag(LOG_TAG).e(
                 error,
                 UploadLog.message(
+                    category = "APP/QueueDrain",
                     action = "drain_worker_chain_requeue_error",
                     details = arrayOf(
                         "source" to source,
@@ -346,6 +364,7 @@ class QueueDrainWorker @AssistedInject constructor(
 
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
+                category = "APP/QueueDrain",
                 action = "drain_worker_chain_requeue",
                 details = arrayOf(
                     "source" to source,
