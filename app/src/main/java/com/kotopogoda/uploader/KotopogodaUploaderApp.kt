@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 @HiltAndroidApp
 class KotopogodaUploaderApp : Application(), Configuration.Provider {
@@ -66,6 +67,8 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
         httpLoggingController.setEnabled(true)
+        appLogger.setEnabled(true)
+        Timber.tag("app_start").i("KotopogodaUploaderApp.onCreate")
         scope.launch(Dispatchers.IO) {
             uploadStartupInitializer.ensureUploadRunningIfQueued()
         }

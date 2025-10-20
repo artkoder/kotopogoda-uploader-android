@@ -34,6 +34,24 @@ class SettingsRepositoryImplTest {
     }
 
     @Test
+    fun appLogging_updatesWhenPreferenceChanges() = runTest {
+        val permissionProvider = FakeNotificationPermissionProvider(initial = true)
+        val dataStore = createDataStore(backgroundScope)
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+
+        repository.setAppLogging(false)
+        advanceUntilIdle()
+        val disabled = repository.flow.first { !it.appLogging }
+        assertFalse(disabled.appLogging)
+
+        repository.setAppLogging(true)
+        advanceUntilIdle()
+        val enabled = repository.flow.first { it.appLogging }
+        assertTrue(enabled.appLogging)
+    }
+
+    @Test
     fun httpLogging_defaultTrue_whenNotPersisted() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = true)
         val dataStore = createDataStore(backgroundScope)
