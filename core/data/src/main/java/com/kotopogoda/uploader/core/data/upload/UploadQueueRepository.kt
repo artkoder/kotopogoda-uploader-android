@@ -68,6 +68,18 @@ class UploadQueueRepository @Inject constructor(
         val effectiveIdempotencyKey = idempotencyKey.takeIf { it.isNotBlank() }
             ?: existing?.entityIdempotencyKey()
             ?: buildIdempotencyKey(photo.id)
+        Timber.tag("Queue").i(
+            UploadLog.message(
+                category = CATEGORY_ENQUEUE_REQUEST,
+                action = "enqueue",
+                photoId = photo.id,
+                uri = uri,
+                details = arrayOf(
+                    "existing" to (existing != null),
+                    "idempotency_key" to effectiveIdempotencyKey,
+                ),
+            ),
+        )
         if (existing == null) {
             val id = uploadItemDao.insert(
                 UploadItemEntity(
@@ -83,8 +95,8 @@ class UploadQueueRepository @Inject constructor(
             )
             Timber.tag("Queue").i(
                 UploadLog.message(
-                    category = "QUEUE/Repository",
-                    action = "enqueue",
+                    category = CATEGORY_ENQUEUE_OK,
+                    action = "enqueue_inserted",
                     photoId = photo.id,
                     uri = uri,
                     state = UploadItemState.QUEUED,
@@ -94,7 +106,7 @@ class UploadQueueRepository @Inject constructor(
                         "display_name" to displayName,
                         "existing" to false,
                     ),
-                )
+                ),
             )
         } else {
             uploadItemDao.updateStateWithMetadata(
@@ -108,8 +120,8 @@ class UploadQueueRepository @Inject constructor(
             )
             Timber.tag("Queue").i(
                 UploadLog.message(
-                    category = "QUEUE/Repository",
-                    action = "enqueue",
+                    category = CATEGORY_ENQUEUE_OK,
+                    action = "enqueue_updated",
                     photoId = photo.id,
                     uri = uri,
                     state = UploadItemState.QUEUED,
@@ -119,7 +131,7 @@ class UploadQueueRepository @Inject constructor(
                         "display_name" to displayName,
                         "existing" to true,
                     ),
-                )
+                ),
             )
         }
     }
@@ -134,7 +146,7 @@ class UploadQueueRepository @Inject constructor(
         )
         Timber.tag("Queue").i(
             UploadLog.message(
-                category = "QUEUE/Repository",
+                category = CATEGORY_STATE,
                 action = "mark_queued",
                 photoId = photo.id,
                 uri = uri,
@@ -142,7 +154,7 @@ class UploadQueueRepository @Inject constructor(
                 details = arrayOf(
                     "queue_item_id" to existing.id,
                 ),
-            )
+            ),
         )
     }
 
@@ -157,7 +169,7 @@ class UploadQueueRepository @Inject constructor(
         )
         Timber.tag("Queue").i(
             UploadLog.message(
-                category = "QUEUE/Repository",
+                category = CATEGORY_CANCEL,
                 action = "mark_cancelled",
                 photoId = photo.id,
                 uri = uri,
@@ -166,7 +178,7 @@ class UploadQueueRepository @Inject constructor(
                     "queue_item_id" to existing.id,
                     "was_processing" to wasProcessing,
                 ),
-            )
+            ),
         )
         wasProcessing
     }
@@ -182,10 +194,10 @@ class UploadQueueRepository @Inject constructor(
         )
         Timber.tag("Queue").w(
             UploadLog.message(
-                category = "QUEUE/Repository",
+                category = CATEGORY_CANCEL_ALL,
                 action = "cancel_all",
                 state = UploadItemState.FAILED,
-            )
+            ),
         )
     }
 
@@ -220,14 +232,14 @@ class UploadQueueRepository @Inject constructor(
                     )
                     Timber.tag("Queue").w(
                         UploadLog.message(
-                            category = "QUEUE/Repository",
-                            action = "fetch_queued_skip",
+                            category = CATEGORY_FETCH,
+                            action = "skip_missing_uri",
                             state = UploadItemState.FAILED,
                             details = arrayOf(
                                 "queue_item_id" to entity.id,
                                 "reason" to "missing_uri",
                             ),
-                        )
+                        ),
                     )
                     continue
                 }
@@ -242,14 +254,14 @@ class UploadQueueRepository @Inject constructor(
                     )
                     Timber.tag("Queue").w(
                         UploadLog.message(
-                            category = "QUEUE/Repository",
-                            action = "fetch_queued_skip",
+                            category = CATEGORY_FETCH,
+                            action = "skip_invalid_uri",
                             state = UploadItemState.FAILED,
                             details = arrayOf(
                                 "queue_item_id" to entity.id,
                                 "reason" to "invalid_uri",
                             ),
-                        )
+                        ),
                     )
                     continue
                 }
@@ -272,8 +284,8 @@ class UploadQueueRepository @Inject constructor(
                 )
                 Timber.tag("Queue").i(
                     UploadLog.message(
-                        category = "QUEUE/Repository",
-                        action = "fetch_queued_item",
+                        category = CATEGORY_FETCH,
+                        action = "item",
                         photoId = entity.photoId,
                         uri = uri,
                         state = UploadItemState.QUEUED,
@@ -282,20 +294,20 @@ class UploadQueueRepository @Inject constructor(
                             "display_name" to displayName,
                             "size" to entity.size,
                         ),
-                    )
+                    ),
                 )
             }
         }
         Timber.tag("Queue").i(
             UploadLog.message(
-                category = "QUEUE/Repository",
-                action = "fetch_queued_summary",
+                category = CATEGORY_FETCH,
+                action = "summary",
                 state = UploadItemState.QUEUED,
                 details = arrayOf(
                     "requested" to limit,
                     "returned" to items.size,
                 ),
-            )
+            ),
         )
         items
     }
@@ -311,13 +323,13 @@ class UploadQueueRepository @Inject constructor(
         val action = if (success) "mark_processing" else "mark_processing_skipped"
         Timber.tag("Queue").i(
             UploadLog.message(
-                category = "QUEUE/Repository",
+                category = CATEGORY_STATE,
                 action = action,
                 state = if (success) UploadItemState.PROCESSING else null,
                 details = arrayOf(
                     "queue_item_id" to id,
                 ),
-            )
+            ),
         )
         success
     }
@@ -330,13 +342,13 @@ class UploadQueueRepository @Inject constructor(
         )
         Timber.tag("Queue").i(
             UploadLog.message(
-                category = "QUEUE/Repository",
+                category = CATEGORY_STATE,
                 action = "mark_succeeded",
                 state = UploadItemState.SUCCEEDED,
                 details = arrayOf(
                     "queue_item_id" to id,
                 ),
-            )
+            ),
         )
     }
 
@@ -349,13 +361,13 @@ class UploadQueueRepository @Inject constructor(
         if (updatedRows > 0) {
             Timber.tag("Queue").v(
                 UploadLog.message(
-                    category = "QUEUE/Repository",
-                    action = "processing_heartbeat",
+                    category = CATEGORY_HEARTBEAT,
+                    action = "processing",
                     state = UploadItemState.PROCESSING,
                     details = arrayOf(
                         "queue_item_id" to id,
                     ),
-                )
+                ),
             )
         }
     }
@@ -376,7 +388,7 @@ class UploadQueueRepository @Inject constructor(
         )
         Timber.tag("Queue").w(
             UploadLog.message(
-                category = "QUEUE/Repository",
+                category = CATEGORY_STATE,
                 action = "mark_failed",
                 state = state,
                 details = arrayOf(
@@ -385,7 +397,7 @@ class UploadQueueRepository @Inject constructor(
                     "http_code" to httpCode,
                     "requeue" to requeue,
                 ),
-            )
+            ),
         )
     }
 
@@ -417,13 +429,13 @@ class UploadQueueRepository @Inject constructor(
         if (requeued > 0) {
             Timber.tag("Queue").i(
                 UploadLog.message(
-                    category = "QUEUE/Repository",
-                    action = "requeue_processing_signal",
+                    category = CATEGORY_REQUEUE,
+                    action = "processing_signal",
                     state = UploadItemState.QUEUED,
                     details = arrayOf(
                         "requeued" to requeued,
                     ),
-                )
+                ),
             )
         }
         requeued
@@ -509,13 +521,13 @@ class UploadQueueRepository @Inject constructor(
         if (requeued > 0) {
             Timber.tag("Queue").w(
                 UploadLog.message(
-                    category = "QUEUE/Repository",
-                    action = "recover_processing",
+                    category = CATEGORY_RECOVER,
+                    action = "processing",
                     state = UploadItemState.QUEUED,
                     details = arrayOf(
                         "requeued" to requeued,
                     ),
-                )
+                ),
             )
         }
         return requeued
@@ -530,6 +542,15 @@ class UploadQueueRepository @Inject constructor(
         private const val DEFAULT_DISPLAY_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
         const val STUCK_TIMEOUT_MS: Long = 5 * 60 * 1_000L
+        private const val CATEGORY_ENQUEUE_REQUEST = "QUEUE/ENQUEUE_REQUEST"
+        private const val CATEGORY_ENQUEUE_OK = "QUEUE/ENQUEUE_OK"
+        private const val CATEGORY_STATE = "QUEUE/STATE"
+        private const val CATEGORY_CANCEL = "QUEUE/CANCEL"
+        private const val CATEGORY_CANCEL_ALL = "QUEUE/CANCEL_ALL"
+        private const val CATEGORY_FETCH = "QUEUE/FETCH"
+        private const val CATEGORY_HEARTBEAT = "QUEUE/HEARTBEAT"
+        private const val CATEGORY_REQUEUE = "QUEUE/REQUEUE"
+        private const val CATEGORY_RECOVER = "QUEUE/RECOVER"
     }
 }
 
