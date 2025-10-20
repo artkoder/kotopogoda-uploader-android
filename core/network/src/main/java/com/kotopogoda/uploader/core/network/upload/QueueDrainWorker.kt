@@ -196,7 +196,7 @@ class QueueDrainWorker @AssistedInject constructor(
 
         val constraints = runCatching { constraintsProvider.awaitConstraints() }
             .getOrElse { error ->
-                if (error is NullPointerException) {
+                if (error is NullPointerException || error is KotlinNullPointerException) {
                     constraintsProvider.buildConstraints()
                 } else {
                     throw error
