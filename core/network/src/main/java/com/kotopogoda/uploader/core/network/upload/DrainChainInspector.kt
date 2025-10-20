@@ -79,6 +79,7 @@ internal fun drainChainSnapshotMessage(
     }.toTypedArray()
 
     return UploadLog.message(
+        category = "APP/QueueDrain",
         action = "drain_worker_chain_snapshot",
         details = details,
     )

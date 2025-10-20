@@ -2,8 +2,10 @@ package com.kotopogoda.uploader
 
 import android.app.Application
 import androidx.work.Configuration
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.AppLogger
+import com.kotopogoda.uploader.core.logging.diagnostic.DiagnosticContextProvider
 import com.kotopogoda.uploader.core.network.connectivity.NetworkMonitor
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
@@ -34,6 +36,9 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var appLogger: AppLogger
+
+    @Inject
+    lateinit var diagnosticContextProvider: DiagnosticContextProvider
 
     @Inject
     lateinit var httpLoggingController: HttpLoggingController
@@ -68,12 +73,19 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         networkMonitor.start()
         httpLoggingController.setEnabled(true)
         appLogger.setEnabled(true)
-        Timber.tag("app_start").i("KotopogodaUploaderApp.onCreate")
+        UploadLog.setDiagnosticContextProvider(diagnosticContextProvider)
+        Timber.tag("app_start").i(
+            UploadLog.message(
+                category = "APP/Startup",
+                action = "application_create",
+            )
+        )
         scope.launch(Dispatchers.IO) {
             uploadStartupInitializer.ensureUploadRunningIfQueued()
         }
         scope.launch {
             settingsRepository.flow.collect { settings ->
+                diagnosticContextProvider.updateSettings(settings)
                 appLogger.setEnabled(settings.appLogging)
                 httpLoggingController.setEnabled(settings.httpLogging)
                 networkClientProvider.updateBaseUrl(settings.baseUrl)
