@@ -31,6 +31,19 @@ class QueueDrainWorker @AssistedInject constructor(
     private val constraintsProvider: UploadConstraintsProvider,
 ) : CoroutineWorker(appContext, params) {
 
+    init {
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                action = "drain_worker_init",
+                details = arrayOf(
+                    "id" to params.id,
+                    "attempt" to params.runAttemptCount,
+                    "tags" to params.tags.joinToString(),
+                ),
+            ),
+        )
+    }
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val workManager = workManagerProvider.get()
