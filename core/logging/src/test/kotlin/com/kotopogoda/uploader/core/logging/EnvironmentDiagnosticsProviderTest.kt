@@ -11,6 +11,7 @@ import com.kotopogoda.uploader.core.logging.diagnostics.NetworkStatusProvider
 import com.kotopogoda.uploader.core.logging.diagnostics.PersistedUriPermissionSnapshot
 import com.kotopogoda.uploader.core.logging.diagnostics.PersistedUriPermissionsProvider
 import com.kotopogoda.uploader.core.logging.diagnostics.QueueItemSnapshot
+import com.kotopogoda.uploader.core.logging.diagnostics.QueueStatsSnapshot
 import com.kotopogoda.uploader.core.logging.diagnostics.UploadQueueSnapshotProvider
 import com.kotopogoda.uploader.core.logging.diagnostics.WorkInfoProvider
 import com.kotopogoda.uploader.core.logging.diagnostics.WorkInfoSnapshot
@@ -79,7 +80,19 @@ class EnvironmentDiagnosticsProviderTest {
 
         val queue = json.getJSONObject("queue")
         assertEquals(2, queue.getInt("count"))
+        assertEquals(2, queue.getInt("waiting"))
+        assertEquals(1, queue.getInt("running"))
+        assertEquals(3, queue.getInt("succeeded"))
+        assertEquals(4, queue.getInt("failed"))
         assertEquals(2, queue.getJSONArray("items").length())
+        val firstQueueItem = queue.getJSONArray("items").getJSONObject(0)
+        assertEquals("queued", firstQueueItem.getString("state"))
+        assertEquals(1000L, firstQueueItem.getLong("createdAt"))
+        assertEquals(2000L, firstQueueItem.getLong("updatedAt"))
+        assertEquals(300L, firstQueueItem.getLong("ageMillis"))
+        assertEquals(100L, firstQueueItem.getLong("timeSinceUpdateMillis"))
+        assertEquals("network", firstQueueItem.getString("lastErrorKind"))
+        assertEquals(500, firstQueueItem.getInt("lastErrorHttpCode"))
 
         val workManager = json.getJSONObject("workManager")
         assertEquals(1, workManager.getJSONArray("upload").length())
@@ -127,8 +140,41 @@ class EnvironmentDiagnosticsProviderTest {
 
     private class FakeUploadQueueSnapshotProvider : UploadQueueSnapshotProvider {
         override suspend fun getQueued(limit: Int): List<QueueItemSnapshot> = listOf(
-            QueueItemSnapshot(1, "uri://1", "one", "key1", 10L),
-            QueueItemSnapshot(2, "uri://2", "two", "key2", 20L),
+            QueueItemSnapshot(
+                id = 1,
+                uri = "uri://1",
+                displayName = "one",
+                idempotencyKey = "key1",
+                size = 10L,
+                state = "queued",
+                createdAt = 1000L,
+                updatedAt = 2000L,
+                ageMillis = 300L,
+                timeSinceUpdateMillis = 100L,
+                lastErrorKind = "network",
+                lastErrorHttpCode = 500,
+            ),
+            QueueItemSnapshot(
+                id = 2,
+                uri = "uri://2",
+                displayName = "two",
+                idempotencyKey = "key2",
+                size = 20L,
+                state = "queued",
+                createdAt = 3000L,
+                updatedAt = null,
+                ageMillis = 400L,
+                timeSinceUpdateMillis = 400L,
+                lastErrorKind = null,
+                lastErrorHttpCode = null,
+            ),
+        )
+
+        override suspend fun getStats(): QueueStatsSnapshot = QueueStatsSnapshot(
+            waiting = 2,
+            running = 1,
+            succeeded = 3,
+            failed = 4,
         )
     }
 

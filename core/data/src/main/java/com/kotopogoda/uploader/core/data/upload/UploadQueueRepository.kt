@@ -263,6 +263,11 @@ class UploadQueueRepository @Inject constructor(
                         idempotencyKey = idempotencyKey,
                         displayName = displayName,
                         size = entity.size,
+                        state = UploadItemState.QUEUED,
+                        createdAt = entity.createdAt,
+                        updatedAt = entity.updatedAt,
+                        lastErrorKind = UploadErrorKind.fromRawValue(entity.lastErrorKind),
+                        lastErrorHttpCode = entity.httpCode,
                     )
                 )
                 Timber.tag("Queue").i(
@@ -386,6 +391,15 @@ class UploadQueueRepository @Inject constructor(
 
     suspend fun hasQueued(): Boolean = withContext(Dispatchers.IO) {
         uploadItemDao.countByState(UploadItemState.QUEUED.rawValue) > 0
+    }
+
+    suspend fun getQueueStats(): UploadQueueStats = withContext(Dispatchers.IO) {
+        UploadQueueStats(
+            queued = uploadItemDao.countByState(UploadItemState.QUEUED.rawValue),
+            processing = uploadItemDao.countByState(UploadItemState.PROCESSING.rawValue),
+            succeeded = uploadItemDao.countByState(UploadItemState.SUCCEEDED.rawValue),
+            failed = uploadItemDao.countByState(UploadItemState.FAILED.rawValue),
+        )
     }
 
     suspend fun getState(id: Long): UploadItemState? = withContext(Dispatchers.IO) {
@@ -527,10 +541,22 @@ data class UploadQueueEntry(
     val lastErrorHttpCode: Int?,
 )
 
+data class UploadQueueStats(
+    val queued: Int,
+    val processing: Int,
+    val succeeded: Int,
+    val failed: Int,
+)
+
 data class UploadQueueItem(
     val id: Long,
     val uri: Uri,
     val idempotencyKey: String,
     val displayName: String,
     val size: Long,
+    val state: UploadItemState = UploadItemState.QUEUED,
+    val createdAt: Long = 0,
+    val updatedAt: Long? = null,
+    val lastErrorKind: UploadErrorKind? = null,
+    val lastErrorHttpCode: Int? = null,
 )

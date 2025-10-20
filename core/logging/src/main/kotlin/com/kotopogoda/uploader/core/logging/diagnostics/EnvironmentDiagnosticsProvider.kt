@@ -39,6 +39,8 @@ class EnvironmentDiagnosticsProvider @Inject constructor(
             val notificationsGranted = notificationsResult.getOrDefault(false)
             val queueResult = runCatching { uploadQueueSnapshotProvider.getQueued(QUEUE_LIMIT) }
             val uploadQueue = queueResult.getOrDefault(emptyList())
+            val queueStatsResult = runCatching { uploadQueueSnapshotProvider.getStats() }
+            val queueStats = queueStatsResult.getOrNull()
             val workResults = WORK_TAGS.mapValues { (_, tag) ->
                 runCatching { workInfoProvider.getWorkInfosByTag(tag) }
             }
@@ -91,6 +93,12 @@ class EnvironmentDiagnosticsProvider @Inject constructor(
                 })
                 put("queue", JSONObject().apply {
                     put("count", uploadQueue.size)
+                    queueStats?.let { stats ->
+                        put("waiting", stats.waiting)
+                        put("running", stats.running)
+                        put("succeeded", stats.succeeded)
+                        put("failed", stats.failed)
+                    }
                     put("items", JSONArray().apply {
                         uploadQueue.forEach { item ->
                             put(
@@ -100,12 +108,22 @@ class EnvironmentDiagnosticsProvider @Inject constructor(
                                     putNullable("displayName", item.displayName)
                                     putNullable("idempotencyKey", item.idempotencyKey)
                                     putNullable("size", item.size)
+                                    put("state", item.state)
+                                    put("createdAt", item.createdAt)
+                                    putNullable("updatedAt", item.updatedAt)
+                                    put("ageMillis", item.ageMillis)
+                                    put("timeSinceUpdateMillis", item.timeSinceUpdateMillis)
+                                    putNullable("lastErrorKind", item.lastErrorKind)
+                                    putNullable("lastErrorHttpCode", item.lastErrorHttpCode)
                                 }
                             )
                         }
                     })
                     queueResult.exceptionOrNull()?.let { error ->
                         put("error", error.toDiagnosticString())
+                    }
+                    queueStatsResult.exceptionOrNull()?.let { error ->
+                        put("statsError", error.toDiagnosticString())
                     }
                 })
                 put("workManager", JSONObject().apply {
@@ -208,6 +226,14 @@ class EnvironmentDiagnosticsProvider @Inject constructor(
     }
 
     private fun JSONObject.putNullable(name: String, value: Long?) {
+        if (value != null) {
+            put(name, value)
+        } else {
+            put(name, JSONObject.NULL)
+        }
+    }
+
+    private fun JSONObject.putNullable(name: String, value: Int?) {
         if (value != null) {
             put(name, value)
         } else {
