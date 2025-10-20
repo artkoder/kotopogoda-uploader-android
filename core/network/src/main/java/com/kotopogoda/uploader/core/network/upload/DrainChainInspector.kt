@@ -19,11 +19,14 @@ internal fun findDrainChainCandidate(
     var bestStuckSince = Long.MAX_VALUE
 
     for (info in infos) {
-        if (info.state != WorkInfo.State.ENQUEUED && info.state != WorkInfo.State.RUNNING) {
-            continue
-        }
+        val stuckSince = when (info.state) {
+            WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING ->
+                info.computeStuckSince(now, progressKey)
+            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED ->
+                info.computeFailureMoment(now, progressKey)
+            else -> null
+        } ?: continue
         checked += 1
-        val stuckSince = info.computeStuckSince(now, progressKey) ?: continue
         if (bestInfo == null || stuckSince < bestStuckSince) {
             bestInfo = info
             bestStuckSince = stuckSince
@@ -36,6 +39,12 @@ internal fun findDrainChainCandidate(
         stuckSince = bestStuckSince,
         checked = checked,
     )
+}
+
+private fun WorkInfo.computeFailureMoment(now: Long, progressKey: String): Long? {
+    val failureAt = outputData.getLong(QueueDrainWorker.FAILURE_AT_KEY, 0L)
+        .takeIf { it > 0L && it <= now }
+    return failureAt ?: computeStuckSince(now, progressKey)
 }
 
 private fun WorkInfo.computeStuckSince(now: Long, progressKey: String): Long? {

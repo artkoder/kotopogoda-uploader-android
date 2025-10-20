@@ -385,6 +385,102 @@ class QueueDrainWorkerTest {
     }
 
     @Test
+    fun `worker chain reset cancels failed work immediately`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+        val failureAt = System.currentTimeMillis()
+        val stuckStartedAt = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
+
+        val failed = mockk<WorkInfo>()
+        val failedId = UUID.randomUUID()
+        every { failed.state } returns WorkInfo.State.FAILED
+        every { failed.progress } returns workDataOf(
+            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to stuckStartedAt,
+        )
+        every { failed.outputData } returns workDataOf(
+            QueueDrainWorker.FAILURE_MESSAGE_KEY to "boom",
+            QueueDrainWorker.FAILURE_AT_KEY to failureAt,
+        )
+        every { failed.nextScheduleTimeMillis } returns 0L
+        every { failed.id } returns failedId
+
+        val future = mockk<ListenableFuture<List<WorkInfo>>>()
+        every { future.get() } returns listOf(failed)
+
+        val states = mutableMapOf(
+            21L to UploadItemState.PROCESSING,
+            22L to UploadItemState.PROCESSING,
+        )
+        val updatedAt = mutableMapOf(
+            21L to stuckStartedAt,
+            22L to System.currentTimeMillis(),
+        )
+
+        coEvery { repository.recoverStuckProcessing(any()) } answers {
+            val threshold = firstArg<Long>()
+            var requeued = 0
+            states.forEach { (id, state) ->
+                val lastUpdated = updatedAt.getValue(id)
+                if (state == UploadItemState.PROCESSING && lastUpdated <= threshold) {
+                    states[id] = UploadItemState.QUEUED
+                    requeued += 1
+                }
+            }
+            requeued
+        }
+        coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns emptyList()
+        coEvery { repository.hasQueued() } returns true
+
+        every { constraintsProvider.constraintsState } returns constraintsState
+        every { constraintsProvider.shouldUseExpeditedWork() } returns false
+        every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
+        every { workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns future
+        every { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                any(),
+                any(),
+                any<OneTimeWorkRequest>(),
+            )
+        } returns mockk(relaxed = true)
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            providerOf(workManager),
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertEquals(UploadItemState.QUEUED, states[21L])
+        assertEquals(UploadItemState.PROCESSING, states[22L])
+        coVerify { repository.recoverStuckProcessing(any()) }
+        verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
+        logTree.assertActionLogged(
+            action = "drain_worker_chain_snapshot",
+            predicate = {
+                it.contains("source=worker") &&
+                    it.contains("count=1") &&
+                    it.contains("states=$failedId:FAILED")
+            },
+        )
+        logTree.assertActionLogged(
+            action = "drain_worker_chain_failed",
+            predicate = {
+                it.contains("workId=$failedId") &&
+                    it.contains("failureMessage=boom") &&
+                    it.contains("checked=1")
+            },
+        )
+    }
+
+    @Test
     fun `worker chain reset inspects all enqueued work infos`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()

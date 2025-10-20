@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
@@ -189,28 +190,47 @@ class UploadEnqueuer @Inject constructor(
         ) ?: return
 
         val threshold = now - UploadItemsRepository.STUCK_TIMEOUT_MS
-        if (candidate.stuckSince > threshold) {
+        val isFailed = candidate.info.state == WorkInfo.State.FAILED
+        if (!isFailed && candidate.stuckSince > threshold) {
             return
         }
 
-        Timber.tag(LOG_TAG).w(
-            UploadLog.message(
-                action = "drain_worker_chain_stuck",
-                details = arrayOf(
-                    "source" to source,
-                    "workId" to candidate.info.id,
-                    "state" to candidate.info.state.name,
-                    "since" to candidate.stuckSince,
-                    "now" to now,
-                    "nextSchedule" to candidate.info.nextScheduleTimeMillis,
-                    "startedAt" to candidate.info.progress.getLong(
-                        QueueDrainWorker.PROGRESS_KEY_STARTED_AT,
-                        0L,
-                    ),
-                    "checked" to candidate.checked,
+        if (isFailed) {
+            val failureMessage = candidate.info.outputData.getString(QueueDrainWorker.FAILURE_MESSAGE_KEY)
+            Timber.tag(LOG_TAG).w(
+                UploadLog.message(
+                    action = "drain_worker_chain_failed",
+                    details = buildList {
+                        add("source" to source)
+                        add("workId" to candidate.info.id)
+                        add("state" to candidate.info.state.name)
+                        add("since" to candidate.stuckSince)
+                        add("now" to now)
+                        add("checked" to candidate.checked)
+                        failureMessage?.let { add("failureMessage" to it) }
+                    }.toTypedArray(),
                 ),
-            ),
-        )
+            )
+        } else {
+            Timber.tag(LOG_TAG).w(
+                UploadLog.message(
+                    action = "drain_worker_chain_stuck",
+                    details = arrayOf(
+                        "source" to source,
+                        "workId" to candidate.info.id,
+                        "state" to candidate.info.state.name,
+                        "since" to candidate.stuckSince,
+                        "now" to now,
+                        "nextSchedule" to candidate.info.nextScheduleTimeMillis,
+                        "startedAt" to candidate.info.progress.getLong(
+                            QueueDrainWorker.PROGRESS_KEY_STARTED_AT,
+                            0L,
+                        ),
+                        "checked" to candidate.checked,
+                    ),
+                ),
+            )
+        }
 
         workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME)
         Timber.tag(LOG_TAG).i(
