@@ -68,6 +68,7 @@ class UploadEnqueuer @Inject constructor(
 
     companion object {
         private const val LOG_TAG = "WorkManager"
+        private val DRAIN_WORK_CONSTRAINTS: Constraints = Constraints.NONE
 
         const val KEY_URI = "uri"
         const val KEY_ITEM_ID = "itemId"
@@ -102,39 +103,6 @@ class UploadEnqueuer @Inject constructor(
         val workManager = workManagerProvider.get()
         maybeResetStuckDrainChain(workManager, source = "enqueuer")
 
-        val constraints = constraintsProvider.constraintsState.value ?: run {
-            Timber.tag(LOG_TAG).i(
-                UploadLog.message(
-                    action = "drain_worker_constraints_missing",
-                    details = arrayOf(
-                        "source" to "enqueuer",
-                    ),
-                ),
-            )
-            try {
-                constraintsProvider.buildConstraints().also {
-                    Timber.tag(LOG_TAG).i(
-                        UploadLog.message(
-                            action = "drain_worker_constraints_built",
-                            details = arrayOf(
-                                "source" to "enqueuer",
-                            ),
-                        ),
-                    )
-                }
-            } catch (error: Throwable) {
-                Timber.tag(LOG_TAG).e(
-                    error,
-                    UploadLog.message(
-                        action = "drain_worker_constraints_error",
-                        details = arrayOf(
-                            "source" to "enqueuer",
-                        ),
-                    ),
-                )
-                return
-            }
-        }
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
         Timber.tag(LOG_TAG).i(
             UploadLog.message(
@@ -145,7 +113,7 @@ class UploadEnqueuer @Inject constructor(
                 ),
             ),
         )
-        enqueueDrainWork(workManager, constraints, policy)
+        enqueueDrainWork(workManager, policy)
     }
 
     private fun cancelQueueDrainWork() {
@@ -162,11 +130,10 @@ class UploadEnqueuer @Inject constructor(
 
     private fun enqueueDrainWork(
         workManager: WorkManager,
-        constraints: Constraints,
         policy: ExistingWorkPolicy,
     ) {
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
-            .setConstraints(constraints)
+            .setConstraints(DRAIN_WORK_CONSTRAINTS)
         // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         Timber.tag(LOG_TAG).i(

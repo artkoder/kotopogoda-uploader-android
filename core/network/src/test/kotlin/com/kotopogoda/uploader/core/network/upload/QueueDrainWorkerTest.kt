@@ -612,7 +612,7 @@ class QueueDrainWorkerTest {
     }
 
     @Test
-    fun `worker rebuilds constraints before rescheduling when state empty`() = runTest {
+    fun `worker reschedules without network constraints when state empty`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
         val constraintsProvider = mockk<UploadConstraintsProvider>()
@@ -630,13 +630,28 @@ class QueueDrainWorkerTest {
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.hasQueued() } returns true
-        coEvery { constraintsProvider.awaitConstraints() } returnsMany listOf(Constraints.NONE, null)
+        coEvery { constraintsProvider.awaitConstraints() } returns Constraints.NONE
         every { constraintsProvider.constraintsState } returns constraintsState
-        every { constraintsProvider.buildConstraints() } answers {
-            Constraints.NONE.also { constraintsState.value = it }
-        }
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+        val uploadRequestSlot = slot<OneTimeWorkRequest>()
+        val drainRequestSlot = slot<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(
+                UploadEnqueuer.uniqueNameForUri(queueItem.uri),
+                ExistingWorkPolicy.KEEP,
+                capture(uploadRequestSlot),
+            )
+        } returns mockk(relaxed = true)
+        every {
+            workManager.enqueueUniqueWork(
+                QUEUE_DRAIN_WORK_NAME,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                capture(drainRequestSlot),
+            )
+        } returns mockk(relaxed = true)
+        val future = mockk<ListenableFuture<List<WorkInfo>>>()
+        every { future.get() } returns emptyList()
+        every { workManager.getWorkInfosForUniqueWork(QUEUE_DRAIN_WORK_NAME) } returns future
 
         val worker = QueueDrainWorker(
             context,
@@ -649,21 +664,9 @@ class QueueDrainWorkerTest {
         val result = worker.doWork()
 
         assertEquals(Result.success(), result)
-        verify { constraintsProvider.buildConstraints() }
-        verify {
-            workManager.enqueueUniqueWork(
-                UploadEnqueuer.uniqueNameForUri(queueItem.uri),
-                ExistingWorkPolicy.KEEP,
-                any(),
-            )
-        }
-        verify {
-            workManager.enqueueUniqueWork(
-                QUEUE_DRAIN_WORK_NAME,
-                ExistingWorkPolicy.APPEND_OR_REPLACE,
-                any(),
-            )
-        }
+        verify(exactly = 0) { constraintsProvider.buildConstraints() }
+        assertEquals(Constraints.NONE, uploadRequestSlot.captured.workSpec.constraints)
+        assertEquals(Constraints.NONE, drainRequestSlot.captured.workSpec.constraints)
 
         logTree.assertActionLogged(
             action = "drain_worker_constraints_missing",

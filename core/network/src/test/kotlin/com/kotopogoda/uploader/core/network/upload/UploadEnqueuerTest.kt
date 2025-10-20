@@ -3,7 +3,6 @@ package com.kotopogoda.uploader.core.network.upload
 import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -79,7 +78,7 @@ class UploadEnqueuerTest {
     )
 
     @Test
-    fun scheduleDrain_enqueuesConnectedConstraintsWithoutExpeditedWork() = runBlocking {
+    fun scheduleDrain_enqueuesDrainWithoutNetworkConstraints() = runBlocking {
         val constraintsHelper = UploadConstraintsHelper()
         val enqueuer = UploadEnqueuer(
             workManagerProvider = workManagerProvider,
@@ -109,13 +108,13 @@ class UploadEnqueuerTest {
         }
 
         val request = requests.single()
-        assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
+        assertEquals(Constraints.NONE, request.workSpec.constraints)
         assertTrue(!request.workSpec.expedited)
         assertEquals(listOf(ExistingWorkPolicy.APPEND_OR_REPLACE), policies)
     }
 
     @Test
-    fun scheduleDrain_buildsConstraintsWhenStateEmpty() {
+    fun scheduleDrain_doesNotBuildConstraintsWhenStateEmpty() {
         val enqueuer = createEnqueuer()
         clearMocks(workManager, constraintsProvider, answers = false)
         constraintsState.value = null
@@ -131,7 +130,7 @@ class UploadEnqueuerTest {
 
         enqueuer.scheduleDrain()
 
-        verify { constraintsProvider.buildConstraints() }
+        verify(exactly = 0) { constraintsProvider.buildConstraints() }
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
@@ -139,15 +138,6 @@ class UploadEnqueuerTest {
                 requestSlot.captured,
             )
         }
-
-        logTree.assertActionLogged(
-            action = "drain_worker_constraints_missing",
-            predicate = { it.contains("source=enqueuer") },
-        )
-        logTree.assertActionLogged(
-            action = "drain_worker_constraints_built",
-            predicate = { it.contains("source=enqueuer") },
-        )
     }
 
     @Test
