@@ -146,22 +146,8 @@ class QueueDrainWorker @AssistedInject constructor(
     private suspend fun enqueueSelf() {
         val workManager = workManagerProvider.get()
         maybeResetStuckDrainChain(workManager, source = "worker")
-        val constraints = try {
-            ensureConstraints(source = "worker")
-        } catch (error: Throwable) {
-            Timber.tag(LOG_TAG).e(
-                error,
-                UploadLog.message(
-                    action = "drain_worker_constraints_error",
-                    details = arrayOf(
-                        "source" to "worker",
-                    ),
-                ),
-            )
-            return
-        }
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
-            .setConstraints(constraints)
+            .setConstraints(DRAIN_WORK_CONSTRAINTS)
         // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE
@@ -307,6 +293,7 @@ class QueueDrainWorker @AssistedInject constructor(
         private const val BATCH_SIZE = 5
         private const val LOG_TAG = "WorkManager"
         internal const val PROGRESS_KEY_STARTED_AT = "drainWorkerStartedAt"
+        private val DRAIN_WORK_CONSTRAINTS: Constraints = Constraints.NONE
 
         internal fun resetEnqueuePolicy() {
         }
