@@ -58,6 +58,7 @@ import kotlinx.coroutines.withContext
 import kotlin.collections.ArrayDeque
 import kotlin.text.Charsets
 import kotlin.math.max
+import kotlin.system.measureTimeMillis
 import timber.log.Timber
 
 @HiltViewModel
@@ -294,11 +295,55 @@ class ViewerViewModel @Inject constructor(
             val localDate = target.atZone(zone).toLocalDate()
             val startOfDay = localDate.atStartOfDay(zone).toInstant()
             val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
-            val index = photoRepository.findIndexAtOrAfter(startOfDay, endOfDay)
-            if (index == null) {
+            Timber.tag(UI_TAG).i(
+                UploadLog.message(
+                    category = "CALENDAR/SELECT_DATE",
+                    action = "jump_to_date",
+                    details = arrayOf(
+                        "start_ms" to startOfDay.toEpochMilli(),
+                        "end_ms" to endOfDay.toEpochMilli(),
+                        "timezone" to zone.id,
+                    ),
+                ),
+            )
+            Timber.tag(UI_TAG).i(
+                UploadLog.message(
+                    category = "MEDIA_QUERY/REQUEST",
+                    action = "find_index_at_or_after",
+                    details = arrayOf(
+                        "start_ms" to startOfDay.toEpochMilli(),
+                        "end_ms" to endOfDay.toEpochMilli(),
+                        "sort" to "taken_desc",
+                    ),
+                ),
+            )
+            var index: Int?
+            val elapsed = measureTimeMillis {
+                index = photoRepository.findIndexAtOrAfter(startOfDay, endOfDay)
+            }
+            val resolvedIndex = index
+            val resultDetails = if (resolvedIndex == null) {
+                arrayOf(
+                    "duration_ms" to elapsed,
+                    "count_in_day" to 0,
+                )
+            } else {
+                arrayOf(
+                    "duration_ms" to elapsed,
+                    "index" to resolvedIndex,
+                )
+            }
+            Timber.tag(UI_TAG).i(
+                UploadLog.message(
+                    category = "CALENDAR/RESULT",
+                    action = "jump_to_date",
+                    details = resultDetails,
+                ),
+            )
+            if (resolvedIndex == null) {
                 _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
             } else {
-                setCurrentIndex(index)
+                setCurrentIndex(resolvedIndex)
             }
         }
     }
