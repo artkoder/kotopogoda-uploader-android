@@ -262,8 +262,8 @@ class QueueDrainWorker @AssistedInject constructor(
             progressKey = PROGRESS_KEY_STARTED_AT,
         ) ?: return
 
-        val threshold = now - UploadQueueRepository.STUCK_TIMEOUT_MS
         val isFailed = candidate.info.state == WorkInfo.State.FAILED
+        val threshold = if (isFailed) now else now - UploadQueueRepository.STUCK_TIMEOUT_MS
         if (!isFailed && candidate.stuckSince > threshold) {
             return
         }

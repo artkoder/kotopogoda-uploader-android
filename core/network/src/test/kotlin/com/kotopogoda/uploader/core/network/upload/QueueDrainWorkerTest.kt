@@ -459,7 +459,7 @@ class QueueDrainWorkerTest {
 
         assertEquals(Result.success(), result)
         assertEquals(UploadItemState.QUEUED, states[21L])
-        assertEquals(UploadItemState.PROCESSING, states[22L])
+        assertEquals(UploadItemState.QUEUED, states[22L])
         coVerify { repository.recoverStuckProcessing(any()) }
         verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         logTree.assertActionLogged(
