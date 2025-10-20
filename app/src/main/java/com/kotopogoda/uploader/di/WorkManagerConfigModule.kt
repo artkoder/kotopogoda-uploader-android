@@ -1,8 +1,8 @@
 package com.kotopogoda.uploader.di
 
 import android.util.Log
-import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import androidx.hilt.work.HiltWorkerFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,7 +17,7 @@ object WorkManagerConfigModule {
     @Provides
     @Singleton
     fun provideWorkManagerConfiguration(
-        workerFactory: HiltWorkerFactory
+        workerFactory: LoggingWorkerFactory,
     ): Configuration {
         return Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -25,4 +25,10 @@ object WorkManagerConfigModule {
             .setExecutor(Executors.newFixedThreadPool(2))
             .build()
     }
+
+    @Provides
+    @Singleton
+    fun provideLoggingWorkerFactory(
+        hiltWorkerFactory: HiltWorkerFactory,
+    ): LoggingWorkerFactory = LoggingWorkerFactory(hiltWorkerFactory)
 }
