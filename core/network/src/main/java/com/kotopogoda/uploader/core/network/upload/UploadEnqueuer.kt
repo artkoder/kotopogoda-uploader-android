@@ -189,8 +189,8 @@ class UploadEnqueuer @Inject constructor(
             progressKey = QueueDrainWorker.PROGRESS_KEY_STARTED_AT,
         ) ?: return
 
-        val threshold = now - UploadItemsRepository.STUCK_TIMEOUT_MS
         val isFailed = candidate.info.state == WorkInfo.State.FAILED
+        val threshold = if (isFailed) now else now - UploadItemsRepository.STUCK_TIMEOUT_MS
         if (!isFailed && candidate.stuckSince > threshold) {
             return
         }

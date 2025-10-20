@@ -366,7 +366,7 @@ class UploadEnqueuerTest {
         enqueuer.scheduleDrain()
 
         assertEquals(UploadItemState.QUEUED, states[31L])
-        assertEquals(UploadItemState.PROCESSING, states[32L])
+        assertEquals(UploadItemState.QUEUED, states[32L])
         coVerify { uploadItemsRepository.recoverStuckProcessing(any()) }
         verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         logTree.assertActionLogged(
