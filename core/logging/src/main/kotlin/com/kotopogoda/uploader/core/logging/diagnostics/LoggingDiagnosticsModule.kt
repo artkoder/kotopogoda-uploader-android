@@ -13,12 +13,6 @@ abstract class LoggingDiagnosticsModule {
     abstract fun bindDiagnosticsProvider(impl: EnvironmentDiagnosticsProvider): DiagnosticsProvider
 
     @Binds
-    abstract fun bindUploadQueueSnapshotProvider(impl: RepositoryUploadQueueSnapshotProvider): UploadQueueSnapshotProvider
-
-    @Binds
-    abstract fun bindFolderSelectionProvider(impl: RepositoryFolderSelectionProvider): FolderSelectionProvider
-
-    @Binds
     abstract fun bindWorkInfoProvider(impl: WorkManagerWorkInfoProvider): WorkInfoProvider
 
     @Binds
