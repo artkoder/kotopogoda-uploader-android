@@ -73,7 +73,7 @@ class UploadWorker @AssistedInject constructor(
 
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "APP/UploadWorker",
+                category = "UPLOAD/Worker",
                 action = "upload_worker_start",
                 uri = uri,
                 details = arrayOf(
@@ -104,7 +104,7 @@ class UploadWorker @AssistedInject constructor(
             val payload = readDocumentPayload(uri, totalBytes, displayName, mediaType)
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "APP/UploadWorker",
+                    category = "UPLOAD/Worker",
                     action = "upload_prepare_request",
                     uri = uri,
                     details = arrayOf(
@@ -132,7 +132,7 @@ class UploadWorker @AssistedInject constructor(
                         lastBytesSent = bytesSent
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
-                                category = "APP/UploadWorker",
+                                category = "UPLOAD/Worker",
                                 action = "upload_progress",
                                 uri = uri,
                                 details = buildList {
@@ -161,7 +161,7 @@ class UploadWorker @AssistedInject constructor(
             )
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "APP/UploadWorker",
+                    category = "UPLOAD/Worker",
                     action = "upload_request_send",
                     uri = uri,
                     details = arrayOf(
@@ -187,7 +187,7 @@ class UploadWorker @AssistedInject constructor(
 
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "APP/UploadWorker",
+                    category = "UPLOAD/Worker",
                     action = "upload_response_code",
                     uri = uri,
                     details = arrayOf(
@@ -220,7 +220,7 @@ class UploadWorker @AssistedInject constructor(
                         )
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
-                                category = "APP/UploadWorker",
+                                category = "UPLOAD/Worker",
                                 action = "upload_worker_success",
                                 uri = uri,
                                 details = buildList {
@@ -389,7 +389,7 @@ class UploadWorker @AssistedInject constructor(
         }
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "APP/UploadWorker",
+                category = "UPLOAD/Worker",
                 action = "upload_progress_state",
                 details = details.toTypedArray(),
             )
@@ -419,7 +419,7 @@ class UploadWorker @AssistedInject constructor(
     ): Result {
         Timber.tag("WorkManager").w(
             UploadLog.message(
-                category = "APP/UploadWorker",
+                category = "UPLOAD/Worker",
                 action = "upload_retry",
                 details = buildList {
                     currentItemId?.let { add("queue_item_id" to it) }
@@ -443,7 +443,7 @@ class UploadWorker @AssistedInject constructor(
         val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
         Timber.tag("WorkManager").e(
             UploadLog.message(
-                category = "APP/UploadWorker",
+                category = "UPLOAD/Worker",
                 action = "upload_failure",
                 uri = parsedUri,
                 details = buildList {
@@ -536,7 +536,7 @@ class UploadWorker @AssistedInject constructor(
         )
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "APP/UploadWorker",
+                category = "UPLOAD/Worker",
                 action = "upload_poll_scheduled",
                 uri = uri,
                 details = arrayOf(

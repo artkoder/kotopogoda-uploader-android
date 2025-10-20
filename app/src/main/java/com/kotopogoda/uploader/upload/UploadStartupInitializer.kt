@@ -16,7 +16,7 @@ class UploadStartupInitializer(
         if (uploadQueueRepository.hasQueued()) {
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "APP/Startup",
+                    category = "APP/STARTUP",
                     action = "summary_ensure_running_request",
                     details = arrayOf(
                         "source" to "startup_initializer",
@@ -27,7 +27,7 @@ class UploadStartupInitializer(
             summaryStarter.ensureRunning()
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "APP/Startup",
+                    category = "APP/STARTUP",
                     action = "upload_ensure_running_request",
                     details = arrayOf(
                         "source" to "startup_initializer",

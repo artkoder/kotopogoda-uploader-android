@@ -22,6 +22,7 @@ import com.kotopogoda.uploader.core.data.sa.MoveResult
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
@@ -131,6 +132,56 @@ class ViewerViewModel @Inject constructor(
     private var pendingBatchDelete: PendingBatchDelete? = null
     private var pendingBatchMove: PendingBatchMove? = null
     private var pendingSingleMove: PendingSingleMove? = null
+
+    private fun logUi(action: String, uri: Uri? = null, vararg details: Pair<String, Any?>) {
+        Timber.tag(UI_TAG).i(
+            UploadLog.message(
+                category = "UI/Viewer",
+                action = action,
+                uri = uri,
+                details = details,
+            )
+        )
+    }
+
+    private fun logUiError(action: String, error: Throwable, uri: Uri? = null, vararg details: Pair<String, Any?>) {
+        Timber.tag(UI_TAG).e(
+            error,
+            UploadLog.message(
+                category = "UI/Viewer",
+                action = action,
+                uri = uri,
+                details = details,
+            )
+        )
+    }
+
+    private fun logPermissionRequest(type: MovePermissionType, uri: Uri?) {
+        Timber.tag(PERMISSION_TAG).i(
+            UploadLog.message(
+                category = "PERM/REQUEST",
+                action = "storage_${type.name.lowercase()}",
+                uri = uri,
+                details = arrayOf(
+                    "source" to "viewer",
+                ),
+            )
+        )
+    }
+
+    private fun logPermissionResult(type: MovePermissionType, granted: Boolean, uri: Uri?) {
+        Timber.tag(PERMISSION_TAG).i(
+            UploadLog.message(
+                category = "PERM/RESULT",
+                action = "storage_${type.name.lowercase()}",
+                uri = uri,
+                details = arrayOf(
+                    "source" to "viewer",
+                    "granted" to granted,
+                ),
+            )
+        )
+    }
 
     init {
         restoreUndoStack()
@@ -407,7 +458,11 @@ class ViewerViewModel @Inject constructor(
             return
         }
         val current = photo ?: return
-        Timber.tag("UI").i("Enqueue upload requested for %s", current.uri)
+        logUi(
+            action = "enqueue_request",
+            uri = current.uri,
+            "current_index" to currentIndex.value,
+        )
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Upload
             try {
@@ -437,18 +492,19 @@ class ViewerViewModel @Inject constructor(
                         withUndo = true
                     )
                 )
-                Timber.tag("UI").i(
-                    "Enqueued upload for %s (from=%d, to=%d)",
-                    current.uri,
-                    fromIndex,
-                    toIndex
+                logUi(
+                    action = "enqueue_success",
+                    uri = current.uri,
+                    "from_index" to fromIndex,
+                    "to_index" to toIndex,
+                    "idempotency_key" to idempotencyKey,
                 )
             } catch (error: Exception) {
                 persistUndoStack()
-                Timber.tag("UI").e(
-                    error,
-                    "Failed to enqueue upload for %s",
-                    current.uri
+                logUiError(
+                    action = "enqueue_failure",
+                    error = error,
+                    uri = current.uri,
                 )
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
@@ -466,7 +522,11 @@ class ViewerViewModel @Inject constructor(
             return
         }
         val current = photo ?: return
-        Timber.tag("UI").i("Delete requested for %s", current.uri)
+        logUi(
+            action = "delete_request",
+            uri = current.uri,
+            "current_index" to currentIndex.value,
+        )
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Delete
             try {
@@ -488,6 +548,7 @@ class ViewerViewModel @Inject constructor(
                         fromIndex = fromIndex,
                         toIndex = toIndex
                     )
+                    logPermissionRequest(MovePermissionType.Delete, documentInfo.uri)
                     _events.emit(
                         ViewerEvent.RequestDelete(intentSender = pendingIntent.intentSender)
                     )
@@ -507,10 +568,10 @@ class ViewerViewModel @Inject constructor(
                             finalizeDeletion(pending)
                         } catch (error: Exception) {
                             pending.backup?.delete()
-                            Timber.tag("UI").e(
-                                error,
-                                "Failed to finalize delete for %s",
-                                documentInfo.uri
+                            logUiError(
+                                action = "delete_finalize_failure",
+                                error = error,
+                                uri = documentInfo.uri,
                             )
                             _events.emit(
                                 ViewerEvent.ShowSnackbar(
@@ -532,7 +593,11 @@ class ViewerViewModel @Inject constructor(
             } catch (error: Exception) {
                 pendingDelete?.backup?.delete()
                 pendingDelete = null
-                Timber.tag("UI").e(error, "Failed to request delete for %s", current.uri)
+                logUiError(
+                    action = "delete_request_failure",
+                    error = error,
+                    uri = current.uri,
+                )
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_delete_failed
@@ -550,7 +615,10 @@ class ViewerViewModel @Inject constructor(
         if (photos.isEmpty()) {
             return
         }
-        Timber.tag("UI").i("Batch delete requested for %d photos", photos.size)
+        logUi(
+            action = "batch_delete_request",
+            "count" to photos.size,
+        )
         viewModelScope.launch {
             _actionInProgress.value = ViewerActionInProgress.Delete
             try {
@@ -562,13 +630,17 @@ class ViewerViewModel @Inject constructor(
                         )
                     }
                     pendingBatchDelete = PendingBatchDelete(photos)
+                    logPermissionRequest(MovePermissionType.Delete, photos.firstOrNull()?.uri)
                     _events.emit(ViewerEvent.RequestDelete(pendingIntent.intentSender))
                     return@launch
                 }
                 finalizeBatchDelete(photos)
             } catch (error: Exception) {
                 pendingBatchDelete = null
-                Timber.tag("UI").e(error, "Failed to request batch delete")
+                logUiError(
+                    action = "batch_delete_request_failure",
+                    error = error,
+                )
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_delete_failed
@@ -581,7 +653,10 @@ class ViewerViewModel @Inject constructor(
 
     fun onDeleteResult(result: DeleteResult) {
         val movePending = pendingBatchMove
+        val deleteGranted = result == DeleteResult.Success
+        val moveUri = movePending?.photos?.firstOrNull()?.uri
         if (movePending != null && movePending.requestType == MovePermissionType.Delete) {
+            logPermissionResult(MovePermissionType.Delete, deleteGranted, moveUri)
             when (result) {
                 DeleteResult.Success -> {
                     viewModelScope.launch {
@@ -607,6 +682,8 @@ class ViewerViewModel @Inject constructor(
         }
         val batch = pendingBatchDelete
         if (batch != null) {
+            val batchUri = batch.photos.firstOrNull()?.uri
+            logPermissionResult(MovePermissionType.Delete, deleteGranted, batchUri)
             when (result) {
                 DeleteResult.Success -> {
                     viewModelScope.launch { finalizeBatchDelete(batch.photos) }
@@ -640,15 +717,23 @@ class ViewerViewModel @Inject constructor(
             return
         }
         pendingDelete = null
+        logPermissionResult(MovePermissionType.Delete, deleteGranted, pending.documentInfo.uri)
         viewModelScope.launch {
             when (result) {
                 DeleteResult.Success -> {
                     try {
                         finalizeDeletion(pending)
-                        Timber.tag("UI").i("Delete confirmed for %s", pending.documentInfo.uri)
+                        logUi(
+                            action = "delete_success",
+                            uri = pending.documentInfo.uri,
+                        )
                     } catch (error: Exception) {
                         pending.backup?.delete()
-                        Timber.tag("UI").e(error, "Failed to finalize delete")
+                        logUiError(
+                            action = "delete_failure",
+                            error = error,
+                            uri = pending.documentInfo.uri,
+                        )
                         _events.emit(
                             ViewerEvent.ShowSnackbar(
                                 messageRes = R.string.viewer_snackbar_delete_failed
@@ -659,13 +744,19 @@ class ViewerViewModel @Inject constructor(
                 }
                 DeleteResult.Cancelled -> {
                     pending.backup?.delete()
-                    Timber.tag("UI").i("Delete cancelled for %s", pending.documentInfo.uri)
+                    logUi(
+                        action = "delete_cancelled",
+                        uri = pending.documentInfo.uri,
+                    )
                     _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_delete_cancelled))
                     _actionInProgress.value = null
                 }
                 DeleteResult.Failed -> {
                     pending.backup?.delete()
-                    Timber.tag("UI").w("Delete request failed for %s", pending.documentInfo.uri)
+                    logUi(
+                        action = "delete_failed",
+                        uri = pending.documentInfo.uri,
+                    )
                     _events.emit(
                         ViewerEvent.ShowSnackbar(
                             messageRes = R.string.viewer_snackbar_delete_failed
@@ -679,8 +770,10 @@ class ViewerViewModel @Inject constructor(
 
     fun onWriteRequestResult(granted: Boolean) {
         val pending = pendingBatchMove
+        val targetUri = pending?.photos?.firstOrNull()?.uri
         if (pending == null || pending.requestType != MovePermissionType.Write) {
             if (!granted) {
+                logPermissionResult(MovePermissionType.Write, granted, targetUri)
                 _actionInProgress.value = null
             }
             return
@@ -689,6 +782,7 @@ class ViewerViewModel @Inject constructor(
             pendingBatchMove = null
             pendingSingleMove = null
             viewModelScope.launch {
+                logPermissionResult(MovePermissionType.Write, granted, targetUri)
                 _events.emit(
                     ViewerEvent.ShowSnackbar(
                         messageRes = R.string.viewer_snackbar_processing_failed
@@ -700,6 +794,7 @@ class ViewerViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
+            logPermissionResult(MovePermissionType.Write, granted = true, uri = targetUri)
             pendingBatchMove = pending.copy(requestType = null)
             finalizePendingBatchMove()
         }
@@ -871,6 +966,7 @@ class ViewerViewModel @Inject constructor(
                         lastSuccessUri = lastSuccessUri,
                         requestType = MovePermissionType.Write
                     )
+                    logPermissionRequest(MovePermissionType.Write, photo.uri)
                     _events.emit(ViewerEvent.RequestWrite(result.pendingIntent.intentSender))
                     return
                 }
@@ -881,6 +977,7 @@ class ViewerViewModel @Inject constructor(
                         lastSuccessUri = lastSuccessUri,
                         requestType = MovePermissionType.Delete
                     )
+                    logPermissionRequest(MovePermissionType.Delete, photo.uri)
                     _events.emit(ViewerEvent.RequestDelete(result.pendingIntent.intentSender))
                     return
                 }
@@ -1563,6 +1660,8 @@ class ViewerViewModel @Inject constructor(
     companion object {
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
+        private const val UI_TAG = "UI"
+        private const val PERMISSION_TAG = "Permissions"
 
         internal var buildVersionOverride: Int? = null
     }

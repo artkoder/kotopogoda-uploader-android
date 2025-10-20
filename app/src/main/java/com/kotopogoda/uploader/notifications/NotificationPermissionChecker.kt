@@ -6,12 +6,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.kotopogoda.uploader.core.settings.NotificationPermissionProvider
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import timber.log.Timber
 
 @Singleton
 class NotificationPermissionChecker @Inject constructor(
@@ -25,12 +27,31 @@ class NotificationPermissionChecker @Inject constructor(
     fun canPostNotifications(): Boolean = permissionState.value
 
     fun refresh() {
+        Timber.tag(TAG).i(
+            UploadLog.message(
+                category = "PERM/REQUEST",
+                action = "notifications_refresh",
+            )
+        )
         permissionState.value = isPermissionGranted()
+        Timber.tag(TAG).i(
+            UploadLog.message(
+                category = "PERM/RESULT",
+                action = "notifications_refresh",
+                details = arrayOf(
+                    "granted" to permissionState.value,
+                ),
+            )
+        )
     }
 
     private fun isPermissionGranted(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
+    }
+
+    companion object {
+        private const val TAG = "Permissions"
     }
 }

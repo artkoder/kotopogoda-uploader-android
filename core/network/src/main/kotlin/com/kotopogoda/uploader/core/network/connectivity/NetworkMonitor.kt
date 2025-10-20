@@ -10,14 +10,17 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.provider.Settings
 import androidx.annotation.VisibleForTesting
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.health.HealthMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import timber.log.Timber
 
 @Singleton
 class NetworkMonitor @Inject constructor(
@@ -29,6 +32,7 @@ class NetworkMonitor @Inject constructor(
     private val started = AtomicBoolean(false)
     private val networkValidated = AtomicBoolean(false)
     private val airplaneModeEnabled = AtomicBoolean(false)
+    private val lastReported = AtomicReference<Boolean?>(null)
 
     private val _isNetworkValidated = MutableStateFlow(false)
     val isNetworkValidated: StateFlow<Boolean> = _isNetworkValidated.asStateFlow()
@@ -84,7 +88,21 @@ class NetworkMonitor @Inject constructor(
     private fun emitCombinedState() {
         val validated = networkValidated.get()
         val airplaneMode = airplaneModeEnabled.get()
-        _isNetworkValidated.value = validated && !airplaneMode
+        val combined = validated && !airplaneMode
+        _isNetworkValidated.value = combined
+        val previous = lastReported.getAndSet(combined)
+        if (previous == null || previous != combined) {
+            Timber.tag(TAG).i(
+                UploadLog.message(
+                    category = "NET/STATE",
+                    action = if (combined) "online" else "offline",
+                    details = arrayOf(
+                        "validated" to validated,
+                        "airplane_mode" to airplaneMode,
+                    ),
+                )
+            )
+        }
     }
 
     private fun queryActiveNetworkValidated(): Boolean {
@@ -113,5 +131,9 @@ class NetworkMonitor @Inject constructor(
 
     private fun isAirplaneModeOn(context: Context): Boolean {
         return Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1
+    }
+
+    private companion object {
+        private const val TAG = "Network"
     }
 }
