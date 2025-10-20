@@ -9,6 +9,7 @@ import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
+import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
@@ -20,7 +21,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 
 @HiltAndroidApp
@@ -66,21 +69,25 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         super.onCreate()
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
-        httpLoggingController.setEnabled(true)
-        appLogger.setEnabled(true)
+        val initialSettings = runBlocking { settingsRepository.flow.first() }
+        applySettings(initialSettings)
         Timber.tag("app_start").i("KotopogodaUploaderApp.onCreate")
         scope.launch(Dispatchers.IO) {
             uploadStartupInitializer.ensureUploadRunningIfQueued()
         }
         scope.launch {
             settingsRepository.flow.collect { settings ->
-                appLogger.setEnabled(settings.appLogging)
-                httpLoggingController.setEnabled(settings.httpLogging)
-                networkClientProvider.updateBaseUrl(settings.baseUrl)
-                if (settings.persistentQueueNotification && notificationPermissionChecker.canPostNotifications()) {
-                    UploadSummaryService.ensureRunningIfNeeded(this@KotopogodaUploaderApp)
-                }
+                applySettings(settings)
             }
+        }
+    }
+
+    private fun applySettings(settings: AppSettings) {
+        appLogger.setEnabled(settings.appLogging)
+        httpLoggingController.setEnabled(settings.httpLogging)
+        networkClientProvider.updateBaseUrl(settings.baseUrl)
+        if (settings.persistentQueueNotification && notificationPermissionChecker.canPostNotifications()) {
+            UploadSummaryService.ensureRunningIfNeeded(this)
         }
     }
 
