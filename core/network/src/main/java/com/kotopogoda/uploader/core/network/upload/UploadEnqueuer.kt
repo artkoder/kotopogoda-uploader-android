@@ -206,6 +206,14 @@ class UploadEnqueuer @Inject constructor(
             return
         }
 
+        Timber.tag(LOG_TAG).i(
+            drainChainSnapshotMessage(
+                infos = infos,
+                source = source,
+                progressKey = QueueDrainWorker.PROGRESS_KEY_STARTED_AT,
+            ),
+        )
+
         val now = System.currentTimeMillis()
         val candidate = findDrainChainCandidate(
             infos = infos,

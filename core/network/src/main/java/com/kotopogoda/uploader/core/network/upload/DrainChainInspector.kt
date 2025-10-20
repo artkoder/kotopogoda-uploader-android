@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import androidx.work.WorkInfo
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 
 internal data class DrainChainCandidate(
     val info: WorkInfo,
@@ -43,4 +44,33 @@ private fun WorkInfo.computeStuckSince(now: Long, progressKey: String): Long? {
     return sequenceOf(startedAt, nextSchedule)
         .filterNotNull()
         .minOrNull()
+}
+
+internal fun drainChainSnapshotMessage(
+    infos: List<WorkInfo>,
+    source: String,
+    progressKey: String,
+): String {
+    val states = infos.joinToString(separator = ";") { info ->
+        "${info.id}:${info.state.name}"
+    }.takeIf { it.isNotEmpty() }
+    val nextScheduleMin = infos
+        .mapNotNull { info -> info.nextScheduleTimeMillis.takeIf { it > 0L } }
+        .minOrNull()
+    val progressMin = infos
+        .mapNotNull { info -> info.progress.getLong(progressKey, 0L).takeIf { it > 0L } }
+        .minOrNull()
+
+    val details = buildList {
+        add("source" to source)
+        add("count" to infos.size)
+        states?.let { add("states" to it) }
+        nextScheduleMin?.let { add("nextScheduleMin" to it) }
+        progressMin?.let { add("progressMin" to it) }
+    }.toTypedArray()
+
+    return UploadLog.message(
+        action = "drain_worker_chain_snapshot",
+        details = details,
+    )
 }
