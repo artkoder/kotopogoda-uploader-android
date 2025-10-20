@@ -29,6 +29,7 @@ securityCrypto = "1.1.0-alpha06"
 truth = "1.1.5"
 mockk = "1.13.10"
 paging = "3.2.1"
+orgJson = "20231013"
 
 
 [plugins]
@@ -78,6 +79,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExt" }
 # ... прочие зависимости
 material = "com.google.android.material:material:1.12.0"

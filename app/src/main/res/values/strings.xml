@@ -38,7 +38,7 @@
     <string name="settings_snackbar_action_failed">Не удалось выполнить действие</string>
     <string name="settings_snackbar_logs_empty">Нет логов для экспорта</string>
     <string name="settings_snackbar_logs_export_failed">Не удалось подготовить архив логов</string>
-    <string name="settings_snackbar_logs_exported">Логи сохранены в %1$s</string>
+    <string name="settings_snackbar_logs_exported">Архив логов и диагностики сохранён в %1$s</string>
     <string name="settings_logs_open">Открыть</string>
     <string name="settings_snackbar_open_logs_failed">Не удалось открыть архив логов</string>
     <string name="settings_snackbar_queue_cleared">Очередь загрузок очищена</string>

@@ -25,13 +25,17 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:settings"))
+    implementation(project(":core:data"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.dagger.hilt.android)
     kapt(libs.dagger.hilt.compiler)
     api(libs.timber)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.com.squareup.okhttp3.logging.interceptor)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.org.json)
 }
