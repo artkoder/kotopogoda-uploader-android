@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:logging"))
     implementation(project(":core:work"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.room.runtime)
@@ -39,6 +40,8 @@ dependencies {
     implementation(libs.timber)
 
     testImplementation(libs.junit)
+    testImplementation(kotlin("test"))
+    testImplementation(project(":core:settings"))
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
     testImplementation("androidx.room:room-testing:${libs.versions.room.get()}")

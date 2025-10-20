@@ -58,13 +58,13 @@ class PollStatusWorker @AssistedInject constructor(
         val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext Result.failure()
 
         Timber.tag("WorkManager").i(
-            UploadLog.message(
+            pollLogMessage(
                 action = "poll_worker_start",
                 itemId = itemId,
-                photoId = uploadId,
+                uploadId = uploadId,
                 uri = uri,
                 details = arrayOf(
-                    "displayName" to displayName,
+                    "display_name" to displayName,
                 ),
             ),
         )
@@ -76,10 +76,10 @@ class PollStatusWorker @AssistedInject constructor(
                 uploadApi.getStatus(uploadId)
             } catch (io: UnknownHostException) {
                 Timber.tag("WorkManager").w(
-                    UploadLog.message(
+                    pollLogMessage(
                         action = "poll_request_error",
                         itemId = itemId,
-                        photoId = uploadId,
+                        uploadId = uploadId,
                         uri = uri,
                         details = arrayOf(
                             "reason" to "unknown_host",
@@ -91,10 +91,10 @@ class PollStatusWorker @AssistedInject constructor(
                 return@withContext Result.retry()
             } catch (io: IOException) {
                 Timber.tag("WorkManager").w(
-                    UploadLog.message(
+                    pollLogMessage(
                         action = "poll_request_error",
                         itemId = itemId,
-                        photoId = uploadId,
+                        uploadId = uploadId,
                         uri = uri,
                         details = arrayOf(
                             "reason" to (io::class.simpleName ?: "io_exception"),
@@ -109,13 +109,13 @@ class PollStatusWorker @AssistedInject constructor(
                 200 -> {
                     val body = response.body() ?: run {
                         Timber.tag("WorkManager").w(
-                            UploadLog.message(
+                            pollLogMessage(
                                 action = "poll_status_response_body_missing",
                                 itemId = itemId,
-                                photoId = uploadId,
+                                uploadId = uploadId,
                                 uri = uri,
                                 details = arrayOf(
-                                    "httpCode" to response.code(),
+                                    "http_code" to response.code(),
                                 ),
                             ),
                         )
@@ -126,14 +126,14 @@ class PollStatusWorker @AssistedInject constructor(
                     when (remoteState) {
                         RemoteState.QUEUED, RemoteState.PROCESSING -> {
                             Timber.tag("WorkManager").i(
-                                UploadLog.message(
+                                pollLogMessage(
                                     action = "poll_status_pending",
                                     itemId = itemId,
-                                    photoId = uploadId,
+                                    uploadId = uploadId,
                                     uri = uri,
                                     details = arrayOf(
-                                        "httpCode" to response.code(),
-                                        "remoteState" to remoteState.name.lowercase(Locale.US),
+                                        "http_code" to response.code(),
+                                        "remote_state" to remoteState.name.lowercase(Locale.US),
                                         "retry" to true,
                                     ),
                                 ),
@@ -144,13 +144,13 @@ class PollStatusWorker @AssistedInject constructor(
                         }
                         RemoteState.DONE -> {
                             Timber.tag("WorkManager").i(
-                                UploadLog.message(
+                                pollLogMessage(
                                     action = "poll_status_done",
                                     itemId = itemId,
-                                    photoId = uploadId,
+                                    uploadId = uploadId,
                                     uri = uri,
                                     details = arrayOf(
-                                        "httpCode" to response.code(),
+                                        "http_code" to response.code(),
                                     ),
                                 ),
                             )
@@ -164,14 +164,14 @@ class PollStatusWorker @AssistedInject constructor(
                         }
                         RemoteState.FAILED -> {
                             Timber.tag("WorkManager").w(
-                                UploadLog.message(
+                                pollLogMessage(
                                     action = "poll_status_failed",
                                     itemId = itemId,
-                                    photoId = uploadId,
+                                    uploadId = uploadId,
                                     uri = uri,
                                     details = arrayOf(
-                                        "httpCode" to response.code(),
-                                        "remoteState" to remoteState.name.lowercase(Locale.US),
+                                        "http_code" to response.code(),
+                                        "remote_state" to remoteState.name.lowercase(Locale.US),
                                     ),
                                 ),
                             )
@@ -187,13 +187,13 @@ class PollStatusWorker @AssistedInject constructor(
                 }
                 404 -> {
                     Timber.tag("WorkManager").w(
-                        UploadLog.message(
+                        pollLogMessage(
                             action = "poll_status_not_found",
                             itemId = itemId,
-                            photoId = uploadId,
+                            uploadId = uploadId,
                             uri = uri,
                             details = arrayOf(
-                                "httpCode" to response.code(),
+                                "http_code" to response.code(),
                             ),
                         ),
                     )
@@ -209,14 +209,14 @@ class PollStatusWorker @AssistedInject constructor(
                 429 -> {
                     val retryAfter = response.headers()[RETRY_AFTER_HEADER]
                     Timber.tag("WorkManager").w(
-                        UploadLog.message(
+                        pollLogMessage(
                             action = "poll_status_throttled",
                             itemId = itemId,
-                            photoId = uploadId,
+                            uploadId = uploadId,
                             uri = uri,
                             details = arrayOf(
-                                "httpCode" to response.code(),
-                                "retryAfter" to retryAfter,
+                                "http_code" to response.code(),
+                                "retry_after" to retryAfter,
                             ),
                         ),
                     )
@@ -228,14 +228,14 @@ class PollStatusWorker @AssistedInject constructor(
                 in 500..599 -> {
                     val retryAfter = response.headers()[RETRY_AFTER_HEADER]
                     Timber.tag("WorkManager").w(
-                        UploadLog.message(
+                        pollLogMessage(
                             action = "poll_status_server_error",
                             itemId = itemId,
-                            photoId = uploadId,
+                            uploadId = uploadId,
                             uri = uri,
                             details = arrayOf(
-                                "httpCode" to response.code(),
-                                "retryAfter" to retryAfter,
+                                "http_code" to response.code(),
+                                "retry_after" to retryAfter,
                             ),
                         ),
                     )
@@ -246,13 +246,13 @@ class PollStatusWorker @AssistedInject constructor(
                 }
                 else -> {
                     Timber.tag("WorkManager").w(
-                        UploadLog.message(
+                        pollLogMessage(
                             action = "poll_status_unexpected",
                             itemId = itemId,
-                            photoId = uploadId,
+                            uploadId = uploadId,
                             uri = uri,
                             details = arrayOf(
-                                "httpCode" to response.code(),
+                                "http_code" to response.code(),
                             ),
                         ),
                     )
@@ -268,10 +268,10 @@ class PollStatusWorker @AssistedInject constructor(
             }
         } catch (io: IOException) {
             Timber.tag("WorkManager").w(
-                UploadLog.message(
+                pollLogMessage(
                     action = "poll_request_error",
                     itemId = itemId,
-                    photoId = uploadId,
+                    uploadId = uploadId,
                     uri = uri,
                     details = arrayOf(
                         "reason" to (io::class.simpleName ?: "io_exception"),
@@ -295,14 +295,14 @@ class PollStatusWorker @AssistedInject constructor(
         recordCompletionState(completionState, displayName)
         uploadQueueRepository.markSucceeded(itemId)
         Timber.tag("WorkManager").i(
-            UploadLog.message(
+            pollLogMessage(
                 action = "poll_worker_complete",
                 itemId = itemId,
-                photoId = uploadId,
+                uploadId = uploadId,
                 uri = uri,
                 details = arrayOf(
                     "result" to completionState.name.lowercase(Locale.US),
-                    "displayName" to displayName,
+                    "display_name" to displayName,
                 ),
             ),
         )
@@ -348,11 +348,11 @@ class PollStatusWorker @AssistedInject constructor(
 
     private suspend fun recordCompletionState(state: DeleteCompletionState, displayName: String) {
         Timber.tag("WorkManager").v(
-            UploadLog.message(
+            pollLogMessage(
                 action = "poll_progress_completion_state",
                 details = arrayOf(
                     "state" to state.name.lowercase(Locale.US),
-                    "displayName" to displayName,
+                    "display_name" to displayName,
                 ),
             ),
         )
@@ -370,12 +370,12 @@ class PollStatusWorker @AssistedInject constructor(
         httpCode: Int? = null
     ) {
         Timber.tag("WorkManager").v(
-            UploadLog.message(
+            pollLogMessage(
                 action = "poll_progress_error",
                 details = arrayOf(
-                    "displayName" to displayName,
-                    "errorKind" to errorKind,
-                    "httpCode" to httpCode,
+                    "display_name" to displayName,
+                    "error_kind" to errorKind,
+                    "http_code" to httpCode,
                 ),
             ),
         )
@@ -404,16 +404,16 @@ class PollStatusWorker @AssistedInject constructor(
         )
         val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
         Timber.tag("WorkManager").w(
-            UploadLog.message(
+            pollLogMessage(
                 action = "poll_worker_complete",
                 itemId = itemId,
-                photoId = uploadId,
+                uploadId = uploadId,
                 uri = parsedUri,
                 details = arrayOf(
                     "result" to "error",
-                    "errorKind" to errorKind,
-                    "httpCode" to httpCode,
-                    "displayName" to displayName,
+                    "error_kind" to errorKind,
+                    "http_code" to httpCode,
+                    "display_name" to displayName,
                 ),
             ),
         )
@@ -491,4 +491,24 @@ class PollStatusWorker @AssistedInject constructor(
         DONE,
         FAILED,
     }
+}
+
+private fun pollLogMessage(
+    action: String,
+    itemId: Long? = null,
+    uploadId: String? = null,
+    uri: Uri? = null,
+    details: Array<out Pair<String, Any?>> = emptyArray(),
+): String {
+    val normalizedDetails = buildList {
+        itemId?.let { add("queue_item_id" to it) }
+        addAll(details)
+    }.toTypedArray()
+    return UploadLog.message(
+        category = "APP/PollStatus",
+        action = action,
+        photoId = uploadId,
+        uri = uri,
+        details = normalizedDetails,
+    )
 }

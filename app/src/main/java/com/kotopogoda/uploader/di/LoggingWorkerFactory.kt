@@ -27,10 +27,11 @@ class LoggingWorkerFactory @Inject constructor(
                 Timber.tag(LOG_TAG).e(
                     error,
                     UploadLog.message(
+                        category = "APP/WorkerFactory",
                         action = "drain_worker_create_error",
                         details = arrayOf(
-                            "workerClassName" to workerClassName,
-                            "id" to workerParameters.id,
+                            "worker_class_name" to workerClassName,
+                            "work_id" to workerParameters.id,
                             "tags" to workerParameters.tags.joinToString(),
                         ),
                     ),

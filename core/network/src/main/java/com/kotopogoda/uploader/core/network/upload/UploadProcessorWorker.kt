@@ -33,11 +33,20 @@ class UploadProcessorWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        Timber.tag("WorkManager").i(UploadLog.message(action = "worker_start"))
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = "APP/UploadProcessor",
+                action = "worker_start",
+                details = arrayOf(
+                    "work_id" to id.toString(),
+                ),
+            )
+        )
         val recovered = repository.recoverStuckProcessing()
         if (recovered > 0) {
             Timber.tag("WorkManager").w(
                 UploadLog.message(
+                    category = "APP/UploadProcessor",
                     action = "worker_recovered_processing",
                     state = UploadItemState.QUEUED,
                     details = arrayOf(
@@ -49,6 +58,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
         Timber.tag("WorkManager").i(
             UploadLog.message(
+                category = "APP/UploadProcessor",
                 action = "worker_batch",
                 state = UploadItemState.QUEUED,
                 details = arrayOf(
@@ -62,6 +72,7 @@ class UploadProcessorWorker @AssistedInject constructor(
             }
             Timber.tag("WorkManager").i(
                 UploadLog.message(
+                    category = "APP/UploadProcessor",
                     action = "worker_complete",
                     details = arrayOf(
                         "result" to "no_items",
@@ -76,11 +87,12 @@ class UploadProcessorWorker @AssistedInject constructor(
         for (item in queued) {
             Timber.tag("WorkManager").i(
                 UploadLog.message(
+                    category = "APP/UploadProcessor",
                     action = "worker_item_start",
-                    itemId = item.id,
                     uri = item.uri,
                     details = arrayOf(
-                        "displayName" to item.displayName,
+                        "queue_item_id" to item.id,
+                        "display_name" to item.displayName,
                         "size" to item.size,
                     ),
                 )
@@ -89,10 +101,11 @@ class UploadProcessorWorker @AssistedInject constructor(
             if (!markedProcessing) {
                 Timber.tag("WorkManager").i(
                     UploadLog.message(
+                        category = "APP/UploadProcessor",
                         action = "worker_item_skip",
-                        itemId = item.id,
                         uri = item.uri,
                         details = arrayOf(
+                            "queue_item_id" to item.id,
                             "reason" to "state_changed",
                         ),
                     )
@@ -124,12 +137,13 @@ class UploadProcessorWorker @AssistedInject constructor(
                         repository.markSucceeded(item.id)
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
+                                category = "APP/UploadProcessor",
                                 action = "worker_item_success",
-                                itemId = item.id,
                                 uri = item.uri,
                                 state = UploadItemState.SUCCEEDED,
                                 details = arrayOf(
-                                    "displayName" to item.displayName,
+                                    "queue_item_id" to item.id,
+                                    "display_name" to item.displayName,
                                     "size" to item.size,
                                 ),
                             )
@@ -146,13 +160,14 @@ class UploadProcessorWorker @AssistedInject constructor(
                         )
                         Timber.tag("WorkManager").w(
                             UploadLog.message(
+                                category = "APP/UploadProcessor",
                                 action = "worker_item_failure",
-                                itemId = item.id,
                                 uri = item.uri,
                                 state = if (outcome.retryable) UploadItemState.QUEUED else UploadItemState.FAILED,
                                 details = arrayOf(
-                                    "errorKind" to outcome.errorKind,
-                                    "httpCode" to outcome.httpCode,
+                                    "queue_item_id" to item.id,
+                                    "error_kind" to outcome.errorKind,
+                                    "http_code" to outcome.httpCode,
                                     "retry" to outcome.retryable,
                                 ),
                             )
@@ -167,12 +182,21 @@ class UploadProcessorWorker @AssistedInject constructor(
 
         if (repository.hasQueued()) {
             enqueueSelf()
-            Timber.tag("WorkManager").i(UploadLog.message(action = "worker_reschedule"))
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    category = "APP/UploadProcessor",
+                    action = "worker_reschedule",
+                    details = arrayOf(
+                        "work_id" to id.toString(),
+                    ),
+                )
+            )
         }
 
         val result = if (shouldRetry) {
             Timber.tag("WorkManager").i(
                 UploadLog.message(
+                    category = "APP/UploadProcessor",
                     action = "worker_complete",
                     details = arrayOf(
                         "result" to "retry",
@@ -183,6 +207,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         } else {
             Timber.tag("WorkManager").i(
                 UploadLog.message(
+                    category = "APP/UploadProcessor",
                     action = "worker_complete",
                     details = arrayOf(
                         "result" to "success",
@@ -199,7 +224,15 @@ class UploadProcessorWorker @AssistedInject constructor(
             .setConstraints(constraintsHelper.buildConstraints())
             .build()
         workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
-        Timber.tag("WorkManager").i(UploadLog.message(action = "worker_enqueue"))
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = "APP/UploadProcessor",
+                action = "worker_enqueue",
+                details = arrayOf(
+                    "request_id" to request.id,
+                ),
+            )
+        )
     }
 
     companion object {
