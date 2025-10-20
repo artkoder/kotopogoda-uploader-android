@@ -42,7 +42,7 @@ class SettingsRepositoryImpl @Inject constructor(
             AppSettings(
                 baseUrl = storedBaseUrl ?: defaultBaseUrl,
                 appLogging = preferences[APP_LOGGING_KEY] ?: true,
-                httpLogging = preferences[HTTP_LOGGING_KEY] ?: false,
+                httpLogging = preferences[HTTP_LOGGING_KEY] ?: true,
                 persistentQueueNotification = persistentValue,
             )
         }

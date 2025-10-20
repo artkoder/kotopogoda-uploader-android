@@ -65,6 +65,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         super.onCreate()
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
+        httpLoggingController.setEnabled(true)
         scope.launch(Dispatchers.IO) {
             uploadStartupInitializer.ensureUploadRunningIfQueued()
         }

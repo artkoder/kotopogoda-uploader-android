@@ -34,7 +34,7 @@ class SettingsRepositoryImplTest {
     }
 
     @Test
-    fun httpLogging_defaultFalse_whenNotPersisted() = runTest {
+    fun httpLogging_defaultTrue_whenNotPersisted() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = true)
         val dataStore = createDataStore(backgroundScope)
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -42,7 +42,7 @@ class SettingsRepositoryImplTest {
 
         val settings = repository.flow.first()
 
-        assertFalse(settings.httpLogging)
+        assertTrue(settings.httpLogging)
     }
 
     @Test
