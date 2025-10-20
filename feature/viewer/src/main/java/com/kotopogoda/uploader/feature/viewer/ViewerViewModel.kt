@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.SavedStateHandle
@@ -58,7 +59,6 @@ import kotlinx.coroutines.withContext
 import kotlin.collections.ArrayDeque
 import kotlin.text.Charsets
 import kotlin.math.max
-import kotlin.system.measureTimeMillis
 import timber.log.Timber
 
 @HiltViewModel
@@ -317,19 +317,17 @@ class ViewerViewModel @Inject constructor(
                     ),
                 ),
             )
-            var index: Int?
-            val elapsed = measureTimeMillis {
-                index = photoRepository.findIndexAtOrAfter(startOfDay, endOfDay)
-            }
-            val resolvedIndex = index
+            val startMillis = SystemClock.elapsedRealtime()
+            val resolvedIndex = photoRepository.findIndexAtOrAfter(startOfDay, endOfDay)
+            val durationMillis = SystemClock.elapsedRealtime() - startMillis
             val resultDetails = if (resolvedIndex == null) {
                 arrayOf(
-                    "duration_ms" to elapsed,
+                    "duration_ms" to durationMillis,
                     "count_in_day" to 0,
                 )
             } else {
                 arrayOf(
-                    "duration_ms" to elapsed,
+                    "duration_ms" to durationMillis,
                     "index" to resolvedIndex,
                 )
             }
