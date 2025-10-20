@@ -505,7 +505,7 @@ private fun pollLogMessage(
         addAll(details)
     }.toTypedArray()
     return UploadLog.message(
-        category = "APP/PollStatus",
+        category = "UPLOAD/Poll",
         action = action,
         photoId = uploadId,
         uri = uri,

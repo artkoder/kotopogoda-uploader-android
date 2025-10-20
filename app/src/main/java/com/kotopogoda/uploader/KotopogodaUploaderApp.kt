@@ -16,12 +16,14 @@ import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadSummaryService
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
+import com.kotopogoda.uploader.work.UploadWorkObserver
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -61,6 +63,9 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     @Inject
     lateinit var uploadSummaryStarter: UploadSummaryStarter
 
+    @Inject
+    lateinit var uploadWorkObserver: UploadWorkObserver
+
     private val uploadStartupInitializer by lazy {
         UploadStartupInitializer(uploadQueueRepository, uploadEnqueuer, uploadSummaryStarter)
     }
@@ -74,12 +79,14 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         httpLoggingController.setEnabled(true)
         appLogger.setEnabled(true)
         UploadLog.setDiagnosticContextProvider(diagnosticContextProvider)
-        Timber.tag("app_start").i(
+        uploadWorkObserver.start(scope)
+        Timber.tag("app").i(
             UploadLog.message(
-                category = "APP/Startup",
+                category = "APP/START",
                 action = "application_create",
             )
         )
+        logNotificationPermissionState()
         scope.launch(Dispatchers.IO) {
             uploadStartupInitializer.ensureUploadRunningIfQueued()
         }
@@ -92,7 +99,38 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
                 if (settings.persistentQueueNotification && notificationPermissionChecker.canPostNotifications()) {
                     UploadSummaryService.ensureRunningIfNeeded(this@KotopogodaUploaderApp)
                 }
+                Timber.tag("app").i(
+                    UploadLog.message(
+                        category = "CFG/STATE",
+                        action = "settings", 
+                        details = arrayOf(
+                            "base_url" to settings.baseUrl,
+                            "app_logging" to settings.appLogging,
+                            "http_logging" to settings.httpLogging,
+                            "persistent_queue_notification" to settings.persistentQueueNotification,
+                        ),
+                    )
+                )
             }
+        }
+    }
+
+    private fun logNotificationPermissionState() {
+        scope.launch {
+            notificationPermissionChecker.permissionFlow()
+                .distinctUntilChanged()
+                .collect { granted ->
+                    UploadLog.updateDiagnosticExtras(mapOf("notification_permission" to granted.toString()))
+                    Timber.tag("app").i(
+                        UploadLog.message(
+                            category = "PERM/STATE",
+                            action = "notifications",
+                            details = arrayOf(
+                                "granted" to granted,
+                            ),
+                        )
+                    )
+                }
         }
     }
 

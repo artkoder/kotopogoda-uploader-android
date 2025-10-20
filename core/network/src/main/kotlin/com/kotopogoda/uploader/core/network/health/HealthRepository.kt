@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.network.health
 
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.api.HealthApi
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
 import java.time.Clock
@@ -11,6 +12,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.collections.firstNotNullOfOrNull
+import timber.log.Timber
 
 @Singleton
 class HealthRepository @Inject constructor(
@@ -22,6 +24,15 @@ class HealthRepository @Inject constructor(
     suspend fun check(): Result = withContext(ioDispatcher) {
         val start = clock.instant()
         val api = networkClientProvider.create(HealthApi::class.java)
+        Timber.tag(TAG).i(
+            UploadLog.message(
+                category = "HEALTH/REQUEST",
+                action = "check",
+                details = arrayOf(
+                    "started_at" to start.toEpochMilli(),
+                ),
+            )
+        )
         val callResult = runCatching { api.health() }
         val end = clock.instant()
         val latencyMillis = durationMillisBetween(start, end)
@@ -29,6 +40,17 @@ class HealthRepository @Inject constructor(
         callResult.fold(
             onSuccess = { response ->
                 val parsedStatus = parseStatus(response.status)
+                Timber.tag(TAG).i(
+                    UploadLog.message(
+                        category = "HEALTH/RESULT",
+                        action = "success",
+                        details = arrayOf(
+                            "latency_ms" to latencyMillis,
+                            "status" to parsedStatus.status.name,
+                            "message" to (response.message ?: parsedStatus.message),
+                        ),
+                    )
+                )
                 Result(
                     status = parsedStatus.status,
                     checkedAt = end,
@@ -39,6 +61,17 @@ class HealthRepository @Inject constructor(
                 )
             },
             onFailure = { error ->
+                Timber.tag(TAG).w(
+                    UploadLog.message(
+                        category = "HEALTH/RESULT",
+                        action = "failure",
+                        details = arrayOf(
+                            "latency_ms" to latencyMillis,
+                            "error" to error.javaClass.simpleName,
+                            "message" to error.message,
+                        ),
+                    )
+                )
                 Result(
                     status = HealthStatus.OFFLINE,
                     checkedAt = end,
@@ -138,6 +171,8 @@ class HealthRepository @Inject constructor(
         val message: String?,
     )
 }
+
+private const val TAG = "Network"
 
 private fun <T> Array<T>.firstNotNullOfOrNull(transform: (T) -> Any?): Any? {
     for (element in this) {
