@@ -20,7 +20,7 @@
     <string name="settings_app_logging">Логи приложения</string>
     <string name="settings_app_logging_desc">Логи включены по умолчанию и пишутся в файл (до 5 файлов по 1 МБ); при необходимости их можно отключить вручную.</string>
     <string name="settings_http_logging">Логи HTTP</string>
-    <string name="settings_http_logging_desc">Вести подробный журнал запросов и ответов OkHttp.</string>
+    <string name="settings_http_logging_desc">Подробный журнал запросов и ответов OkHttp включён сразу; при необходимости его можно отключить.</string>
     <string name="settings_queue_notification">Постоянное уведомление очереди</string>
     <string name="settings_queue_notification_desc">Показывать уведомление даже без активных загрузок.</string>
     <string name="settings_queue_notification_permission_rationale">Для постоянного уведомления нужно разрешение на показ уведомлений.</string>
