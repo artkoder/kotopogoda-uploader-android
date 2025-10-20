@@ -16,6 +16,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.work.UploadWorker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -31,116 +32,149 @@ class QueueDrainWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val workManager = workManagerProvider.get()
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_start",
-                details = arrayOf(
-                    "id" to id.toString(),
-                ),
+        try {
+            val workManager = workManagerProvider.get()
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_start",
+                    details = arrayOf(
+                        "id" to id.toString(),
+                    ),
+                )
             )
-        )
-        setProgress(workDataOf(PROGRESS_KEY_STARTED_AT to System.currentTimeMillis()))
-        val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
-        repository.recoverStuckProcessing(updatedBefore)
-        val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
-        Timber.tag(LOG_TAG).i(
-            UploadLog.message(
-                action = "drain_worker_batch",
-                details = arrayOf(
-                    "fetched" to queued.size,
-                ),
+            setProgress(workDataOf(PROGRESS_KEY_STARTED_AT to System.currentTimeMillis()))
+            val updatedBefore = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS
+            repository.recoverStuckProcessing(updatedBefore)
+            val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    action = "drain_worker_batch",
+                    details = arrayOf(
+                        "fetched" to queued.size,
+                    ),
+                )
             )
-        )
-        if (queued.isEmpty()) {
+            if (queued.isEmpty()) {
+                if (repository.hasQueued()) {
+                    enqueueSelf()
+                }
+                Timber.tag(LOG_TAG).i(
+                    UploadLog.message(
+                        action = "drain_worker_complete",
+                        details = arrayOf(
+                            "result" to "no_items",
+                        ),
+                    )
+                )
+                return@withContext Result.success()
+            }
+
+            val constraints = ensureConstraints(source = "worker")
+
+            for (item in queued) {
+                val markedProcessing = repository.markProcessing(item.id)
+                if (!markedProcessing) {
+                    Timber.tag(LOG_TAG).i(
+                        UploadLog.message(
+                            action = "drain_worker_processing_skip",
+                            itemId = item.id,
+                            uri = item.uri,
+                            details = arrayOf(
+                                "reason" to "state_changed",
+                            ),
+                        )
+                    )
+                    continue
+                }
+                Timber.tag(LOG_TAG).i(
+                    UploadLog.message(
+                        action = "drain_worker_processing_success",
+                        itemId = item.id,
+                        uri = item.uri,
+                        details = arrayOf(
+                            "displayName" to item.displayName,
+                        ),
+                    )
+                )
+                val uniqueName = UploadEnqueuer.uniqueNameForUri(item.uri)
+                val requestBuilder = OneTimeWorkRequestBuilder<UploadWorker>()
+                    .setConstraints(constraints)
+                    .setInputData(
+                        workDataOf(
+                            UploadEnqueuer.KEY_ITEM_ID to item.id,
+                            UploadEnqueuer.KEY_URI to item.uri.toString(),
+                            UploadEnqueuer.KEY_IDEMPOTENCY_KEY to item.idempotencyKey,
+                            UploadEnqueuer.KEY_DISPLAY_NAME to item.displayName,
+                        )
+                    )
+                    .addTag(UploadTags.TAG_UPLOAD)
+                    .addTag(UploadTags.uniqueTag(uniqueName))
+                    .addTag(UploadTags.uriTag(item.uri.toString()))
+                    .addTag(UploadTags.displayNameTag(item.displayName))
+                    .addTag(UploadTags.keyTag(item.idempotencyKey))
+                    .addTag(UploadTags.kindTag(UploadWorkKind.UPLOAD))
+                if (constraintsProvider.shouldUseExpeditedWork()) {
+                    requestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                }
+                val request = requestBuilder.build()
+                workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
+                Timber.tag(LOG_TAG).i(
+                    UploadLog.message(
+                        action = "drain_worker_enqueue_upload",
+                        itemId = item.id,
+                        uri = item.uri,
+                        details = arrayOf(
+                            "uniqueName" to uniqueName,
+                        ),
+                    )
+                )
+            }
+
             if (repository.hasQueued()) {
                 enqueueSelf()
             }
+
             Timber.tag(LOG_TAG).i(
                 UploadLog.message(
                     action = "drain_worker_complete",
                     details = arrayOf(
-                        "result" to "no_items",
+                        "result" to "success",
                     ),
                 )
             )
-            return@withContext Result.success()
+            Result.success()
+        } catch (error: Throwable) {
+            handleWorkError(error)
         }
+    }
 
-        val constraints = ensureConstraints(source = "worker")
-
-        for (item in queued) {
-            val markedProcessing = repository.markProcessing(item.id)
-            if (!markedProcessing) {
-                Timber.tag(LOG_TAG).i(
-                    UploadLog.message(
-                        action = "drain_worker_processing_skip",
-                        itemId = item.id,
-                        uri = item.uri,
-                        details = arrayOf(
-                            "reason" to "state_changed",
-                        ),
-                    )
-                )
-                continue
-            }
-            Timber.tag(LOG_TAG).i(
-                UploadLog.message(
-                    action = "drain_worker_processing_success",
-                    itemId = item.id,
-                    uri = item.uri,
-                    details = arrayOf(
-                        "displayName" to item.displayName,
-                    ),
-                )
-            )
-            val uniqueName = UploadEnqueuer.uniqueNameForUri(item.uri)
-            val requestBuilder = OneTimeWorkRequestBuilder<UploadWorker>()
-                .setConstraints(constraints)
-                .setInputData(
-                    workDataOf(
-                        UploadEnqueuer.KEY_ITEM_ID to item.id,
-                        UploadEnqueuer.KEY_URI to item.uri.toString(),
-                        UploadEnqueuer.KEY_IDEMPOTENCY_KEY to item.idempotencyKey,
-                        UploadEnqueuer.KEY_DISPLAY_NAME to item.displayName,
-                    )
-                )
-                .addTag(UploadTags.TAG_UPLOAD)
-                .addTag(UploadTags.uniqueTag(uniqueName))
-                .addTag(UploadTags.uriTag(item.uri.toString()))
-                .addTag(UploadTags.displayNameTag(item.displayName))
-                .addTag(UploadTags.keyTag(item.idempotencyKey))
-                .addTag(UploadTags.kindTag(UploadWorkKind.UPLOAD))
-            if (constraintsProvider.shouldUseExpeditedWork()) {
-                requestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            }
-            val request = requestBuilder.build()
-            workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
-            Timber.tag(LOG_TAG).i(
-                UploadLog.message(
-                    action = "drain_worker_enqueue_upload",
-                    itemId = item.id,
-                    uri = item.uri,
-                    details = arrayOf(
-                        "uniqueName" to uniqueName,
-                    ),
-                )
-            )
+    private fun handleWorkError(error: Throwable): Result {
+        if (error is CancellationException) {
+            throw error
         }
-
-        if (repository.hasQueued()) {
-            enqueueSelf()
-        }
-
-        Timber.tag(LOG_TAG).i(
+        val willRetry = runAttemptCount < MAX_ATTEMPTS_BEFORE_FAILURE
+        Timber.tag(LOG_TAG).e(
+            error,
             UploadLog.message(
-                action = "drain_worker_complete",
+                action = "drain_worker_error",
                 details = arrayOf(
-                    "result" to "success",
+                    "id" to id.toString(),
+                    "attempt" to runAttemptCount,
+                    "willRetry" to willRetry,
+                ),
+            ),
+        )
+        return if (willRetry) {
+            Result.retry()
+        } else {
+            Result.failure(
+                workDataOf(
+                    FAILURE_MESSAGE_KEY to (
+                        error.message ?: error::class.qualifiedName ?: "Unknown error"
+                    ),
                 ),
             )
-        )
-        Result.success()
+        }
     }
 
     private suspend fun enqueueSelf() {
@@ -306,6 +340,8 @@ class QueueDrainWorker @AssistedInject constructor(
     companion object {
         private const val BATCH_SIZE = 5
         private const val LOG_TAG = "WorkManager"
+        internal const val FAILURE_MESSAGE_KEY = "QueueDrainWorkerFailureMessage"
+        internal const val MAX_ATTEMPTS_BEFORE_FAILURE = 3
         internal const val PROGRESS_KEY_STARTED_AT = "drainWorkerStartedAt"
 
         internal fun resetEnqueuePolicy() {
