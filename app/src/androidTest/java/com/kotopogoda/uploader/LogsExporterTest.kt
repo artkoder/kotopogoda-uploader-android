@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.kotopogoda.uploader.core.logging.LogManager
 import com.kotopogoda.uploader.core.logging.LogsExportResult
 import com.kotopogoda.uploader.core.logging.LogsExporter
+import com.kotopogoda.uploader.core.logging.diagnostics.DiagnosticsProvider
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -25,7 +26,7 @@ class LogsExporterTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        logManager = LogManager(context)
+        logManager = LogManager(context, TestDiagnosticsProvider())
         logsExporter = LogsExporter(context, logManager)
         logManager.logsDirectory().deleteRecursively()
         logManager.logsDirectory().mkdirs()
@@ -65,5 +66,11 @@ class LogsExporterTest {
         val path = logsExporter.publicDirectoryDisplayPath()
         assertTrue(path.endsWith('/'))
         assertTrue(path.startsWith("Download/Kotopogoda"))
+    }
+}
+
+private class TestDiagnosticsProvider : DiagnosticsProvider {
+    override suspend fun writeDiagnostics(target: File) {
+        target.writeText("{}")
     }
 }

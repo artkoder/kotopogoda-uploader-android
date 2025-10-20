@@ -8,9 +8,12 @@ import java.util.zip.ZipInputStream
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import com.kotopogoda.uploader.core.logging.diagnostics.DiagnosticsProvider
 
 class LogManagerTest {
 
@@ -34,20 +37,55 @@ class LogManagerTest {
         File(logsDir, "$APP_LOG_BASE_NAME.log").writeText("app log\n")
         File(logsDir, "$HTTP_LOG_BASE_NAME.log").writeText("http log\n")
 
-        val manager = LogManager(context, ioDispatcher = Dispatchers.Unconfined)
+        val diagnosticsProvider = RecordingDiagnosticsProvider()
+        val manager = LogManager(context, diagnosticsProvider, ioDispatcher = Dispatchers.Unconfined)
         val output = ByteArrayOutputStream()
 
         val hasLogs = manager.writeLogsArchive(output)
 
         assertTrue(hasLogs, "Expected archive to contain logs")
-        val entries = ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { zip ->
-            generateSequence { zip.nextEntry?.name }.toSet()
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                val content = zip.readBytes().toString(Charsets.UTF_8)
+                entries[entry.name] = content
+                zip.closeEntry()
+            }
         }
-        assertTrue(entries.contains("$APP_LOG_BASE_NAME.log"), "App log should be present in archive")
-        assertTrue(entries.contains("$HTTP_LOG_BASE_NAME.log"), "HTTP log should be present in archive")
+        assertTrue(entries.containsKey("$APP_LOG_BASE_NAME.log"), "App log should be present in archive")
+        assertTrue(entries.containsKey("$HTTP_LOG_BASE_NAME.log"), "HTTP log should be present in archive")
+        val diagnostics = entries["diagnostics.json"] ?: error("diagnostics.json should be present in archive")
+        val json = JSONObject(diagnostics)
+        assertEquals("com.test.app", json.getJSONObject("app").getString("packageName"))
+        assertEquals("1.2.3", json.getJSONObject("app").getString("versionName"))
+        assertEquals("v9", json.getJSONObject("app").getString("contractVersion"))
+        assertTrue(json.getJSONObject("settings").has("baseUrl"))
+    }
+
+    private class RecordingDiagnosticsProvider : DiagnosticsProvider {
+        override suspend fun writeDiagnostics(target: File) {
+            val payload = """
+                {
+                  "app": {
+                    "packageName": "com.test.app",
+                    "versionName": "1.2.3",
+                    "versionCode": 42,
+                    "contractVersion": "v9"
+                  },
+                  "settings": {
+                    "baseUrl": "https://example.test"
+                  },
+                  "permissions": {},
+                  "network": {}
+                }
+            """.trimIndent()
+            target.writeText(payload)
+        }
     }
 
     private class TestContext(private val directory: File) : ContextWrapper(null) {
         override fun getFilesDir(): File = directory
+        override fun getCacheDir(): File = directory
     }
 }
