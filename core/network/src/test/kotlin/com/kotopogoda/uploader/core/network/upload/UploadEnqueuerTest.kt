@@ -259,12 +259,13 @@ class UploadEnqueuerTest {
         val enqueuer = createEnqueuer()
         val stuckStartedAt = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
         val head = mockk<WorkInfo>()
+        val headId = UUID.randomUUID()
         every { head.state } returns WorkInfo.State.RUNNING
         every { head.progress } returns workDataOf(
             QueueDrainWorker.PROGRESS_KEY_STARTED_AT to stuckStartedAt,
         )
         every { head.nextScheduleTimeMillis } returns stuckStartedAt
-        every { head.id } returns UUID.randomUUID()
+        every { head.id } returns headId
         val future = mockk<ListenableFuture<List<WorkInfo>>>()
         every { future.get() } returns listOf(head)
 
@@ -307,6 +308,14 @@ class UploadEnqueuerTest {
         assertEquals(UploadItemState.PROCESSING, states[2L])
         coVerify { uploadItemsRepository.recoverStuckProcessing(any()) }
         verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
+        logTree.assertActionLogged(
+            action = "drain_worker_chain_snapshot",
+            predicate = {
+                it.contains("source=enqueuer") &&
+                    it.contains("count=1") &&
+                    it.contains("states=$headId:RUNNING")
+            },
+        )
     }
 
     @Test
@@ -317,12 +326,13 @@ class UploadEnqueuerTest {
         val staleStartedAt = now - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
 
         val fresh = mockk<WorkInfo>()
+        val freshId = UUID.randomUUID()
         every { fresh.state } returns WorkInfo.State.ENQUEUED
         every { fresh.progress } returns workDataOf(
             QueueDrainWorker.PROGRESS_KEY_STARTED_AT to freshStartedAt,
         )
         every { fresh.nextScheduleTimeMillis } returns freshStartedAt
-        every { fresh.id } returns UUID.randomUUID()
+        every { fresh.id } returns freshId
 
         val staleId = UUID.randomUUID()
         val stale = mockk<WorkInfo>()
@@ -353,6 +363,14 @@ class UploadEnqueuerTest {
 
         verify { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
         coVerify { uploadItemsRepository.recoverStuckProcessing(any()) }
+        logTree.assertActionLogged(
+            action = "drain_worker_chain_snapshot",
+            predicate = {
+                it.contains("source=enqueuer") &&
+                    it.contains("count=2") &&
+                    it.contains("states=$freshId:ENQUEUED;$staleId:RUNNING")
+            },
+        )
         logTree.assertActionLogged(
             action = "drain_worker_chain_stuck",
             predicate = {

@@ -227,6 +227,14 @@ class QueueDrainWorker @AssistedInject constructor(
             return
         }
 
+        Timber.tag(LOG_TAG).i(
+            drainChainSnapshotMessage(
+                infos = infos,
+                source = source,
+                progressKey = PROGRESS_KEY_STARTED_AT,
+            ),
+        )
+
         val now = System.currentTimeMillis()
         val candidate = findDrainChainCandidate(
             infos = infos,
