@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.core.network.upload
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -196,6 +197,72 @@ class QueueDrainWorkerTest {
         logTree.assertActionLogged(
             action = "drain_worker_processing_skip",
             predicate = { it.contains("itemId=${queueItem.id}") },
+        )
+    }
+
+    @Test
+    fun `worker retries and logs error when exception occurs on first attempt`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+
+        every { workerParams.runAttemptCount } returns 0
+        every { constraintsProvider.constraintsState } returns MutableStateFlow(null)
+        coEvery { repository.recoverStuckProcessing(any()) } throws IllegalStateException("boom")
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            providerOf(workManager),
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.retry(), result)
+        logTree.assertErrorLogged(
+            action = "drain_worker_error",
+            predicate = {
+                it.message?.contains("willRetry=true") == true &&
+                    it.throwable is IllegalStateException
+            },
+        )
+    }
+
+    @Test
+    fun `worker fails with message when exception persists after retries`() = runTest {
+        val repository = mockk<UploadQueueRepository>()
+        val workManager = mockk<WorkManager>()
+        val constraintsProvider = mockk<UploadConstraintsProvider>()
+        val workerParams = mockk<WorkerParameters>(relaxed = true)
+
+        every { workerParams.runAttemptCount } returns QueueDrainWorker.MAX_ATTEMPTS_BEFORE_FAILURE
+        every { constraintsProvider.constraintsState } returns MutableStateFlow(null)
+        coEvery { repository.recoverStuckProcessing(any()) } throws RuntimeException("still broken")
+
+        val worker = QueueDrainWorker(
+            context,
+            workerParams,
+            repository,
+            providerOf(workManager),
+            constraintsProvider,
+        )
+
+        val result = worker.doWork()
+
+        assertTrue(result is Result.Failure)
+        assertEquals(
+            "still broken",
+            result.outputData.getString(QueueDrainWorker.FAILURE_MESSAGE_KEY),
+        )
+        logTree.assertErrorLogged(
+            action = "drain_worker_error",
+            predicate = {
+                it.message?.contains("willRetry=false") == true &&
+                    it.throwable is RuntimeException
+            },
         )
     }
 
@@ -730,6 +797,19 @@ class QueueDrainWorkerTest {
                 predicate(entry.message!!)
         }
         assertTrue(messages.isNotEmpty(), "Ожидалось наличие лога с action=$action")
+    }
+
+    private fun RecordingTree.assertErrorLogged(
+        action: String,
+        predicate: (LogEntry) -> Boolean = { true },
+    ) {
+        val messages = logs.filter { entry ->
+            entry.tag == "WorkManager" &&
+                entry.priority == Log.ERROR &&
+                entry.message?.contains("action=$action") == true &&
+                predicate(entry)
+        }
+        assertTrue(messages.isNotEmpty(), "Ожидалось наличие error-лога с action=$action")
     }
 
     private class RecordingTree : Timber.DebugTree() {
