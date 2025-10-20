@@ -35,7 +35,7 @@ class UploadProcessorWorker @AssistedInject constructor(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "WORK/Processor",
+                category = CATEGORY,
                 action = "worker_start",
                 details = arrayOf(
                     "work_id" to id.toString(),
@@ -46,7 +46,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         if (recovered > 0) {
             Timber.tag("WorkManager").w(
                 UploadLog.message(
-                    category = "WORK/Processor",
+                    category = CATEGORY,
                     action = "worker_recovered_processing",
                     state = UploadItemState.QUEUED,
                     details = arrayOf(
@@ -58,7 +58,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         val queued = repository.fetchQueued(BATCH_SIZE, recoverStuck = false)
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "WORK/Processor",
+                category = CATEGORY,
                 action = "worker_batch",
                 state = UploadItemState.QUEUED,
                 details = arrayOf(
@@ -72,7 +72,7 @@ class UploadProcessorWorker @AssistedInject constructor(
             }
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "WORK/Processor",
+                    category = CATEGORY,
                     action = "worker_complete",
                     details = arrayOf(
                         "result" to "no_items",
@@ -87,7 +87,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         for (item in queued) {
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "WORK/Processor",
+                    category = CATEGORY,
                     action = "worker_item_start",
                     uri = item.uri,
                     details = arrayOf(
@@ -101,7 +101,7 @@ class UploadProcessorWorker @AssistedInject constructor(
             if (!markedProcessing) {
                 Timber.tag("WorkManager").i(
                     UploadLog.message(
-                        category = "WORK/Processor",
+                        category = CATEGORY,
                         action = "worker_item_skip",
                         uri = item.uri,
                         details = arrayOf(
@@ -137,7 +137,7 @@ class UploadProcessorWorker @AssistedInject constructor(
                         repository.markSucceeded(item.id)
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
-                                category = "WORK/Processor",
+                                category = CATEGORY,
                                 action = "worker_item_success",
                                 uri = item.uri,
                                 state = UploadItemState.SUCCEEDED,
@@ -160,7 +160,7 @@ class UploadProcessorWorker @AssistedInject constructor(
                         )
                         Timber.tag("WorkManager").w(
                             UploadLog.message(
-                                category = "WORK/Processor",
+                                category = CATEGORY,
                                 action = "worker_item_failure",
                                 uri = item.uri,
                                 state = if (outcome.retryable) UploadItemState.QUEUED else UploadItemState.FAILED,
@@ -184,7 +184,7 @@ class UploadProcessorWorker @AssistedInject constructor(
             enqueueSelf()
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "WORK/Processor",
+                    category = CATEGORY,
                     action = "worker_reschedule",
                     details = arrayOf(
                         "work_id" to id.toString(),
@@ -196,7 +196,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         val result = if (shouldRetry) {
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "WORK/Processor",
+                    category = CATEGORY,
                     action = "worker_complete",
                     details = arrayOf(
                         "result" to "retry",
@@ -207,7 +207,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         } else {
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "WORK/Processor",
+                    category = CATEGORY,
                     action = "worker_complete",
                     details = arrayOf(
                         "result" to "success",
@@ -226,7 +226,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "WORK/Processor",
+                category = CATEGORY,
                 action = "worker_enqueue",
                 details = arrayOf(
                     "request_id" to request.id,
@@ -238,6 +238,7 @@ class UploadProcessorWorker @AssistedInject constructor(
     companion object {
         const val WORK_NAME = UPLOAD_PROCESSOR_WORK_NAME
         private const val BATCH_SIZE = 5
+        private const val CATEGORY = "WORK/UPLOAD_PROCESSOR"
     }
 }
 

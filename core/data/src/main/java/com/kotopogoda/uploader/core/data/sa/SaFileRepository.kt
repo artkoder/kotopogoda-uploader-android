@@ -10,11 +10,13 @@ import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 @Singleton
 class SaFileRepository @Inject constructor(
@@ -23,17 +25,61 @@ class SaFileRepository @Inject constructor(
 ) {
 
     suspend fun moveToProcessing(src: Uri): MoveResult = withContext(Dispatchers.IO) {
+        Timber.tag(STORAGE_TAG).i(
+            UploadLog.message(
+                category = CATEGORY_MOVE_REQUEST,
+                action = "to_processing",
+                uri = src,
+            ),
+        )
         val destinationDirectory = processingFolderProvider.ensure()
 
-        if (isMediaStoreUri(src)) {
+        val result = if (isMediaStoreUri(src)) {
             moveMediaStoreDocument(src, destinationDirectory)
         } else {
             moveSafDocument(src, destinationDirectory)
         }
+        when (result) {
+            is MoveResult.Success -> Timber.tag(STORAGE_TAG).i(
+                UploadLog.message(
+                    category = CATEGORY_MOVE_OK,
+                    action = "to_processing",
+                    uri = src,
+                    details = arrayOf(
+                        "destination" to result.uri,
+                    ),
+                ),
+            )
+            is MoveResult.RequiresWritePermission -> Timber.tag(STORAGE_TAG).i(
+                UploadLog.message(
+                    category = CATEGORY_PERMISSION_WRITE,
+                    action = "to_processing",
+                    uri = src,
+                ),
+            )
+            is MoveResult.RequiresDeletePermission -> Timber.tag(STORAGE_TAG).i(
+                UploadLog.message(
+                    category = CATEGORY_PERMISSION_DELETE,
+                    action = "to_processing",
+                    uri = src,
+                ),
+            )
+        }
+        result
     }
 
     suspend fun moveBack(srcInProcessing: Uri, originalParent: Uri, displayName: String): Uri =
         withContext(Dispatchers.IO) {
+            Timber.tag(STORAGE_TAG).i(
+                UploadLog.message(
+                    category = CATEGORY_MOVE_BACK_REQUEST,
+                    action = "from_processing",
+                    uri = srcInProcessing,
+                    details = arrayOf(
+                        "target_parent" to originalParent,
+                    ),
+                ),
+            )
             val source = DocumentFile.fromSingleUri(context, srcInProcessing)
                 ?: throw IllegalStateException("Source document not found for $srcInProcessing")
             val parent = DocumentFile.fromTreeUri(context, originalParent)
@@ -49,6 +95,17 @@ class SaFileRepository @Inject constructor(
                 destination.delete()
                 throw IllegalStateException("Unable to delete temporary document $srcInProcessing")
             }
+
+            Timber.tag(STORAGE_TAG).i(
+                UploadLog.message(
+                    category = CATEGORY_MOVE_BACK_OK,
+                    action = "from_processing",
+                    uri = destination.uri,
+                    details = arrayOf(
+                        "source" to srcInProcessing,
+                    ),
+                ),
+            )
 
             destination.uri
         }
@@ -382,6 +439,13 @@ class SaFileRepository @Inject constructor(
         private const val BUFFER_SIZE = 1024 * 1024
         private const val DEFAULT_MIME = "application/octet-stream"
         private const val DEFAULT_FILE_NAME = "photo.jpg"
+        private const val STORAGE_TAG = "Storage"
+        private const val CATEGORY_MOVE_REQUEST = "STORAGE/MOVE_REQUEST"
+        private const val CATEGORY_MOVE_OK = "STORAGE/MOVE_OK"
+        private const val CATEGORY_PERMISSION_WRITE = "STORAGE/REQUEST_WRITE"
+        private const val CATEGORY_PERMISSION_DELETE = "STORAGE/REQUEST_DELETE"
+        private const val CATEGORY_MOVE_BACK_REQUEST = "STORAGE/MOVE_BACK_REQUEST"
+        private const val CATEGORY_MOVE_BACK_OK = "STORAGE/MOVE_BACK_OK"
     }
 }
 

@@ -73,7 +73,7 @@ class UploadWorker @AssistedInject constructor(
 
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "UPLOAD/Worker",
+                category = CATEGORY_UPLOAD_START,
                 action = "upload_worker_start",
                 uri = uri,
                 details = arrayOf(
@@ -104,7 +104,7 @@ class UploadWorker @AssistedInject constructor(
             val payload = readDocumentPayload(uri, totalBytes, displayName, mediaType)
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "UPLOAD/Worker",
+                    category = CATEGORY_UPLOAD_PREPARE,
                     action = "upload_prepare_request",
                     uri = uri,
                     details = arrayOf(
@@ -132,7 +132,7 @@ class UploadWorker @AssistedInject constructor(
                         lastBytesSent = bytesSent
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
-                                category = "UPLOAD/Worker",
+                                category = CATEGORY_UPLOAD_PROGRESS,
                                 action = "upload_progress",
                                 uri = uri,
                                 details = buildList {
@@ -161,7 +161,7 @@ class UploadWorker @AssistedInject constructor(
             )
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "UPLOAD/Worker",
+                    category = CATEGORY_HTTP_REQUEST,
                     action = "upload_request_send",
                     uri = uri,
                     details = arrayOf(
@@ -187,7 +187,7 @@ class UploadWorker @AssistedInject constructor(
 
             Timber.tag("WorkManager").i(
                 UploadLog.message(
-                    category = "UPLOAD/Worker",
+                    category = CATEGORY_HTTP_RESPONSE,
                     action = "upload_response_code",
                     uri = uri,
                     details = arrayOf(
@@ -220,7 +220,7 @@ class UploadWorker @AssistedInject constructor(
                         )
                         Timber.tag("WorkManager").i(
                             UploadLog.message(
-                                category = "UPLOAD/Worker",
+                                category = CATEGORY_UPLOAD_SUCCESS,
                                 action = "upload_worker_success",
                                 uri = uri,
                                 details = buildList {
@@ -389,10 +389,10 @@ class UploadWorker @AssistedInject constructor(
         }
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "UPLOAD/Worker",
+                category = CATEGORY_UPLOAD_PROGRESS_STATE,
                 action = "upload_progress_state",
                 details = details.toTypedArray(),
-            )
+            ),
         )
     }
 
@@ -419,7 +419,7 @@ class UploadWorker @AssistedInject constructor(
     ): Result {
         Timber.tag("WorkManager").w(
             UploadLog.message(
-                category = "UPLOAD/Worker",
+                category = CATEGORY_UPLOAD_RETRY,
                 action = "upload_retry",
                 details = buildList {
                     currentItemId?.let { add("queue_item_id" to it) }
@@ -443,7 +443,7 @@ class UploadWorker @AssistedInject constructor(
         val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
         Timber.tag("WorkManager").e(
             UploadLog.message(
-                category = "UPLOAD/Worker",
+                category = CATEGORY_UPLOAD_FAILURE,
                 action = "upload_failure",
                 uri = parsedUri,
                 details = buildList {
@@ -536,7 +536,7 @@ class UploadWorker @AssistedInject constructor(
         )
         Timber.tag("WorkManager").i(
             UploadLog.message(
-                category = "UPLOAD/Worker",
+                category = CATEGORY_WORK_SCHEDULE,
                 action = "upload_poll_scheduled",
                 uri = uri,
                 details = arrayOf(
@@ -554,6 +554,16 @@ class UploadWorker @AssistedInject constructor(
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME_TYPE = "application/octet-stream"
         private const val INDETERMINATE_PROGRESS = -1
+        private const val CATEGORY_UPLOAD_START = "UPLOAD/START"
+        private const val CATEGORY_UPLOAD_PREPARE = "UPLOAD/PREPARE"
+        private const val CATEGORY_UPLOAD_PROGRESS = "UPLOAD/PROGRESS"
+        private const val CATEGORY_UPLOAD_PROGRESS_STATE = "UPLOAD/PROGRESS_STATE"
+        private const val CATEGORY_UPLOAD_SUCCESS = "UPLOAD/SUCCESS"
+        private const val CATEGORY_UPLOAD_FAILURE = "UPLOAD/FAILURE"
+        private const val CATEGORY_UPLOAD_RETRY = "UPLOAD/RETRY"
+        private const val CATEGORY_HTTP_REQUEST = "HTTP/REQUEST"
+        private const val CATEGORY_HTTP_RESPONSE = "HTTP/RESPONSE"
+        private const val CATEGORY_WORK_SCHEDULE = "WORK/SCHEDULE"
     }
 
     private data class FilePayload(

@@ -133,10 +133,10 @@ class ViewerViewModel @Inject constructor(
     private var pendingBatchMove: PendingBatchMove? = null
     private var pendingSingleMove: PendingSingleMove? = null
 
-    private fun logUi(action: String, uri: Uri? = null, vararg details: Pair<String, Any?>) {
+    private fun logUi(category: String, action: String, uri: Uri? = null, vararg details: Pair<String, Any?>) {
         Timber.tag(UI_TAG).i(
             UploadLog.message(
-                category = "UI/Viewer",
+                category = category,
                 action = action,
                 uri = uri,
                 details = details,
@@ -144,11 +144,11 @@ class ViewerViewModel @Inject constructor(
         )
     }
 
-    private fun logUiError(action: String, error: Throwable, uri: Uri? = null, vararg details: Pair<String, Any?>) {
+    private fun logUiError(category: String, action: String, error: Throwable, uri: Uri? = null, vararg details: Pair<String, Any?>) {
         Timber.tag(UI_TAG).e(
             error,
             UploadLog.message(
-                category = "UI/Viewer",
+                category = category,
                 action = action,
                 uri = uri,
                 details = details,
@@ -459,6 +459,7 @@ class ViewerViewModel @Inject constructor(
         }
         val current = photo ?: return
         logUi(
+            category = "UI/CLICK_PUBLISH",
             action = "enqueue_request",
             uri = current.uri,
             "current_index" to currentIndex.value,
@@ -493,6 +494,7 @@ class ViewerViewModel @Inject constructor(
                     )
                 )
                 logUi(
+                    category = "UI/PUBLISH_OK",
                     action = "enqueue_success",
                     uri = current.uri,
                     "from_index" to fromIndex,
@@ -502,6 +504,7 @@ class ViewerViewModel @Inject constructor(
             } catch (error: Exception) {
                 persistUndoStack()
                 logUiError(
+                    category = "UI/PUBLISH_ERROR",
                     action = "enqueue_failure",
                     error = error,
                     uri = current.uri,
@@ -523,6 +526,7 @@ class ViewerViewModel @Inject constructor(
         }
         val current = photo ?: return
         logUi(
+            category = "UI/CLICK_DELETE_SINGLE",
             action = "delete_request",
             uri = current.uri,
             "current_index" to currentIndex.value,
@@ -569,6 +573,7 @@ class ViewerViewModel @Inject constructor(
                         } catch (error: Exception) {
                             pending.backup?.delete()
                             logUiError(
+                                category = "UI/DELETE_ERROR",
                                 action = "delete_finalize_failure",
                                 error = error,
                                 uri = documentInfo.uri,
@@ -594,6 +599,7 @@ class ViewerViewModel @Inject constructor(
                 pendingDelete?.backup?.delete()
                 pendingDelete = null
                 logUiError(
+                    category = "UI/DELETE_ERROR",
                     action = "delete_request_failure",
                     error = error,
                     uri = current.uri,
@@ -616,6 +622,7 @@ class ViewerViewModel @Inject constructor(
             return
         }
         logUi(
+            category = "UI/CLICK_DELETE_BULK",
             action = "batch_delete_request",
             "count" to photos.size,
         )
@@ -638,6 +645,7 @@ class ViewerViewModel @Inject constructor(
             } catch (error: Exception) {
                 pendingBatchDelete = null
                 logUiError(
+                    category = "UI/DELETE_ERROR",
                     action = "batch_delete_request_failure",
                     error = error,
                 )
@@ -724,12 +732,14 @@ class ViewerViewModel @Inject constructor(
                     try {
                         finalizeDeletion(pending)
                         logUi(
+                            category = "UI/DELETE_OK",
                             action = "delete_success",
                             uri = pending.documentInfo.uri,
                         )
                     } catch (error: Exception) {
                         pending.backup?.delete()
                         logUiError(
+                            category = "UI/DELETE_ERROR",
                             action = "delete_failure",
                             error = error,
                             uri = pending.documentInfo.uri,
@@ -745,6 +755,7 @@ class ViewerViewModel @Inject constructor(
                 DeleteResult.Cancelled -> {
                     pending.backup?.delete()
                     logUi(
+                        category = "UI/DELETE_CANCEL",
                         action = "delete_cancelled",
                         uri = pending.documentInfo.uri,
                     )
@@ -754,6 +765,7 @@ class ViewerViewModel @Inject constructor(
                 DeleteResult.Failed -> {
                     pending.backup?.delete()
                     logUi(
+                        category = "UI/DELETE_ERROR",
                         action = "delete_failed",
                         uri = pending.documentInfo.uri,
                     )

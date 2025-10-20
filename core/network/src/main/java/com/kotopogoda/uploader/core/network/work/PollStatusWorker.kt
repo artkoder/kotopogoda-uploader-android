@@ -505,10 +505,12 @@ private fun pollLogMessage(
         addAll(details)
     }.toTypedArray()
     return UploadLog.message(
-        category = "UPLOAD/Poll",
+        category = CATEGORY_POLL,
         action = action,
         photoId = uploadId,
         uri = uri,
         details = normalizedDetails,
     )
 }
+
+private const val CATEGORY_POLL = "UPLOAD/POLL"

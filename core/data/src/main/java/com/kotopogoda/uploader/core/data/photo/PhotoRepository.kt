@@ -17,6 +17,7 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
@@ -142,6 +144,16 @@ class PhotoRepository @Inject constructor(
                 putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
             }
         }
+        Timber.tag(MEDIA_LOG_TAG).v(
+            UploadLog.message(
+                category = CATEGORY_MEDIA_COUNT_REQUEST,
+                action = "count",
+                details = arrayOf(
+                    "has_extra" to (extraSelection != null),
+                    "uri_count" to spec.contentUris.size,
+                ),
+            ),
+        )
         return runCatching {
             resolver.queryWithFallback(
                 uris = spec.contentUris,
@@ -153,7 +165,32 @@ class PhotoRepository @Inject constructor(
             ) { _, cursor ->
                 cursor.getCountSafely()
             } ?: 0
-        }.getOrNull() ?: 0
+        }
+            .onSuccess { count ->
+                Timber.tag(MEDIA_LOG_TAG).i(
+                    UploadLog.message(
+                        category = CATEGORY_MEDIA_COUNT_RESULT,
+                        action = "count",
+                        details = arrayOf(
+                            "value" to count,
+                            "has_extra" to (extraSelection != null),
+                        ),
+                    ),
+                )
+            }
+            .onFailure { error ->
+                Timber.tag(MEDIA_LOG_TAG).e(
+                    error,
+                    UploadLog.message(
+                        category = CATEGORY_MEDIA_ERROR,
+                        action = "count",
+                        details = arrayOf(
+                            "has_extra" to (extraSelection != null),
+                        ),
+                    ),
+                )
+            }
+            .getOrNull() ?: 0
     }
 
     private fun Cursor.getCountSafely(): Int =
@@ -315,6 +352,18 @@ class PhotoRepository @Inject constructor(
                 null
             }
 
+            Timber.tag(MEDIA_LOG_TAG).i(
+                UploadLog.message(
+                    category = CATEGORY_MEDIA_REQUEST,
+                    action = "page",
+                    details = arrayOf(
+                        "offset" to offset,
+                        "limit" to limit,
+                        "uri_count" to spec.contentUris.size,
+                    ),
+                ),
+            )
+
             val page = runCatching {
                 contentResolver.queryWithFallback(
                     uris = spec.contentUris,
@@ -376,11 +425,40 @@ class PhotoRepository @Inject constructor(
                         nextKey = nextKey
                     )
                 }
-            }.getOrElse { error ->
-                return LoadResult.Error(error)
+            }
+                .onFailure { error ->
+                    Timber.tag(MEDIA_LOG_TAG).e(
+                        error,
+                        UploadLog.message(
+                            category = CATEGORY_MEDIA_ERROR,
+                            action = "page",
+                            details = arrayOf(
+                                "offset" to offset,
+                                "limit" to limit,
+                            ),
+                        ),
+                    )
+                }
+                .getOrElse { error ->
+                    return LoadResult.Error(error)
+                }
+
+            val pageResult = page ?: LoadResult.Page(emptyList(), prevKey = null, nextKey = null)
+            if (pageResult is LoadResult.Page) {
+                Timber.tag(MEDIA_LOG_TAG).i(
+                    UploadLog.message(
+                        category = CATEGORY_MEDIA_RESULT,
+                        action = "page",
+                        details = arrayOf(
+                            "offset" to offset,
+                            "returned" to pageResult.data.size,
+                            "next_key" to pageResult.nextKey,
+                        ),
+                    ),
+                )
             }
 
-            return page ?: LoadResult.Page(emptyList(), prevKey = null, nextKey = null)
+            return pageResult
         }
 
         override fun getRefreshKey(state: PagingState<Int, PhotoItem>): Int? {
@@ -426,6 +504,12 @@ class PhotoRepository @Inject constructor(
             "${MediaStore.Images.Media.DATE_MODIFIED} > 0"
         private const val DATE_MODIFIED_MILLIS_EXPRESSION =
             "${MediaStore.Images.Media.DATE_MODIFIED} * 1000"
+        private const val MEDIA_LOG_TAG = "MediaStore"
+        private const val CATEGORY_MEDIA_REQUEST = "MEDIA_QUERY/REQUEST"
+        private const val CATEGORY_MEDIA_RESULT = "MEDIA_QUERY/RESULT"
+        private const val CATEGORY_MEDIA_COUNT_REQUEST = "MEDIA_QUERY/COUNT_REQUEST"
+        private const val CATEGORY_MEDIA_COUNT_RESULT = "MEDIA_QUERY/COUNT_RESULT"
+        private const val CATEGORY_MEDIA_ERROR = "MEDIA_QUERY/ERROR"
     }
 }
 
