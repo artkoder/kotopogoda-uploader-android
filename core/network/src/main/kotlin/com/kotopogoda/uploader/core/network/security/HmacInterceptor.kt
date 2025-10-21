@@ -37,7 +37,13 @@ class HmacInterceptor @Inject constructor(
         val nonce = nonceProvider()
         val bodyBytes = originalRequest.body?.let { captureBody(it) } ?: EMPTY_BYTE_ARRAY
         val contentSha = sha256Hex(bodyBytes)
-        val canonical = buildCanonicalString(originalRequest, timestamp, nonce, contentSha)
+        val canonical = buildCanonicalString(
+            request = originalRequest,
+            deviceId = creds.deviceId,
+            timestamp = timestamp,
+            nonce = nonce,
+            contentSha = contentSha,
+        )
         val signature = sign(creds.hmacKey, canonical)
 
         val signedRequest = originalRequest.newBuilder()
@@ -64,21 +70,19 @@ class HmacInterceptor @Inject constructor(
 
     private fun buildCanonicalString(
         request: Request,
+        deviceId: String,
         timestamp: String,
         nonce: String,
         contentSha: String,
     ): String {
-        return buildString {
-            append(request.method)
-            append(DELIMITER)
-            append(request.url.encodedPath)
-            append(DELIMITER)
-            append(timestamp)
-            append(DELIMITER)
-            append(nonce)
-            append(DELIMITER)
-            append(contentSha)
-        }
+        return listOf(
+            request.method,
+            request.url.encodedPath,
+            deviceId,
+            timestamp,
+            nonce,
+            contentSha,
+        ).joinToString(separator = LINE_SEPARATOR)
     }
 
     private fun sha256Hex(bytes: ByteArray): String {
@@ -102,7 +106,7 @@ class HmacInterceptor @Inject constructor(
             "/v1/health",
             "/v1/devices/attach",
         )
-        private const val DELIMITER = "|"
+        private const val LINE_SEPARATOR = "\n"
         private const val HEADER_DEVICE_ID = "X-Device-Id"
         private const val HEADER_TIMESTAMP = "X-Timestamp"
         private const val HEADER_NONCE = "X-Nonce"
