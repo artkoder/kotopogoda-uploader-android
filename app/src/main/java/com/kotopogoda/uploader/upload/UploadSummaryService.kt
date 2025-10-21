@@ -16,7 +16,9 @@ import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.kotopogoda.uploader.MainActivity
 import com.kotopogoda.uploader.R
@@ -203,6 +205,11 @@ class UploadSummaryService : LifecycleService() {
                 return
             }
             val application = applicationContext as? Application ?: return
+            val processState = ProcessLifecycleOwner.get().lifecycle.currentState
+            if (!processState.isAtLeast(Lifecycle.State.STARTED)) {
+                startNow(application)
+                return
+            }
             val launcher = foregroundLauncher ?: synchronized(launcherLock) {
                 foregroundLauncher ?: ForegroundServiceLauncher(application).also {
                     foregroundLauncher = it
