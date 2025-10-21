@@ -113,7 +113,7 @@ class LoggingWorkerFactoryTest {
     }
 
     @Test
-    fun `createWorker logs and throws when fallback returns null`() {
+    fun `createWorker logs and returns null when fallback returns null`() {
         val tree = RecordingTree()
         Timber.plant(tree)
 
@@ -123,15 +123,22 @@ class LoggingWorkerFactoryTest {
         every { workerParameters.id } returns workerId
         every { workerParameters.tags } returns setOf("tag3")
 
-        val factory = LoggingWorkerFactory(hiltWorkerFactory)
-
-        val thrown = assertThrows(IllegalStateException::class.java) {
-            factory.createWorker(context, "com.example.LegacyWorker", workerParameters)
+        var fallbackCalled = false
+        val factory = object : LoggingWorkerFactory(hiltWorkerFactory) {
+            override fun fallbackCreateWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters,
+            ): ListenableWorker? {
+                fallbackCalled = true
+                return null
+            }
         }
-        val exceptionMessage = thrown.message ?: ""
-        assertTrue(exceptionMessage.contains("worker_class_name=com.example.LegacyWorker"))
-        assertTrue(exceptionMessage.contains("work_id=$workerId"))
-        assertTrue(exceptionMessage.contains("tags=tag3"))
+
+        val worker = factory.createWorker(context, "com.example.LegacyWorker", workerParameters)
+
+        assertTrue(worker == null)
+        assertTrue(fallbackCalled)
 
         val createNullLog = tree.entries.single()
         assertTrue(createNullLog.message.contains("action=create_null"))

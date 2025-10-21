@@ -157,6 +157,7 @@ dependencies {
     implementation(libs.material)
 
 
+    testImplementation(kotlin("test"))
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
