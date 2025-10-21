@@ -9,7 +9,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadLog
 import timber.log.Timber
 import javax.inject.Inject
 
-class LoggingWorkerFactory @Inject constructor(
+open class LoggingWorkerFactory @Inject constructor(
     private val hiltWorkerFactory: HiltWorkerFactory,
 ) : WorkerFactory() {
 
@@ -42,7 +42,30 @@ class LoggingWorkerFactory @Inject constructor(
                 return worker
             }
         }
-        return null
+        Timber.tag(LOG_TAG).w(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "create_null",
+                details = arrayOf(
+                    "worker_class_name" to workerClassName,
+                    "work_id" to workerParameters.id,
+                    "tags" to workerParameters.tags.joinToString(),
+                ),
+            ),
+        )
+        return createFallbackWorker(appContext, workerClassName, workerParameters)
+    }
+
+    protected open fun createFallbackWorker(
+        appContext: Context,
+        workerClassName: String,
+        workerParameters: WorkerParameters,
+    ): ListenableWorker? {
+        return WorkerFactory.getDefaultWorkerFactory().createWorker(
+            appContext,
+            workerClassName,
+            workerParameters,
+        )
     }
 
     private companion object {
