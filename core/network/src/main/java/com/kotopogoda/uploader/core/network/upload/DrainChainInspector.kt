@@ -44,7 +44,7 @@ internal fun findDrainChainCandidate(
 private fun WorkInfo.computeFailureMoment(now: Long, progressKey: String): Long? {
     val failureAt = outputData.getLong(QueueDrainWorker.FAILURE_AT_KEY, 0L)
         .takeIf { it > 0L && it <= now }
-    return failureAt ?: computeStuckSince(now, progressKey)
+    return failureAt ?: computeStuckSince(now, progressKey) ?: now
 }
 
 private fun WorkInfo.computeStuckSince(now: Long, progressKey: String): Long? {
