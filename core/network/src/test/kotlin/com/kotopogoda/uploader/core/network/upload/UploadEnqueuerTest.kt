@@ -325,18 +325,14 @@ class UploadEnqueuerTest {
     @Test
     fun `scheduleDrain cancels failed work immediately`() = runBlocking {
         val enqueuer = createEnqueuer()
-        val failureAt = System.currentTimeMillis()
         val stuckStartedAt = System.currentTimeMillis() - UploadQueueRepository.STUCK_TIMEOUT_MS - 10_000L
 
         val failed = mockk<WorkInfo>()
         val failedId = UUID.randomUUID()
         every { failed.state } returns WorkInfo.State.FAILED
-        every { failed.progress } returns workDataOf(
-            QueueDrainWorker.PROGRESS_KEY_STARTED_AT to stuckStartedAt,
-        )
+        every { failed.progress } returns workDataOf()
         every { failed.outputData } returns workDataOf(
             QueueDrainWorker.FAILURE_MESSAGE_KEY to "boom",
-            QueueDrainWorker.FAILURE_AT_KEY to failureAt,
         )
         every { failed.nextScheduleTimeMillis } returns 0L
         every { failed.id } returns failedId
