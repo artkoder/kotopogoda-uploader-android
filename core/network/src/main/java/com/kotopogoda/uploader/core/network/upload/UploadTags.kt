@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets
 object UploadTags {
     const val TAG_UPLOAD: String = "upload"
     const val TAG_POLL: String = "poll"
+    const val TAG_DRAIN: String = "drain"
     private const val PREFIX_UNIQUE = "unique:"
     private const val PREFIX_URI = "uri:"
     private const val PREFIX_DISPLAY_NAME = "display:"

@@ -205,6 +205,7 @@ class QueueDrainWorker @AssistedInject constructor(
         maybeResetStuckDrainChain(workManager, source = "worker")
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(DRAIN_WORK_CONSTRAINTS)
+            .addTag(UploadTags.TAG_DRAIN)
         // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         val policy = ExistingWorkPolicy.APPEND_OR_REPLACE

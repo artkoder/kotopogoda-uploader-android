@@ -763,6 +763,7 @@ class QueueDrainWorkerTest {
         verify(exactly = 0) { constraintsProvider.buildConstraints() }
         assertEquals(Constraints.NONE, uploadRequestSlot.captured.workSpec.constraints)
         assertEquals(Constraints.NONE, drainRequestSlot.captured.workSpec.constraints)
+        assertTrue(drainRequestSlot.captured.tags.contains(UploadTags.TAG_DRAIN))
 
         logTree.assertActionLogged(
             action = "drain_worker_constraints_missing",
@@ -881,6 +882,7 @@ class QueueDrainWorkerTest {
         assertTrue(uploadRequest.workSpec.expedited)
         assertEquals(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST, uploadRequest.workSpec.outOfQuotaPolicy)
         assertTrue(!drainRequest.workSpec.expedited)
+        assertTrue(drainRequest.tags.contains(UploadTags.TAG_DRAIN))
         assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, drainPolicy)
 
         logTree.assertActionLogged(

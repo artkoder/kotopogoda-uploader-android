@@ -110,6 +110,7 @@ class UploadEnqueuerTest {
         val request = requests.single()
         assertEquals(Constraints.NONE, request.workSpec.constraints)
         assertTrue(!request.workSpec.expedited)
+        assertTrue(request.tags.contains(UploadTags.TAG_DRAIN))
         assertEquals(listOf(ExistingWorkPolicy.APPEND_OR_REPLACE), policies)
     }
 
@@ -138,6 +139,7 @@ class UploadEnqueuerTest {
                 requestSlot.captured,
             )
         }
+        assertTrue(requestSlot.captured.tags.contains(UploadTags.TAG_DRAIN))
     }
 
     @Test
@@ -156,7 +158,10 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match { it.workSpec.constraints == Constraints.NONE }
+                match {
+                    it.workSpec.constraints == Constraints.NONE &&
+                        it.tags.contains(UploadTags.TAG_DRAIN)
+                }
             )
         }
         verify(exactly = 0) { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
@@ -182,7 +187,10 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match { it.workSpec.constraints == Constraints.NONE }
+                match {
+                    it.workSpec.constraints == Constraints.NONE &&
+                        it.tags.contains(UploadTags.TAG_DRAIN)
+                }
             )
         }
     }
@@ -207,7 +215,10 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match { it.workSpec.constraints == Constraints.NONE }
+                match {
+                    it.workSpec.constraints == Constraints.NONE &&
+                        it.tags.contains(UploadTags.TAG_DRAIN)
+                }
             )
         }
     }
@@ -238,7 +249,10 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match { it.workSpec.constraints == Constraints.NONE }
+                match {
+                    it.workSpec.constraints == Constraints.NONE &&
+                        it.tags.contains(UploadTags.TAG_DRAIN)
+                }
             )
         }
         verify(exactly = 0) { workManager.cancelUniqueWork(QUEUE_DRAIN_WORK_NAME) }
@@ -467,7 +481,10 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match { it.workSpec.constraints == Constraints.NONE }
+                match {
+                    it.workSpec.constraints == Constraints.NONE &&
+                        it.tags.contains(UploadTags.TAG_DRAIN)
+                }
             )
         }
     }
@@ -497,6 +514,7 @@ class UploadEnqueuerTest {
             )
         }
         assertTrue(!requestSlot.captured.workSpec.expedited)
+        assertTrue(requestSlot.captured.tags.contains(UploadTags.TAG_DRAIN))
         verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
     }
 

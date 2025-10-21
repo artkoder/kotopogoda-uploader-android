@@ -27,7 +27,7 @@ class UploadWorkObserver @Inject constructor(
             return
         }
         val query = WorkQuery.Builder
-            .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL))
+            .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL, UploadTags.TAG_DRAIN))
             .build()
         scope.launch {
             workManager.getWorkInfosFlow(query).collect { infos ->
