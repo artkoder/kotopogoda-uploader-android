@@ -1,7 +1,9 @@
 package com.kotopogoda.uploader
 
 import android.app.Application
+import android.util.Log
 import androidx.work.Configuration
+import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.AppLogger
@@ -12,26 +14,28 @@ import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.settings.SettingsRepository
+import com.kotopogoda.uploader.di.LoggingWorkerFactory
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadSummaryService
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.work.UploadWorkObserver
 import dagger.hilt.android.HiltAndroidApp
-import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
+import javax.inject.Inject
 import timber.log.Timber
 
 @HiltAndroidApp
 class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     @Inject
-    lateinit var workManagerConfigurationDelegate: Configuration
+    lateinit var loggingWorkerFactory: LoggingWorkerFactory
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
@@ -72,8 +76,29 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    private val workManagerConfigurationDelegate: Configuration by lazy {
+        Configuration.Builder()
+            .setWorkerFactory(loggingWorkerFactory)
+            .setMinimumLoggingLevel(Log.INFO)
+            .setExecutor(Executors.newFixedThreadPool(2))
+            .build()
+    }
+
     override fun onCreate() {
         super.onCreate()
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "initializer_disabled",
+            ),
+        )
+        WorkManager.initialize(this, workManagerConfiguration)
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "app_init",
+            ),
+        )
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
         httpLoggingController.setEnabled(true)

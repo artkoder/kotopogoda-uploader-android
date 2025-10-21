@@ -21,6 +21,7 @@ import io.mockk.mockk
 import kotlin.test.assertEquals
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
+import javax.inject.Provider
 
 class UploadProcessorWorkerTest {
 
@@ -30,6 +31,7 @@ class UploadProcessorWorkerTest {
     fun `worker recovers stuck processing before fetching batch`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
+        val workManagerProvider = Provider { workManager }
         val constraintsHelper = mockk<UploadConstraintsHelper>()
         val taskRunner = mockk<UploadTaskRunner>()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -55,7 +57,7 @@ class UploadProcessorWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            workManagerProvider,
             constraintsHelper,
             taskRunner,
         )
@@ -77,6 +79,7 @@ class UploadProcessorWorkerTest {
     fun `worker skips state updates when item no longer processing`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
+        val workManagerProvider = Provider { workManager }
         val constraintsHelper = mockk<UploadConstraintsHelper>()
         val taskRunner = mockk<UploadTaskRunner>()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -101,7 +104,7 @@ class UploadProcessorWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            workManagerProvider,
             constraintsHelper,
             taskRunner,
         )
@@ -118,6 +121,7 @@ class UploadProcessorWorkerTest {
     fun `worker skips upload when item cannot transition to processing`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
+        val workManagerProvider = Provider { workManager }
         val constraintsHelper = mockk<UploadConstraintsHelper>()
         val taskRunner = mockk<UploadTaskRunner>()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -140,7 +144,7 @@ class UploadProcessorWorkerTest {
             context,
             workerParams,
             repository,
-            workManager,
+            workManagerProvider,
             constraintsHelper,
             taskRunner,
         )

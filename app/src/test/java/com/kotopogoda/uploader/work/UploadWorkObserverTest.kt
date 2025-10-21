@@ -18,10 +18,12 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import timber.log.Timber
+import javax.inject.Provider
 
 class UploadWorkObserverTest {
 
     private val workManager = mockk<WorkManager>()
+    private val workManagerProvider: Provider<WorkManager> = Provider { workManager }
     private lateinit var logTree: RecordingTree
 
     @BeforeTest
@@ -43,7 +45,7 @@ class UploadWorkObserverTest {
         val querySlot = slot<WorkQuery>()
         every { workManager.getWorkInfosFlow(capture(querySlot)) } returns flow
 
-        val observer = UploadWorkObserver(workManager)
+        val observer = UploadWorkObserver(workManagerProvider)
         observer.start(this)
         advanceUntilIdle()
 

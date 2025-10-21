@@ -18,6 +18,7 @@ import dagger.assisted.AssistedInject
 import java.io.IOException
 import java.net.UnknownHostException
 import java.util.concurrent.CancellationException
+import javax.inject.Provider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -27,10 +28,12 @@ class UploadProcessorWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: UploadQueueRepository,
-    private val workManager: WorkManager,
+    private val workManagerProvider: Provider<WorkManager>,
     private val constraintsHelper: UploadConstraintsHelper,
     private val taskRunner: UploadTaskRunner,
 ) : CoroutineWorker(appContext, params) {
+
+    private val workManager by lazy { workManagerProvider.get() }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         Timber.tag("WorkManager").i(

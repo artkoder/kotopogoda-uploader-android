@@ -17,6 +17,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import javax.inject.Provider
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -29,9 +30,11 @@ class QueueViewModel @Inject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val uploadEnqueuer: UploadEnqueuer,
     private val summaryStarter: UploadSummaryStarter,
-    private val workManager: WorkManager,
+    private val workManagerProvider: Provider<WorkManager>,
     private val workInfoMapper: QueueWorkInfoMapper,
 ) : ViewModel() {
+
+    private val workManager by lazy { workManagerProvider.get() }
 
     init {
         summaryStarter.ensureRunning()
