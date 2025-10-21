@@ -634,6 +634,22 @@ class UploadWorkerTest {
         assertEquals(UploadErrorKind.IO.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
     }
 
+    @Test
+    fun fileNotFoundExceptionFailsWithoutRetry() = runBlocking {
+        val authority = "com.kotopogoda.test.missing"
+        val uri = Uri.parse("content://$authority/items/1")
+        ShadowContentResolver.registerProviderInternal(authority, ThrowingFileNotFoundProvider)
+
+        val inputData = inputDataForUri(uri)
+        val worker = createWorker(inputData)
+
+        val result = worker.doWork()
+
+        assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals(UploadErrorKind.IO.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+    }
+
     private fun createWorker(
         inputData: Data,
         factory: WorkerFactory = workerFactory,
@@ -801,6 +817,39 @@ class UploadWorkerTest {
 
         override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
             throw FileNotFoundException("Denied")
+        }
+    }
+
+    private object ThrowingFileNotFoundProvider : ContentProvider() {
+        override fun onCreate(): Boolean = true
+
+        override fun query(
+            uri: Uri,
+            projection: Array<out String>?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+            sortOrder: String?
+        ): android.database.Cursor? = null
+
+        override fun getType(uri: Uri): String? = "image/jpeg"
+
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+
+        override fun update(
+            uri: Uri,
+            values: ContentValues?,
+            selection: String?,
+            selectionArgs: Array<out String>?
+        ): Int = 0
+
+        override fun openAssetFile(uri: Uri, mode: String): android.content.res.AssetFileDescriptor {
+            throw FileNotFoundException("Missing")
+        }
+
+        override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+            throw FileNotFoundException("Missing")
         }
     }
 }

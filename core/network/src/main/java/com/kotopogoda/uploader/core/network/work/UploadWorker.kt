@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadLog
+import com.kotopogoda.uploader.core.network.api.UploadAcceptedDto
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
 import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
@@ -28,8 +29,10 @@ import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.UnknownHostException
+import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +45,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
+import retrofit2.Response
 import timber.log.Timber
 
 @HiltWorker
@@ -59,16 +63,16 @@ class UploadWorker @AssistedInject constructor(
     private var lastProgressSnapshot = ProgressSnapshot()
     private var currentItemId: Long? = null
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+    override suspend fun doWork(): Result {
         val itemId = inputData.getLong(UploadEnqueuer.KEY_ITEM_ID, -1L)
             .takeIf { it >= 0 }
-            ?: return@withContext Result.failure()
+            ?: return Result.failure()
         val uriString = inputData.getString(UploadEnqueuer.KEY_URI)
-            ?: return@withContext Result.failure()
+            ?: return Result.failure()
         val idempotencyKey = inputData.getString(UploadEnqueuer.KEY_IDEMPOTENCY_KEY)
-            ?: return@withContext Result.failure()
+            ?: return Result.failure()
         val displayName = inputData.getString(UploadEnqueuer.KEY_DISPLAY_NAME) ?: DEFAULT_FILE_NAME
-        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext Result.failure()
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return Result.failure()
 
         Timber.tag("WorkManager").i(
             UploadLog.message(
@@ -85,10 +89,19 @@ class UploadWorker @AssistedInject constructor(
         currentItemId = itemId
         ensureSummaryRunning(displayName, uri)
         try {
-            val totalBytes = appContext.contentResolver
-                .openAssetFileDescriptor(uri, "r")
-                ?.use { it.length }
-                ?: -1L
+            val totalBytes = resolveContentSize(uri)
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    category = CATEGORY_UPLOAD_CONTENT,
+                    action = "content_length_resolved",
+                    uri = uri,
+                    details = arrayOf(
+                        "queue_item_id" to itemId,
+                        "display_name" to displayName,
+                        "length" to totalBytes,
+                    ),
+                ),
+            )
 
             updateProgress(
                 displayName = displayName,
@@ -97,11 +110,24 @@ class UploadWorker @AssistedInject constructor(
                 totalBytes = totalBytes.takeIf { it > 0 }
             )
 
-            val mimeType = appContext.contentResolver.getType(uri)
-                ?.takeIf { it.isNotBlank() }
-                ?: DEFAULT_MIME_TYPE
+            val mimeType = withContext(Dispatchers.IO) {
+                appContext.contentResolver.getType(uri)
+            }?.takeIf { it.isNotBlank() } ?: DEFAULT_MIME_TYPE
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
-            val payload = readDocumentPayload(uri, totalBytes, displayName, mediaType)
+            val payload = readDocumentPayload(uri, totalBytes, mediaType)
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    category = CATEGORY_UPLOAD_CONTENT,
+                    action = "payload_ready",
+                    uri = uri,
+                    details = arrayOf(
+                        "queue_item_id" to itemId,
+                        "display_name" to displayName,
+                        "size" to payload.size,
+                        "sha256" to payload.sha256Hex,
+                    ),
+                ),
+            )
             Timber.tag("WorkManager").i(
                 UploadLog.message(
                     category = CATEGORY_UPLOAD_PREPARE,
@@ -172,17 +198,33 @@ class UploadWorker @AssistedInject constructor(
                 )
             )
             val response = try {
-                uploadApi.upload(
+                executeUpload(
                     idempotencyKey = idempotencyKey,
-                    file = filePart,
-                    contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
-                    mime = mimeType.toPlainRequestBody(),
-                    size = payload.size.toString().toPlainRequestBody(),
+                    filePart = filePart,
+                    payload = payload,
+                    mimeType = mimeType,
+                )
+            } catch (timeout: SocketTimeoutException) {
+                return retryResult(
+                    displayName = displayName,
+                    errorKind = UploadErrorKind.NETWORK,
+                    uri = uri,
+                    throwable = timeout,
                 )
             } catch (io: UnknownHostException) {
-                return@withContext retryResult(displayName, UploadErrorKind.NETWORK)
+                return retryResult(
+                    displayName = displayName,
+                    errorKind = UploadErrorKind.NETWORK,
+                    uri = uri,
+                    throwable = io,
+                )
             } catch (io: IOException) {
-                return@withContext retryResult(displayName, UploadErrorKind.NETWORK)
+                return retryResult(
+                    displayName = displayName,
+                    errorKind = UploadErrorKind.NETWORK,
+                    uri = uri,
+                    throwable = io,
+                )
             }
 
             Timber.tag("WorkManager").i(
@@ -198,7 +240,7 @@ class UploadWorker @AssistedInject constructor(
                 )
             )
 
-            when (response.code()) {
+            val result = when (response.code()) {
                 202, 409 -> {
                     val uploadId = response.body()?.uploadId
                     if (uploadId.isNullOrBlank()) {
@@ -252,12 +294,14 @@ class UploadWorker @AssistedInject constructor(
                 429 -> retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code()
+                    httpCode = response.code(),
+                    uri = uri,
                 )
                 in 500..599 -> retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code()
+                    httpCode = response.code(),
+                    uri = uri,
                 )
                 else -> failureResult(
                     itemId = itemId,
@@ -267,16 +311,19 @@ class UploadWorker @AssistedInject constructor(
                     httpCode = response.code()
                 )
             }
+            return result
         } catch (security: RecoverableSecurityException) {
-            failureResult(itemId, displayName, uriString, UploadErrorKind.IO)
+            return failureResult(itemId, displayName, uriString, UploadErrorKind.IO, throwable = security)
         } catch (security: SecurityException) {
-            failureResult(itemId, displayName, uriString, UploadErrorKind.IO)
+            return failureResult(itemId, displayName, uriString, UploadErrorKind.IO, throwable = security)
+        } catch (notFound: FileNotFoundException) {
+            return failureResult(itemId, displayName, uriString, UploadErrorKind.IO, throwable = notFound)
         } catch (io: IOException) {
-            retryResult(displayName, UploadErrorKind.IO)
+            return retryResult(displayName, UploadErrorKind.IO, uri = uri, throwable = io)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            failureResult(itemId, displayName, uriString, UploadErrorKind.UNEXPECTED)
+            return failureResult(itemId, displayName, uriString, UploadErrorKind.UNEXPECTED, throwable = error)
         } finally {
             currentItemId = null
         }
@@ -285,9 +332,8 @@ class UploadWorker @AssistedInject constructor(
     private suspend fun readDocumentPayload(
         uri: Uri,
         totalBytes: Long,
-        displayName: String,
         mediaType: MediaType,
-    ): FilePayload {
+    ): FilePayload = withContext(Dispatchers.IO) {
         val resolver = appContext.contentResolver
         val inputStream = resolver.openInputStream(uri)
             ?: throw IOException("Unable to open input stream for $uri")
@@ -330,7 +376,7 @@ class UploadWorker @AssistedInject constructor(
                 }
             }
         }
-        return FilePayload(
+        FilePayload(
             requestBody = requestBody,
             size = total,
             sha256Hex = sha256Hex,
@@ -459,17 +505,22 @@ class UploadWorker @AssistedInject constructor(
     private suspend fun retryResult(
         displayName: String,
         errorKind: UploadErrorKind,
-        httpCode: Int? = null
+        httpCode: Int? = null,
+        uri: Uri? = null,
+        throwable: Throwable? = null,
     ): Result {
         Timber.tag("WorkManager").w(
+            throwable,
             UploadLog.message(
                 category = CATEGORY_UPLOAD_RETRY,
                 action = "upload_retry",
+                uri = uri,
                 details = buildList {
                     currentItemId?.let { add("queue_item_id" to it) }
                     add("display_name" to displayName)
                     add("error_kind" to errorKind)
                     httpCode?.let { add("http_code" to it) }
+                    throwable?.message?.let { add("message" to it) }
                 }.toTypedArray(),
             )
         )
@@ -482,10 +533,12 @@ class UploadWorker @AssistedInject constructor(
         displayName: String,
         uriString: String,
         errorKind: UploadErrorKind,
-        httpCode: Int? = null
+        httpCode: Int? = null,
+        throwable: Throwable? = null,
     ): Result {
         val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
         Timber.tag("WorkManager").e(
+            throwable,
             UploadLog.message(
                 category = CATEGORY_UPLOAD_FAILURE,
                 action = "upload_failure",
@@ -495,6 +548,7 @@ class UploadWorker @AssistedInject constructor(
                     add("display_name" to displayName)
                     add("error_kind" to errorKind)
                     httpCode?.let { add("http_code" to it) }
+                    throwable?.message?.let { add("message" to it) }
                 }.toTypedArray(),
             )
         )
@@ -624,7 +678,6 @@ class UploadWorker @AssistedInject constructor(
 
     companion object {
         private const val BUFFER_SIZE = 64 * 1024
-        private const val DEFAULT_BUFFER_CAPACITY = 0
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME_TYPE = "application/octet-stream"
         private const val INDETERMINATE_PROGRESS = -1
@@ -635,6 +688,7 @@ class UploadWorker @AssistedInject constructor(
         private const val CATEGORY_UPLOAD_SUCCESS = "UPLOAD/SUCCESS"
         private const val CATEGORY_UPLOAD_FAILURE = "UPLOAD/FAILURE"
         private const val CATEGORY_UPLOAD_RETRY = "UPLOAD/RETRY"
+        private const val CATEGORY_UPLOAD_CONTENT = "UPLOAD/CONTENT"
         private const val CATEGORY_HTTP_REQUEST = "HTTP/REQUEST"
         private const val CATEGORY_HTTP_RESPONSE = "HTTP/RESPONSE"
         private const val CATEGORY_WORK_SCHEDULE = "WORK/SCHEDULE"
@@ -697,6 +751,25 @@ class UploadWorker @AssistedInject constructor(
                 uri = uri,
                 details = details.toTypedArray(),
             ),
+        )
+    }
+
+    private suspend fun resolveContentSize(uri: Uri): Long = withContext(Dispatchers.IO) {
+        appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+    }
+
+    private suspend fun executeUpload(
+        idempotencyKey: String,
+        filePart: MultipartBody.Part,
+        payload: FilePayload,
+        mimeType: String,
+    ): Response<UploadAcceptedDto> = withContext(Dispatchers.IO) {
+        uploadApi.upload(
+            idempotencyKey = idempotencyKey,
+            file = filePart,
+            contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
+            mime = mimeType.toPlainRequestBody(),
+            size = payload.size.toString().toPlainRequestBody(),
         )
     }
 }

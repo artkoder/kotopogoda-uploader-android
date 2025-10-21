@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader
 
 import android.app.Application
+import android.os.Looper
 import android.util.Log
 import androidx.work.Configuration
 import androidx.work.WorkManager
@@ -21,6 +22,7 @@ import com.kotopogoda.uploader.upload.UploadSummaryService
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.work.UploadWorkObserver
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -75,7 +77,17 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         UploadStartupInitializer(uploadQueueRepository, uploadEnqueuer, uploadSummaryStarter)
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val crashExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        logFatalCrash(
+            origin = "coroutine",
+            thread = Thread.currentThread(),
+            throwable = throwable,
+        )
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + crashExceptionHandler)
+
+    private var previousExceptionHandler: Thread.UncaughtExceptionHandler? = null
 
     private val workManagerConfigurationDelegate: Configuration by lazy {
         Configuration.Builder()
@@ -87,6 +99,9 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        appLogger.setEnabled(true)
+        installCrashHandlers()
+
         Timber.tag("WorkManager").i(
             UploadLog.message(
                 category = "WORK/Factory",
@@ -112,7 +127,6 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
         httpLoggingController.setEnabled(true)
-        appLogger.setEnabled(true)
         UploadLog.setDiagnosticContextProvider(diagnosticContextProvider)
         uploadWorkObserver.start(scope)
         Timber.tag("app").i(
@@ -176,9 +190,49 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         super.onTerminate()
         networkMonitor.stop()
         scope.cancel()
+        previousExceptionHandler?.let(Thread::setDefaultUncaughtExceptionHandler)
     }
 
     private companion object {
         private val workManagerInitializationGuard = AtomicBoolean(false)
+    }
+
+    private fun installCrashHandlers() {
+        val mainThread = Looper.getMainLooper()?.thread
+        val existing = Thread.getDefaultUncaughtExceptionHandler()
+        previousExceptionHandler = existing
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            logFatalCrash(
+                origin = "thread",
+                thread = thread,
+                throwable = throwable,
+            )
+            if (thread == mainThread) {
+                existing?.uncaughtException(thread, throwable)
+            }
+        }
+    }
+
+    private fun logFatalCrash(origin: String, thread: Thread, throwable: Throwable) {
+        try {
+            Timber.tag("app").wtf(
+                throwable,
+                UploadLog.message(
+                    category = "FATAL/CRASH",
+                    action = "uncaught_exception",
+                    details = arrayOf(
+                        "origin" to origin,
+                        "thread" to thread.name,
+                        "thread_id" to thread.id,
+                    ),
+                ),
+            )
+        } catch (loggingError: Throwable) {
+            Log.e(
+                "KotopogodaApp",
+                "Failed to log fatal crash",
+                loggingError,
+            )
+        }
     }
 }

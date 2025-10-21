@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.core.network.upload
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -10,6 +11,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.WorkRequest
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
@@ -21,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.util.concurrent.TimeUnit
 
 @HiltWorker
 class QueueDrainWorker @AssistedInject constructor(
@@ -132,6 +135,11 @@ class QueueDrainWorker @AssistedInject constructor(
                     .addTag(UploadTags.displayNameTag(item.displayName))
                     .addTag(UploadTags.keyTag(item.idempotencyKey))
                     .addTag(UploadTags.kindTag(UploadWorkKind.UPLOAD))
+                    .setBackoffCriteria(
+                        BackoffPolicy.EXPONENTIAL,
+                        WorkRequest.MIN_BACKOFF_MILLIS,
+                        TimeUnit.MILLISECONDS,
+                    )
                 if (constraintsProvider.shouldUseExpeditedWork()) {
                     requestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 }

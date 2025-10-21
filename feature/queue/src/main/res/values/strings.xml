@@ -34,5 +34,5 @@
     <string name="queue_network_not_roaming">Требуется сеть без роуминга</string>
     <string name="queue_network_connected">Требуется подключение к сети</string>
     <string name="queue_network_metered">Требуется подключение к сети (допустимы платные каналы)</string>
-    <string name="queue_retry_in">Повтор через %1$s</string>
+    <string name="queue_retry_in">Ожидание повтора %1$s</string>
 </resources>
