@@ -1,7 +1,6 @@
 package com.kotopogoda.uploader
 
 import android.app.Application
-import android.os.Looper
 import android.util.Log
 import androidx.work.Configuration
 import androidx.work.WorkManager
@@ -198,7 +197,6 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     }
 
     private fun installCrashHandlers() {
-        val mainThread = Looper.getMainLooper()?.thread
         val existing = Thread.getDefaultUncaughtExceptionHandler()
         previousExceptionHandler = existing
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -207,8 +205,11 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
                 thread = thread,
                 throwable = throwable,
             )
-            if (thread == mainThread) {
-                existing?.uncaughtException(thread, throwable)
+            val delegated = existing
+            if (delegated != null) {
+                delegated.uncaughtException(thread, throwable)
+            } else {
+                throw throwable
             }
         }
     }
