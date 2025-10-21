@@ -70,8 +70,7 @@ class UploadForegroundNotificationDelegate @Inject constructor(
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> {
                 when (kind) {
                     UploadForegroundKind.UPLOAD -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    UploadForegroundKind.POLL ->
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    UploadForegroundKind.POLL -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
                 }
             }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
