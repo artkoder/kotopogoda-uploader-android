@@ -42,20 +42,41 @@ open class LoggingWorkerFactory @Inject constructor(
                 return worker
             }
         }
+        val details = arrayOf(
+            "worker_class_name" to workerClassName,
+            "work_id" to workerParameters.id,
+            "tags" to workerParameters.tags.joinToString(),
+        )
         val message = UploadLog.message(
             category = "WORK/Factory",
             action = "create_null",
-            details = arrayOf(
-                "worker_class_name" to workerClassName,
-                "work_id" to workerParameters.id,
-                "tags" to workerParameters.tags.joinToString(),
-            ),
+            details = details,
         )
         Timber.tag(LOG_TAG).w(message)
+
+        val fallbackWorker = fallbackCreateWorker(appContext, workerClassName, workerParameters)
+        if (fallbackWorker != null) {
+            Timber.tag(LOG_TAG).i(
+                UploadLog.message(
+                    category = "WORK/Factory",
+                    action = "fallback",
+                    details = details,
+                ),
+            )
+            return fallbackWorker
+        }
+
         throw IllegalStateException(
             "Не удалось создать воркер: $message",
         )
     }
+
+    protected open fun fallbackCreateWorker(
+        appContext: Context,
+        workerClassName: String,
+        workerParameters: WorkerParameters,
+    ): ListenableWorker? =
+        super.createWorkerWithDefaultFallback(appContext, workerClassName, workerParameters)
 
     private companion object {
         private const val LOG_TAG = "WorkManager"
