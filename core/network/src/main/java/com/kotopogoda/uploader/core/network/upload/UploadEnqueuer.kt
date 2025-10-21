@@ -141,6 +141,7 @@ class UploadEnqueuer @Inject constructor(
     ) {
         val builder = OneTimeWorkRequestBuilder<QueueDrainWorker>()
             .setConstraints(DRAIN_WORK_CONSTRAINTS)
+            .addTag(UploadTags.TAG_DRAIN)
         // Дренер запускается как обычная задача, так как он не поднимает foreground-service.
         val request = builder.build()
         Timber.tag(LOG_TAG).i(
