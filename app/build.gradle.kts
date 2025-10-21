@@ -93,9 +93,11 @@ android {
 
 gradle.taskGraph.whenReady(object : Action<TaskExecutionGraph> {
     override fun execute(graph: TaskExecutionGraph) {
-        val releaseTaskRequested = graph.allTasks.any { task ->
-            task.project == project && task.name.contains("Release")
-        }
+        val releaseTaskPaths = listOf(
+            "${project.path}:assembleRelease",
+            "${project.path}:bundleRelease",
+        )
+        val releaseTaskRequested = releaseTaskPaths.any(graph::hasTask)
 
         if (releaseTaskRequested) {
             fun requireEnv(name: String) {
