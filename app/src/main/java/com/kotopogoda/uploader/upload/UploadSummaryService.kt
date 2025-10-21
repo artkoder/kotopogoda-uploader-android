@@ -1,6 +1,8 @@
 package com.kotopogoda.uploader.upload
 
 import android.Manifest
+import android.app.Activity
+import android.app.Application
 import android.app.Notification
 import android.app.PendingIntent
 import android.content.Context
@@ -8,6 +10,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -22,6 +27,8 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.notifications.UploadNotif
 import dagger.hilt.android.AndroidEntryPoint
+import java.lang.ref.WeakReference
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -182,18 +189,107 @@ class UploadSummaryService : LifecycleService() {
         private const val NOTIFICATION_ID = 2001
         private const val ACTION_CANCEL_ALL = "com.kotopogoda.uploader.upload.CANCEL_ALL"
 
+        @Volatile
+        private var foregroundLauncher: ForegroundServiceLauncher? = null
+        private val launcherLock = Any()
+
         fun ensureRunningIfNeeded(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val hasPermission = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-                if (!hasPermission) {
-                    return
+            if (!hasNotificationPermission(context)) {
+                return
+            }
+            val applicationContext = context.applicationContext
+            if (context !== applicationContext && context !is Application) {
+                startNow(context)
+                return
+            }
+            val application = applicationContext as? Application ?: return
+            val launcher = foregroundLauncher ?: synchronized(launcherLock) {
+                foregroundLauncher ?: ForegroundServiceLauncher(application).also {
+                    foregroundLauncher = it
                 }
+            }
+            launcher.requestStart()
+        }
+
+        private fun startNow(context: Context) {
+            if (!hasNotificationPermission(context)) {
+                return
             }
             val intent = Intent(context, UploadSummaryService::class.java)
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        private fun hasNotificationPermission(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                return true
+            }
+            return ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+
+        private class ForegroundServiceLauncher(
+            private val application: Application,
+        ) : Application.ActivityLifecycleCallbacks {
+
+            private val handler = Handler(Looper.getMainLooper())
+            private val pendingStart = AtomicBoolean(false)
+            private var resumedActivityRef: WeakReference<Activity>? = null
+
+            init {
+                application.registerActivityLifecycleCallbacks(this)
+            }
+
+            fun requestStart() {
+                handler.post {
+                    if (!hasNotificationPermission(application)) {
+                        pendingStart.set(false)
+                        return@post
+                    }
+                    val resumed = resumedActivityRef?.get()
+                    if (resumed != null) {
+                        startFrom(resumed)
+                    } else {
+                        pendingStart.set(true)
+                    }
+                }
+            }
+
+            private fun startFrom(activity: Activity) {
+                if (!hasNotificationPermission(activity)) {
+                    return
+                }
+                val intent = Intent(activity, UploadSummaryService::class.java)
+                ContextCompat.startForegroundService(activity, intent)
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+
+            override fun onActivityStarted(activity: Activity) = Unit
+
+            override fun onActivityResumed(activity: Activity) {
+                resumedActivityRef = WeakReference(activity)
+                if (pendingStart.getAndSet(false)) {
+                    startFrom(activity)
+                }
+            }
+
+            override fun onActivityPaused(activity: Activity) {
+                if (resumedActivityRef?.get() === activity) {
+                    resumedActivityRef = null
+                }
+            }
+
+            override fun onActivityStopped(activity: Activity) = Unit
+
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+
+            override fun onActivityDestroyed(activity: Activity) {
+                if (resumedActivityRef?.get() === activity) {
+                    resumedActivityRef = null
+                }
+            }
         }
     }
 }

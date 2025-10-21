@@ -18,7 +18,6 @@ import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.LoggingWorkerFactory
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
-import com.kotopogoda.uploader.upload.UploadSummaryService
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.work.UploadWorkObserver
 import dagger.hilt.android.HiltAndroidApp
@@ -151,9 +150,6 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
                 appLogger.setEnabled(settings.appLogging)
                 httpLoggingController.setEnabled(settings.httpLogging)
                 networkClientProvider.updateBaseUrl(settings.baseUrl)
-                if (settings.persistentQueueNotification && notificationPermissionChecker.canPostNotifications()) {
-                    UploadSummaryService.ensureRunningIfNeeded(this@KotopogodaUploaderApp)
-                }
                 Timber.tag("app").i(
                     UploadLog.message(
                         category = "CFG/STATE",
