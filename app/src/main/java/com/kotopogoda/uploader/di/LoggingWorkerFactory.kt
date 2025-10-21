@@ -76,9 +76,21 @@ open class LoggingWorkerFactory @Inject constructor(
         workerClassName: String,
         workerParameters: WorkerParameters,
     ): ListenableWorker? =
-        super.createWorkerWithDefaultFallback(appContext, workerClassName, workerParameters)
+        DEFAULT_WORKER_FACTORY.createWorkerWithDefaultFallback(
+            appContext,
+            workerClassName,
+            workerParameters,
+        )
 
     private companion object {
         private const val LOG_TAG = "WorkManager"
+
+        private val DEFAULT_WORKER_FACTORY: WorkerFactory = object : WorkerFactory() {
+            override fun createWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters,
+            ): ListenableWorker? = null
+        }
     }
 }
