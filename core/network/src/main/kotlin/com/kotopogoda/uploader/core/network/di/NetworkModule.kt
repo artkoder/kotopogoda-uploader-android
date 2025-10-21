@@ -107,6 +107,30 @@ object NetworkModule {
     fun provideNonceProvider(): () -> String = { UUID.randomUUID().toString() }
 
     @Provides
+    @Singleton
+    fun provideWorkManager(
+        @ApplicationContext context: Context,
+    ): WorkManager {
+        val initialized = WorkManager.isInitialized()
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "lazy_get",
+                details = arrayOf(
+                    "initialized" to initialized,
+                ),
+            ),
+        )
+        check(initialized) {
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "lazy_get_before_init",
+            )
+        }
+        return WorkManager.getInstance(context)
+    }
+
+    @Provides
     fun provideConnectivityManager(@ApplicationContext context: Context): ConnectivityManager =
         context.getSystemService(ConnectivityManager::class.java)
 
