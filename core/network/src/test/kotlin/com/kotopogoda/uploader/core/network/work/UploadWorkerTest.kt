@@ -170,10 +170,9 @@ class UploadWorkerTest {
         assertEquals("/v1/uploads", request.path)
         assertEquals("key-123", request.getHeader("Idempotency-Key"))
         val bodyBytes = request.body.readByteArray()
-        val expectedBodySha = bodyBytes.sha256Hex()
-        assertEquals(expectedBodySha, request.getHeader("X-Content-SHA256"))
-        val body = String(bodyBytes, Charsets.UTF_8)
         val expectedFileSha = file.readBytes().sha256Hex()
+        assertEquals(expectedFileSha, request.getHeader("X-Content-SHA256"))
+        val body = String(bodyBytes, Charsets.UTF_8)
         assertTrue(body.contains("name=\"content_sha256\""))
         assertTrue(body.contains(expectedFileSha))
         assertTrue(body.contains("name=\"mime\""))
@@ -428,6 +427,7 @@ class UploadWorkerTest {
         val failingApi = object : UploadApi {
             override suspend fun upload(
                 idempotencyKey: String,
+                contentSha256Header: String,
                 file: okhttp3.MultipartBody.Part,
                 contentSha256Part: okhttp3.RequestBody,
                 mime: okhttp3.RequestBody,
@@ -527,6 +527,7 @@ class UploadWorkerTest {
         val failingApi = object : UploadApi {
             override suspend fun upload(
                 idempotencyKey: String,
+                contentSha256Header: String,
                 file: okhttp3.MultipartBody.Part,
                 contentSha256Part: okhttp3.RequestBody,
                 mime: okhttp3.RequestBody,

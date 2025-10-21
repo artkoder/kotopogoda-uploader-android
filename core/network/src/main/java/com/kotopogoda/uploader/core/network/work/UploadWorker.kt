@@ -818,6 +818,7 @@ class UploadWorker @AssistedInject constructor(
     ): Response<UploadAcceptedDto> = withContext(Dispatchers.IO) {
         uploadApi.upload(
             idempotencyKey = idempotencyKey,
+            contentSha256Header = payload.sha256Hex,
             file = filePart,
             contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
             mime = mimeType.toPlainRequestBody(),
