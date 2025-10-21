@@ -4,6 +4,12 @@ import android.content.Context
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
+import com.kotopogoda.uploader.core.data.upload.UploadLog
+import com.kotopogoda.uploader.core.logging.diagnostic.AppInfo
+import com.kotopogoda.uploader.core.logging.diagnostic.AppInfoProvider
+import com.kotopogoda.uploader.core.logging.diagnostic.DeviceInfo
+import com.kotopogoda.uploader.core.logging.diagnostic.DeviceInfoProvider
+import com.kotopogoda.uploader.core.logging.diagnostic.DiagnosticContextProvider
 import io.mockk.MockKAnnotations
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
@@ -31,6 +37,27 @@ class LoggingWorkerFactoryTest {
     fun setUp() {
         MockKAnnotations.init(this)
         Timber.uprootAll()
+        val diagnosticContextProvider = DiagnosticContextProvider(
+            appInfoProvider = object : AppInfoProvider {
+                override fun appInfo(): AppInfo = AppInfo(
+                    applicationId = "com.example",
+                    versionName = "1.0",
+                    contractVersion = "v1",
+                    buildType = "debug",
+                )
+            },
+            deviceInfoProvider = object : DeviceInfoProvider {
+                override fun deviceInfo(): DeviceInfo = DeviceInfo(
+                    manufacturer = "Example",
+                    model = "Model",
+                    brand = "Brand",
+                    device = "Device",
+                    androidRelease = "1.0",
+                    sdkInt = 33,
+                )
+            },
+        )
+        UploadLog.setDiagnosticContextProvider(diagnosticContextProvider)
     }
 
     @After
@@ -57,13 +84,54 @@ class LoggingWorkerFactoryTest {
         }
         assertSame(error, thrown)
 
-        val log = tree.entries.single()
-        assertSame(error, log.throwable)
-        val message = log.message
-        assertTrue(message.contains("action=drain_worker_create_error"))
+        val attemptLog = tree.entries.first { entry ->
+            entry.message.contains("action=attempt_create")
+        }
+        assertTrue(attemptLog.message.contains("worker_class_name=com.example.QueueDrainWorker"))
+        assertTrue(attemptLog.message.contains("work_id=$workerId"))
+        assertTrue(attemptLog.message.contains("tags=tag1, tag2"))
+        assertTrue(attemptLog.message.contains("session_id="))
+
+        val errorLog = tree.entries.first { entry ->
+            entry.message.contains("action=drain_worker_create_error")
+        }
+        assertSame(error, errorLog.throwable)
+        val message = errorLog.message
         assertTrue(message.contains("worker_class_name=com.example.QueueDrainWorker"))
         assertTrue(message.contains("work_id=$workerId"))
         assertTrue(message.contains("tags=tag1, tag2"))
+    }
+
+    @Test
+    fun `createWorker logs delegate success`() {
+        val tree = RecordingTree()
+        Timber.plant(tree)
+
+        val workerId = UUID.randomUUID()
+        every { workerParameters.id } returns workerId
+        every { workerParameters.tags } returns setOf("tag-success")
+
+        val worker = mockk<ListenableWorker>()
+        every { hiltWorkerFactory.createWorker(any(), any(), any()) } returns worker
+
+        val factory = LoggingWorkerFactory(hiltWorkerFactory)
+
+        val created = factory.createWorker(context, "com.example.SuccessWorker", workerParameters)
+
+        assertSame(worker, created)
+
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=attempt_create") &&
+                entry.message.contains("worker_class_name=com.example.SuccessWorker")
+        })
+
+        val successLog = tree.entries.first { entry ->
+            entry.message.contains("action=delegate_success")
+        }
+        assertTrue(successLog.message.contains("worker_class_name=com.example.SuccessWorker"))
+        assertTrue(successLog.message.contains("factory=${hiltWorkerFactory.javaClass.name}"))
+        assertTrue(successLog.message.contains("work_id=$workerId"))
+        assertTrue(successLog.message.contains("tags=tag-success"))
     }
 
     @Test
@@ -96,6 +164,11 @@ class LoggingWorkerFactoryTest {
         assertTrue(fallbackCalled)
 
         assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=attempt_create") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
+        })
+
+        assertTrue(tree.entries.any { entry ->
             entry.message.contains("action=hilt_null") &&
                 entry.message.contains("worker_class_name=com.example.LegacyWorker") &&
                 entry.message.contains("work_id=$workerId") &&
@@ -107,6 +180,11 @@ class LoggingWorkerFactoryTest {
                 entry.message.contains("worker_class_name=com.example.LegacyWorker") &&
                 entry.message.contains("work_id=$workerId") &&
                 entry.message.contains("tags=tag3")
+        })
+
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback_start") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
         })
 
         assertTrue(tree.entries.any { entry ->
@@ -147,6 +225,10 @@ class LoggingWorkerFactoryTest {
         assertTrue(fallbackCalled)
 
         assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=attempt_create") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
+        })
+        assertTrue(tree.entries.any { entry ->
             entry.message.contains("action=hilt_null") &&
                 entry.message.contains("worker_class_name=com.example.LegacyWorker")
         })
@@ -155,9 +237,17 @@ class LoggingWorkerFactoryTest {
                 entry.message.contains("worker_class_name=com.example.LegacyWorker")
         })
         assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback_start") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
+        })
+        assertTrue(tree.entries.any { entry ->
             entry.message.contains("action=fallback") &&
                 entry.message.contains("worker_class_name=com.example.LegacyWorker") &&
                 entry.message.contains("result=null")
+        })
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback_null") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
         })
     }
 
@@ -193,8 +283,16 @@ class LoggingWorkerFactoryTest {
         assertTrue(fallbackErrorLog != null)
         assertSame(fallbackError, fallbackErrorLog!!.throwable)
         assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback_start") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
+        })
+        assertTrue(tree.entries.any { entry ->
             entry.message.contains("action=fallback") &&
                 entry.message.contains("result=null")
+        })
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback_null") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
         })
     }
 
