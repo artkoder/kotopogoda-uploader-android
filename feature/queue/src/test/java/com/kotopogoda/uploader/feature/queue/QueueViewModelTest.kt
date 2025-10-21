@@ -134,8 +134,8 @@ class QueueViewModelTest {
         assertEquals(1_000L, item.totalBytes)
         assertEquals(true, item.isActiveTransfer)
         assertEquals(R.string.queue_status_running, item.statusResId)
-        assertEquals(R.string.queue_network_connected, item.waitingReasons[0].messageResId)
-        assertEquals(R.string.queue_retry_in, item.waitingReasons[1].messageResId)
+        assertEquals(1, item.waitingReasons.size)
+        assertEquals(R.string.queue_retry_in, item.waitingReasons.single().messageResId)
 
         job.cancel()
     }

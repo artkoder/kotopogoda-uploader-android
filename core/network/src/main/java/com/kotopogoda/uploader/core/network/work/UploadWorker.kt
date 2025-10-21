@@ -31,8 +31,8 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.FileNotFoundException
 import java.io.IOException
-import java.net.UnknownHostException
 import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -205,6 +205,12 @@ class UploadWorker @AssistedInject constructor(
                     mimeType = mimeType,
                 )
             } catch (timeout: SocketTimeoutException) {
+                logUploadError(
+                    displayName = displayName,
+                    errorKind = UploadErrorKind.NETWORK,
+                    uri = uri,
+                    throwable = timeout,
+                )
                 return retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.NETWORK,
@@ -212,6 +218,12 @@ class UploadWorker @AssistedInject constructor(
                     throwable = timeout,
                 )
             } catch (io: UnknownHostException) {
+                logUploadError(
+                    displayName = displayName,
+                    errorKind = UploadErrorKind.NETWORK,
+                    uri = uri,
+                    throwable = io,
+                )
                 return retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.NETWORK,
@@ -219,6 +231,12 @@ class UploadWorker @AssistedInject constructor(
                     throwable = io,
                 )
             } catch (io: IOException) {
+                logUploadError(
+                    displayName = displayName,
+                    errorKind = UploadErrorKind.NETWORK,
+                    uri = uri,
+                    throwable = io,
+                )
                 return retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.NETWORK,
@@ -313,16 +331,21 @@ class UploadWorker @AssistedInject constructor(
             }
             return result
         } catch (security: RecoverableSecurityException) {
+            logUploadError(displayName, UploadErrorKind.IO, uri, security)
             return failureResult(itemId, displayName, uriString, UploadErrorKind.IO, throwable = security)
         } catch (security: SecurityException) {
+            logUploadError(displayName, UploadErrorKind.IO, uri, security)
             return failureResult(itemId, displayName, uriString, UploadErrorKind.IO, throwable = security)
         } catch (notFound: FileNotFoundException) {
+            logUploadError(displayName, UploadErrorKind.IO, uri, notFound)
             return failureResult(itemId, displayName, uriString, UploadErrorKind.IO, throwable = notFound)
         } catch (io: IOException) {
+            logUploadError(displayName, UploadErrorKind.IO, uri, io)
             return retryResult(displayName, UploadErrorKind.IO, uri = uri, throwable = io)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
+            logUploadError(displayName, UploadErrorKind.UNEXPECTED, uri, error)
             return failureResult(itemId, displayName, uriString, UploadErrorKind.UNEXPECTED, throwable = error)
         } finally {
             currentItemId = null
@@ -360,17 +383,21 @@ class UploadWorker @AssistedInject constructor(
             override fun contentLength(): Long = contentLength
 
             override fun writeTo(sink: BufferedSink) {
-                val stream = resolver.openInputStream(uri)
-                    ?: throw IOException("Unable to open input stream for $uri")
-                stream.use { input ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read == -1) {
-                            break
-                        }
-                        if (read > 0) {
-                            sink.write(buffer, 0, read)
+                runBlocking {
+                    withContext(Dispatchers.IO) {
+                        val stream = resolver.openInputStream(uri)
+                            ?: throw IOException("Unable to open input stream for $uri")
+                        stream.use { input ->
+                            val buffer = ByteArray(BUFFER_SIZE)
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read == -1) {
+                                    break
+                                }
+                                if (read > 0) {
+                                    sink.write(buffer, 0, read)
+                                }
+                            }
                         }
                     }
                 }
@@ -526,6 +553,30 @@ class UploadWorker @AssistedInject constructor(
         )
         recordError(displayName, errorKind, httpCode)
         return Result.retry()
+    }
+
+    private fun logUploadError(
+        displayName: String,
+        errorKind: UploadErrorKind,
+        uri: Uri?,
+        throwable: Throwable,
+        httpCode: Int? = null,
+    ) {
+        Timber.tag("WorkManager").e(
+            throwable,
+            UploadLog.message(
+                category = CATEGORY_UPLOAD_ERROR,
+                action = "upload_error",
+                uri = uri,
+                details = buildList {
+                    currentItemId?.let { add("queue_item_id" to it) }
+                    add("display_name" to displayName)
+                    add("error_kind" to errorKind)
+                    httpCode?.let { add("http_code" to it) }
+                    throwable.message?.takeIf { it.isNotBlank() }?.let { add("message" to it) }
+                }.toTypedArray(),
+            ),
+        )
     }
 
     private suspend fun failureResult(
@@ -688,6 +739,7 @@ class UploadWorker @AssistedInject constructor(
         private const val CATEGORY_UPLOAD_SUCCESS = "UPLOAD/SUCCESS"
         private const val CATEGORY_UPLOAD_FAILURE = "UPLOAD/FAILURE"
         private const val CATEGORY_UPLOAD_RETRY = "UPLOAD/RETRY"
+        private const val CATEGORY_UPLOAD_ERROR = "UPLOAD/ERROR"
         private const val CATEGORY_UPLOAD_CONTENT = "UPLOAD/CONTENT"
         private const val CATEGORY_HTTP_REQUEST = "HTTP/REQUEST"
         private const val CATEGORY_HTTP_RESPONSE = "HTTP/RESPONSE"

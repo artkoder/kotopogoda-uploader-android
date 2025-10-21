@@ -22,6 +22,7 @@ import com.kotopogoda.uploader.upload.UploadSummaryService
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
 import com.kotopogoda.uploader.work.UploadWorkObserver
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,11 +79,16 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     }
 
     private val crashExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        if (throwable is CancellationException) {
+            return@CoroutineExceptionHandler
+        }
+        val thread = Thread.currentThread()
         logFatalCrash(
             origin = "coroutine",
-            thread = Thread.currentThread(),
+            thread = thread,
             throwable = throwable,
         )
+        previousExceptionHandler?.uncaughtException(thread, throwable)
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + crashExceptionHandler)
@@ -207,8 +213,12 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
                 thread = thread,
                 throwable = throwable,
             )
-            if (thread == mainThread) {
-                existing?.uncaughtException(thread, throwable)
+            if (existing != null) {
+                runCatching { existing.uncaughtException(thread, throwable) }
+            } else if (thread == mainThread) {
+                runCatching {
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
             }
         }
     }
