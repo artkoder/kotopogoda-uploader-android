@@ -30,6 +30,7 @@ interface UploadApi {
     @POST("/v1/uploads")
     suspend fun upload(
         @Header("Idempotency-Key") idempotencyKey: String,
+        @Header("X-Content-SHA256") contentSha256Header: String,
         @Part file: MultipartBody.Part,
         @Part("content_sha256") contentSha256Part: RequestBody,
         @Part("mime") mime: RequestBody,
