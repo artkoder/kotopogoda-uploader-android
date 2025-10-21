@@ -1,9 +1,9 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import android.net.Uri
-import android.util.Base64
 import androidx.work.WorkInfo
 import java.nio.charset.StandardCharsets
+import java.util.Base64
 
 object UploadTags {
     const val TAG_UPLOAD: String = "upload"
@@ -44,12 +44,12 @@ object UploadTags {
     }
 
     private fun encode(value: String): String {
-        return Base64.encodeToString(value.toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
+        return Base64.getEncoder().encodeToString(value.toByteArray(StandardCharsets.UTF_8))
     }
 
     private fun decode(value: String): String? {
         return runCatching {
-            val bytes = Base64.decode(value, Base64.NO_WRAP)
+            val bytes = Base64.getDecoder().decode(value)
             String(bytes, StandardCharsets.UTF_8)
         }.getOrNull()
     }

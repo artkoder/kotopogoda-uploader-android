@@ -3,26 +3,29 @@ package com.kotopogoda.uploader.work
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkQuery
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
-import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import timber.log.Timber
 
 @Singleton
 class UploadWorkObserver @Inject constructor(
-    private val workManagerProvider: Provider<WorkManager>,
+    private val workManagerProvider: WorkManagerProvider,
 ) {
 
     private val workManager by lazy { workManagerProvider.get() }
 
     private val started = AtomicBoolean(false)
+    private val job = AtomicReference<Job?>(null)
     private val lastStates = mutableMapOf<UUID, WorkInfo.State>()
 
     fun start(scope: CoroutineScope) {
@@ -32,11 +35,18 @@ class UploadWorkObserver @Inject constructor(
         val query = WorkQuery.Builder
             .fromTags(listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL, UploadTags.TAG_DRAIN))
             .build()
-        scope.launch {
+        val launchedJob = scope.launch {
             workManager.getWorkInfosFlow(query).collect { infos ->
                 handleWorkInfos(infos)
             }
         }
+        job.set(launchedJob)
+    }
+
+    fun stop() {
+        job.getAndSet(null)?.cancel()
+        started.set(false)
+        lastStates.clear()
     }
 
     private fun handleWorkInfos(infos: List<WorkInfo>) {

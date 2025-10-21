@@ -5,20 +5,19 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
-import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskParams
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult
+import com.kotopogoda.uploader.core.work.UploadErrorKind
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.IOException
 import java.net.UnknownHostException
 import java.util.concurrent.CancellationException
-import javax.inject.Provider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -28,7 +27,7 @@ class UploadProcessorWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: UploadQueueRepository,
-    private val workManagerProvider: Provider<WorkManager>,
+    private val workManagerProvider: WorkManagerProvider,
     private val constraintsHelper: UploadConstraintsHelper,
     private val taskRunner: UploadTaskRunner,
 ) : CoroutineWorker(appContext, params) {

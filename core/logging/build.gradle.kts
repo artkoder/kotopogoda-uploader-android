@@ -26,6 +26,7 @@ android {
 
 dependencies {
     implementation(project(":core:settings"))
+    implementation(project(":core:work"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.dagger.hilt.android)
     kapt(libs.dagger.hilt.compiler)

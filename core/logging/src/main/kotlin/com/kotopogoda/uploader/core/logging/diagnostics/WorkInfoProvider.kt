@@ -1,8 +1,7 @@
 package com.kotopogoda.uploader.core.logging.diagnostics
 
-import androidx.work.WorkManager
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import javax.inject.Inject
-import javax.inject.Provider
 import javax.inject.Singleton
 
 data class WorkInfoSnapshot(
@@ -20,7 +19,7 @@ interface WorkInfoProvider {
 
 @Singleton
 class WorkManagerWorkInfoProvider @Inject constructor(
-    private val workManagerProvider: Provider<WorkManager>,
+    private val workManagerProvider: WorkManagerProvider,
 ) : WorkInfoProvider {
     override suspend fun getWorkInfosByTag(tag: String): List<WorkInfoSnapshot> {
         return runCatching {
