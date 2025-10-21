@@ -42,29 +42,18 @@ open class LoggingWorkerFactory @Inject constructor(
                 return worker
             }
         }
-        Timber.tag(LOG_TAG).w(
-            UploadLog.message(
-                category = "WORK/Factory",
-                action = "create_null",
-                details = arrayOf(
-                    "worker_class_name" to workerClassName,
-                    "work_id" to workerParameters.id,
-                    "tags" to workerParameters.tags.joinToString(),
-                ),
+        val message = UploadLog.message(
+            category = "WORK/Factory",
+            action = "create_null",
+            details = arrayOf(
+                "worker_class_name" to workerClassName,
+                "work_id" to workerParameters.id,
+                "tags" to workerParameters.tags.joinToString(),
             ),
         )
-        return createFallbackWorker(appContext, workerClassName, workerParameters)
-    }
-
-    protected open fun createFallbackWorker(
-        appContext: Context,
-        workerClassName: String,
-        workerParameters: WorkerParameters,
-    ): ListenableWorker? {
-        return WorkerFactory.getDefaultWorkerFactory().createWorker(
-            appContext,
-            workerClassName,
-            workerParameters,
+        Timber.tag(LOG_TAG).w(message)
+        throw IllegalStateException(
+            "Не удалось создать воркер: $message",
         )
     }
 
