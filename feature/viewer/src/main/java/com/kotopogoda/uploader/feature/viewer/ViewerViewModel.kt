@@ -669,6 +669,7 @@ class ViewerViewModel @Inject constructor(
         logUi(
             category = "UI/CLICK_DELETE_BULK",
             action = "batch_delete_request",
+            uri = null,
             "count" to photos.size,
         )
         viewModelScope.launch {
