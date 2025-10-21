@@ -170,12 +170,13 @@ class UploadWorkerTest {
         assertEquals("/v1/uploads", request.path)
         assertEquals("key-123", request.getHeader("Idempotency-Key"))
         val bodyBytes = request.body.readByteArray()
-        val expectedBodySha = bodyBytes.sha256Hex()
-        assertEquals(expectedBodySha, request.getHeader("X-Content-SHA256"))
         val body = String(bodyBytes, Charsets.UTF_8)
         val expectedFileSha = file.readBytes().sha256Hex()
-        assertTrue(body.contains("name=\"content_sha256\""))
-        assertTrue(body.contains(expectedFileSha))
+        assertEquals(expectedFileSha, request.getHeader("X-Content-SHA256"))
+        val boundary = request.getHeader("Content-Type")?.substringAfter("boundary=")?.trim()
+        requireNotNull(boundary) { "Multipart boundary missing" }
+        val contentShaPart = body.findMultipartValue(boundary, "content_sha256")
+        assertEquals(expectedFileSha, contentShaPart)
         assertTrue(body.contains("name=\"mime\""))
         assertTrue(body.contains("application/octet-stream"))
         assertTrue(body.contains("name=\"size\""))
@@ -252,9 +253,13 @@ class UploadWorkerTest {
 
         val request = mockWebServer.takeRequest()
         val bodyBytes = request.body.readByteArray()
+        val bodyString = String(bodyBytes, Charsets.UTF_8)
         val expectedFileSha = data.sha256Hex()
         assertEquals(expectedFileSha, request.headers["X-Content-SHA256"])
-        val bodyString = String(bodyBytes, Charsets.UTF_8)
+        val boundary = request.getHeader("Content-Type")?.substringAfter("boundary=")?.trim()
+        requireNotNull(boundary) { "Multipart boundary missing" }
+        val contentShaPart = bodyString.findMultipartValue(boundary, "content_sha256")
+        assertEquals(expectedFileSha, contentShaPart)
         assertTrue(bodyString.contains(expectedFileSha))
 
         val readHistory = streamFactory.readHistory
@@ -428,6 +433,7 @@ class UploadWorkerTest {
         val failingApi = object : UploadApi {
             override suspend fun upload(
                 idempotencyKey: String,
+                contentSha256Header: String,
                 file: okhttp3.MultipartBody.Part,
                 contentSha256Part: okhttp3.RequestBody,
                 mime: okhttp3.RequestBody,
@@ -527,6 +533,7 @@ class UploadWorkerTest {
         val failingApi = object : UploadApi {
             override suspend fun upload(
                 idempotencyKey: String,
+                contentSha256Header: String,
                 file: okhttp3.MultipartBody.Part,
                 contentSha256Part: okhttp3.RequestBody,
                 mime: okhttp3.RequestBody,
@@ -710,6 +717,23 @@ class UploadWorkerTest {
     private fun ByteArray.sha256Hex(): String {
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(this).joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+    private fun String.findMultipartValue(boundary: String, name: String): String? {
+        val delimiter = "--$boundary"
+        return split(delimiter)
+            .asSequence()
+            .map { it.trim('\r', '\n') }
+            .firstNotNullOfOrNull { part ->
+                if (part.isEmpty() || part == "--") return@firstNotNullOfOrNull null
+                if (!part.contains("name=\"$name\"")) return@firstNotNullOfOrNull null
+                val lines = part.split("\r\n")
+                val blankIndex = lines.indexOf("")
+                if (blankIndex == -1 || blankIndex + 1 >= lines.size) return@firstNotNullOfOrNull null
+                lines.drop(blankIndex + 1)
+                    .firstOrNull { it.isNotEmpty() && !it.startsWith("--") }
+                    ?.trimEnd('\r', '\n')
+            }
     }
 
     private class TrackingInputStreamFactory(

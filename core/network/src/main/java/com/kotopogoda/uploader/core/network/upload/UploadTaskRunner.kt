@@ -60,6 +60,7 @@ class UploadTaskRunner @Inject constructor(
             val response = try {
                 uploadApi.upload(
                     idempotencyKey = params.idempotencyKey,
+                    contentSha256Header = payload.sha256Hex,
                     file = filePart,
                     contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
                     mime = mediaType.toString().toPlainRequestBody(),

@@ -285,6 +285,7 @@ class PollStatusWorkerTest {
         val failingApi = object : UploadApi {
             override suspend fun upload(
                 idempotencyKey: String,
+                contentSha256Header: String,
                 file: okhttp3.MultipartBody.Part,
                 contentSha256Part: okhttp3.RequestBody,
                 mime: okhttp3.RequestBody,
