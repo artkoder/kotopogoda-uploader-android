@@ -7,16 +7,20 @@ import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.R
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.inject.Provider
 import java.util.UUID
+import timber.log.Timber
 
 @Singleton
 class UploadForegroundNotificationDelegate @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val workManagerProvider: Provider<WorkManager>,
 ) : UploadForegroundDelegate {
 
     override fun create(
@@ -27,7 +31,17 @@ class UploadForegroundNotificationDelegate @Inject constructor(
     ): ForegroundInfo {
         UploadNotif.ensureChannel(context)
         val notificationId = workId.hashCode()
-        val cancelIntent = WorkManager.getInstance(context).createCancelPendingIntent(workId)
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "direct_get",
+                details = arrayOf(
+                    "source" to this::class.java.simpleName,
+                    "work_id" to workId,
+                ),
+            ),
+        )
+        val cancelIntent = workManagerProvider.get().createCancelPendingIntent(workId)
 
         val progressText = when {
             kind == UploadForegroundKind.POLL ->

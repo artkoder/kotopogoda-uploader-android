@@ -28,6 +28,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import timber.log.Timber
 
@@ -92,13 +93,22 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
                 action = "initializer_disabled",
             ),
         )
-        WorkManager.initialize(this, workManagerConfiguration)
-        Timber.tag("WorkManager").i(
-            UploadLog.message(
-                category = "WORK/Factory",
-                action = "app_init",
-            ),
-        )
+        if (workManagerInitializationGuard.compareAndSet(false, true)) {
+            WorkManager.initialize(this, workManagerConfiguration)
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    category = "WORK/Factory",
+                    action = "app_init",
+                ),
+            )
+        } else {
+            Timber.tag("WorkManager").w(
+                UploadLog.message(
+                    category = "WORK/Factory",
+                    action = "app_init_duplicate",
+                ),
+            )
+        }
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
         httpLoggingController.setEnabled(true)
@@ -166,5 +176,9 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         super.onTerminate()
         networkMonitor.stop()
         scope.cancel()
+    }
+
+    private companion object {
+        private val workManagerInitializationGuard = AtomicBoolean(false)
     }
 }

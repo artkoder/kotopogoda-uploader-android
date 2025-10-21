@@ -20,7 +20,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import java.time.Clock
 import java.util.UUID
-import javax.inject.Provider
 import javax.inject.Singleton
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -112,22 +111,26 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideWorkManagerProvider(
+    fun provideWorkManager(
         @ApplicationContext context: Context,
-    ): Provider<WorkManager> {
-        return object : Provider<WorkManager> {
-            private val delegate = lazy {
-                Timber.tag("WorkManager").i(
-                    UploadLog.message(
-                        category = "WORK/Factory",
-                        action = "lazy_get",
-                    ),
-                )
-                WorkManager.getInstance(context)
-            }
-
-            override fun get(): WorkManager = delegate.value
+    ): WorkManager {
+        val initialized = WorkManager.isInitialized()
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "lazy_get",
+                details = arrayOf(
+                    "initialized" to initialized,
+                ),
+            ),
+        )
+        check(initialized) {
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "lazy_get_before_init",
+            )
         }
+        return WorkManager.getInstance(context)
     }
 
     @Provides
