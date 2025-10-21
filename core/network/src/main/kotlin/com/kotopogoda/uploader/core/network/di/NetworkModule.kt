@@ -2,7 +2,9 @@ package com.kotopogoda.uploader.core.network.di
 
 import android.content.Context
 import android.net.ConnectivityManager
+import androidx.work.WorkManager
 import com.kotopogoda.uploader.api.infrastructure.ApiClient
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.logging.HttpFileLogger
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.client.NetworkClientProvider
@@ -22,6 +24,7 @@ import javax.inject.Singleton
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.converter.moshi.MoshiConverterFactory
+import timber.log.Timber
 
 @Module
 @InstallIn(SingletonComponent::class)
