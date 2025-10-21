@@ -8,6 +8,7 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import java.util.UUID
+import org.junit.Assert.assertNull
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -58,9 +59,33 @@ class LoggingWorkerFactoryTest {
         assertSame(error, tree.throwable)
         val message = tree.message
         assertTrue(message.contains("action=drain_worker_create_error"))
-        assertTrue(message.contains("workerClassName=com.example.QueueDrainWorker"))
-        assertTrue(message.contains("id=$workerId"))
+        assertTrue(message.contains("worker_class_name=com.example.QueueDrainWorker"))
+        assertTrue(message.contains("work_id=$workerId"))
         assertTrue(message.contains("tags=tag1, tag2"))
+    }
+
+    @Test
+    fun `createWorker logs and falls back when delegate returns null`() {
+        val tree = RecordingTree()
+        Timber.plant(tree)
+
+        every { hiltWorkerFactory.createWorker(any(), any(), any()) } returns null
+
+        val workerId = UUID.randomUUID()
+        every { workerParameters.id } returns workerId
+        every { workerParameters.tags } returns setOf("tag3")
+
+        val factory = TestLoggingWorkerFactory(hiltWorkerFactory)
+
+        val worker = factory.createWorker(context, "com.example.LegacyWorker", workerParameters)
+
+        assertNull(worker)
+        assertTrue(factory.fallbackCalled)
+        val message = tree.message
+        assertTrue(message.contains("action=create_null"))
+        assertTrue(message.contains("worker_class_name=com.example.LegacyWorker"))
+        assertTrue(message.contains("work_id=$workerId"))
+        assertTrue(message.contains("tags=tag3"))
     }
 
     private class RecordingTree : Timber.Tree() {
@@ -70,6 +95,22 @@ class LoggingWorkerFactoryTest {
         override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
             this.message = message
             this.throwable = t
+        }
+    }
+
+    private class TestLoggingWorkerFactory(
+        hiltWorkerFactory: HiltWorkerFactory,
+    ) : LoggingWorkerFactory(hiltWorkerFactory) {
+
+        var fallbackCalled: Boolean = false
+
+        override fun createFallbackWorker(
+            appContext: Context,
+            workerClassName: String,
+            workerParameters: WorkerParameters,
+        ) = run {
+            fallbackCalled = true
+            null
         }
     }
 }
