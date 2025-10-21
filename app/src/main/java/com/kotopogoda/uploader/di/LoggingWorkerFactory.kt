@@ -28,6 +28,11 @@ open class LoggingWorkerFactory @Inject constructor(
         workerClassName: String,
         workerParameters: WorkerParameters,
     ): ListenableWorker? {
+        val details = arrayOf(
+            "worker_class_name" to workerClassName,
+            "work_id" to workerParameters.id,
+            "tags" to workerParameters.tags.joinToString(),
+        )
         for (factory in delegates) {
             val worker = try {
                 factory.createWorker(appContext, workerClassName, workerParameters)
@@ -37,11 +42,7 @@ open class LoggingWorkerFactory @Inject constructor(
                     UploadLog.message(
                         category = "WORK/Factory",
                         action = "drain_worker_create_error",
-                        details = arrayOf(
-                            "worker_class_name" to workerClassName,
-                            "work_id" to workerParameters.id,
-                            "tags" to workerParameters.tags.joinToString(),
-                        ),
+                        details = details,
                     ),
                 )
                 throw error
@@ -49,12 +50,16 @@ open class LoggingWorkerFactory @Inject constructor(
             if (worker != null) {
                 return worker
             }
+            if (factory === hiltWorkerFactory) {
+                Timber.tag(LOG_TAG).w(
+                    UploadLog.message(
+                        category = "WORK/Factory",
+                        action = "hilt_null",
+                        details = details,
+                    ),
+                )
+            }
         }
-        val details = arrayOf(
-            "worker_class_name" to workerClassName,
-            "work_id" to workerParameters.id,
-            "tags" to workerParameters.tags.joinToString(),
-        )
         val message = UploadLog.message(
             category = "WORK/Factory",
             action = "create_null",
@@ -62,15 +67,31 @@ open class LoggingWorkerFactory @Inject constructor(
         )
         Timber.tag(LOG_TAG).w(message)
 
-        val fallbackWorker = fallbackCreateWorker(appContext, workerClassName, workerParameters)
-        if (fallbackWorker != null) {
-            Timber.tag(LOG_TAG).i(
+        val fallbackWorker = try {
+            fallbackCreateWorker(appContext, workerClassName, workerParameters)
+        } catch (error: Throwable) {
+            Timber.tag(LOG_TAG).e(
+                error,
                 UploadLog.message(
                     category = "WORK/Factory",
-                    action = "fallback",
+                    action = "fallback_error",
                     details = details,
                 ),
             )
+            null
+        }
+
+        val fallbackMessage = UploadLog.message(
+            category = "WORK/Factory",
+            action = "fallback",
+            details = details + arrayOf(
+                "result" to (fallbackWorker?.javaClass?.name ?: "null"),
+            ),
+        )
+        if (fallbackWorker != null) {
+            Timber.tag(LOG_TAG).i(fallbackMessage)
+        } else {
+            Timber.tag(LOG_TAG).w(fallbackMessage)
         }
 
         return fallbackWorker

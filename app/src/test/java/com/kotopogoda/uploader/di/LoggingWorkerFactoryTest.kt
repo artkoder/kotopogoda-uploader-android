@@ -95,21 +95,27 @@ class LoggingWorkerFactoryTest {
         assertSame(fallbackWorker, worker)
         assertTrue(fallbackCalled)
 
-        val createNullLog = tree.entries.firstOrNull { entry ->
-            entry.message.contains("action=create_null")
-        }
-        assertTrue(createNullLog != null)
-        assertTrue(createNullLog!!.message.contains("worker_class_name=com.example.LegacyWorker"))
-        assertTrue(createNullLog.message.contains("work_id=$workerId"))
-        assertTrue(createNullLog.message.contains("tags=tag3"))
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=hilt_null") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker") &&
+                entry.message.contains("work_id=$workerId") &&
+                entry.message.contains("tags=tag3")
+        })
 
-        val fallbackLog = tree.entries.firstOrNull { entry ->
-            entry.message.contains("action=fallback")
-        }
-        assertTrue(fallbackLog != null)
-        assertTrue(fallbackLog!!.message.contains("worker_class_name=com.example.LegacyWorker"))
-        assertTrue(fallbackLog.message.contains("work_id=$workerId"))
-        assertTrue(fallbackLog.message.contains("tags=tag3"))
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=create_null") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker") &&
+                entry.message.contains("work_id=$workerId") &&
+                entry.message.contains("tags=tag3")
+        })
+
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker") &&
+                entry.message.contains("work_id=$workerId") &&
+                entry.message.contains("tags=tag3") &&
+                !entry.message.contains("result=null")
+        })
     }
 
     @Test
@@ -140,11 +146,56 @@ class LoggingWorkerFactoryTest {
         assertTrue(worker == null)
         assertTrue(fallbackCalled)
 
-        val createNullLog = tree.entries.single()
-        assertTrue(createNullLog.message.contains("action=create_null"))
-        assertTrue(createNullLog.message.contains("worker_class_name=com.example.LegacyWorker"))
-        assertTrue(createNullLog.message.contains("work_id=$workerId"))
-        assertTrue(createNullLog.message.contains("tags=tag3"))
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=hilt_null") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
+        })
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=create_null") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker")
+        })
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback") &&
+                entry.message.contains("worker_class_name=com.example.LegacyWorker") &&
+                entry.message.contains("result=null")
+        })
+    }
+
+    @Test
+    fun `createWorker swallows fallback errors`() {
+        val tree = RecordingTree()
+        Timber.plant(tree)
+
+        every { hiltWorkerFactory.createWorker(any(), any(), any()) } returns null
+
+        val workerId = UUID.randomUUID()
+        every { workerParameters.id } returns workerId
+        every { workerParameters.tags } returns setOf("tag4")
+
+        val fallbackError = IllegalStateException("fallback boom")
+        val factory = object : LoggingWorkerFactory(hiltWorkerFactory) {
+            override fun fallbackCreateWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters,
+            ): ListenableWorker? {
+                throw fallbackError
+            }
+        }
+
+        val worker = factory.createWorker(context, "com.example.LegacyWorker", workerParameters)
+
+        assertTrue(worker == null)
+
+        val fallbackErrorLog = tree.entries.firstOrNull { entry ->
+            entry.message.contains("action=fallback_error")
+        }
+        assertTrue(fallbackErrorLog != null)
+        assertSame(fallbackError, fallbackErrorLog!!.throwable)
+        assertTrue(tree.entries.any { entry ->
+            entry.message.contains("action=fallback") &&
+                entry.message.contains("result=null")
+        })
     }
 
     private class RecordingTree : Timber.Tree() {
