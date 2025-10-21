@@ -15,6 +15,14 @@ open class LoggingWorkerFactory @Inject constructor(
 
     private val delegates: List<WorkerFactory> = listOf(hiltWorkerFactory)
 
+    private val defaultWorkerFactory: WorkerFactory = object : WorkerFactory() {
+        override fun createWorker(
+            appContext: Context,
+            workerClassName: String,
+            workerParameters: WorkerParameters,
+        ): ListenableWorker? = null
+    }
+
     override fun createWorker(
         appContext: Context,
         workerClassName: String,
@@ -63,12 +71,9 @@ open class LoggingWorkerFactory @Inject constructor(
                     details = details,
                 ),
             )
-            return fallbackWorker
         }
 
-        throw IllegalStateException(
-            "Не удалось создать воркер: $message",
-        )
+        return fallbackWorker
     }
 
     protected open fun fallbackCreateWorker(
@@ -76,7 +81,11 @@ open class LoggingWorkerFactory @Inject constructor(
         workerClassName: String,
         workerParameters: WorkerParameters,
     ): ListenableWorker? =
-        super.createWorkerWithDefaultFallback(appContext, workerClassName, workerParameters)
+        defaultWorkerFactory.createWorkerWithDefaultFallback(
+            appContext,
+            workerClassName,
+            workerParameters,
+        )
 
     private companion object {
         private const val LOG_TAG = "WorkManager"
