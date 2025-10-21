@@ -443,7 +443,12 @@ class PhotoRepository @Inject constructor(
                     return LoadResult.Error(error)
                 }
 
-            val pageResult = page ?: LoadResult.Page(emptyList(), prevKey = null, nextKey = null)
+            val pageResult = page
+                ?: LoadResult.Page<Int, PhotoItem>(
+                    data = emptyList(),
+                    prevKey = null,
+                    nextKey = null,
+                )
             if (pageResult is LoadResult.Page) {
                 Timber.tag(MEDIA_LOG_TAG).i(
                     UploadLog.message(
