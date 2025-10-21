@@ -8,6 +8,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadTags
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
@@ -16,8 +17,10 @@ import timber.log.Timber
 
 @Singleton
 class UploadWorkObserver @Inject constructor(
-    private val workManager: WorkManager,
+    private val workManagerProvider: Provider<WorkManager>,
 ) {
+
+    private val workManager by lazy { workManagerProvider.get() }
 
     private val started = AtomicBoolean(false)
     private val lastStates = mutableMapOf<UUID, WorkInfo.State>()

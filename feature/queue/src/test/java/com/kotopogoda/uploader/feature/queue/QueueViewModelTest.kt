@@ -34,6 +34,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.Rule
+import javax.inject.Provider
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class QueueViewModelTest {
@@ -53,6 +54,7 @@ class QueueViewModelTest {
     private val enqueuer: UploadEnqueuer = mockk(relaxed = true)
     private val summaryStarter: UploadSummaryStarter = mockk(relaxed = true)
     private val workManager: WorkManager = mockk()
+    private val workManagerProvider: Provider<WorkManager> = Provider { workManager }
     private val clock: Clock = Clock.fixed(Instant.ofEpochMilli(0L), ZoneOffset.UTC)
     private val workInfoMapper = QueueWorkInfoMapper(clock)
 
@@ -114,7 +116,7 @@ class QueueViewModelTest {
             uploadQueueRepository = repository,
             uploadEnqueuer = enqueuer,
             summaryStarter = summaryStarter,
-            workManager = workManager,
+            workManagerProvider = workManagerProvider,
             workInfoMapper = workInfoMapper,
         )
 
@@ -167,7 +169,7 @@ class QueueViewModelTest {
             uploadQueueRepository = repository,
             uploadEnqueuer = enqueuer,
             summaryStarter = summaryStarter,
-            workManager = workManager,
+            workManagerProvider = workManagerProvider,
             workInfoMapper = workInfoMapper,
         )
 
@@ -261,7 +263,7 @@ class QueueViewModelTest {
             uploadQueueRepository = repository,
             uploadEnqueuer = enqueuer,
             summaryStarter = summaryStarter,
-            workManager = workManager,
+            workManagerProvider = workManagerProvider,
             workInfoMapper = workInfoMapper,
         )
 
