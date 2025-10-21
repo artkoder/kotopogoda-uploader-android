@@ -130,4 +130,36 @@ class QueueWorkInfoMapperTest {
         assertEquals(R.string.queue_retry_in, waitingReasons[1].messageResId)
         assertEquals(listOf("01:00"), waitingReasons[1].formatArgs)
     }
+
+    @Test
+    fun enqueuedBackoffShowsRetryWithoutNetworkReason() {
+        val tags = setOf(
+            UploadTags.TAG_UPLOAD,
+            UploadTags.uniqueTag("unique"),
+            UploadTags.uriTag("file:///tmp/photo.jpg"),
+            UploadTags.kindTag(UploadWorkKind.UPLOAD)
+        )
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val workInfo = WorkInfo(
+            id = UUID.randomUUID(),
+            state = WorkInfo.State.ENQUEUED,
+            tags = tags,
+            progress = Data.EMPTY,
+            outputData = Data.EMPTY,
+            runAttemptCount = 2,
+            generation = 0,
+            constraints = constraints,
+            nextScheduleTimeMillis = clock.millis() + 30_000L,
+        )
+
+        val mapped = mapper.map(workInfo)
+
+        assertNotNull(mapped)
+        assertEquals(1, mapped.waitingReasons.size)
+        val reason = mapped.waitingReasons.single()
+        assertEquals(R.string.queue_retry_in, reason.messageResId)
+        assertEquals(listOf("30\u202fс"), reason.formatArgs)
+    }
 }

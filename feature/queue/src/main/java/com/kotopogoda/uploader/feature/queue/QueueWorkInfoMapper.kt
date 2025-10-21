@@ -89,11 +89,15 @@ class QueueWorkInfoMapper @Inject constructor(
     }
 
     private fun buildWaitingReasons(info: WorkInfo, kind: UploadWorkKind): List<QueueItemWaitingReason> {
+        val retryReason = nextRetryReason(info)
+        if (info.state == WorkInfo.State.ENQUEUED && retryReason != null) {
+            return listOf(retryReason)
+        }
         val reasons = mutableListOf<QueueItemWaitingReason>()
         if (!(kind == UploadWorkKind.POLL && info.state == WorkInfo.State.RUNNING)) {
             reasons += networkReasons(info.constraints)
         }
-        nextRetryReason(info)?.let(reasons::add)
+        retryReason?.let(reasons::add)
         return reasons
     }
 
@@ -111,6 +115,9 @@ class QueueWorkInfoMapper @Inject constructor(
     }
 
     private fun nextRetryReason(info: WorkInfo): QueueItemWaitingReason? {
+        if (info.runAttemptCount <= 0) {
+            return null
+        }
         val nextTime = info.nextScheduleTimeMillis
         if (nextTime <= 0L) {
             return null
@@ -130,14 +137,20 @@ class QueueWorkInfoMapper @Inject constructor(
 
     private fun formatElapsedTime(seconds: Long): String {
         val totalSeconds = seconds.coerceAtLeast(0L)
-        val hours = totalSeconds / 3_600L
-        val minutes = (totalSeconds % 3_600L) / 60L
-        val remainingSeconds = totalSeconds % 60L
         val locale = Locale.getDefault()
-        return if (hours > 0L) {
-            String.format(locale, "%02d:%02d:%02d", hours, minutes, remainingSeconds)
-        } else {
-            String.format(locale, "%02d:%02d", minutes, remainingSeconds)
+        return when {
+            totalSeconds < 60L -> String.format(locale, "%d\u202fс", totalSeconds)
+            totalSeconds < 3_600L -> {
+                val minutes = totalSeconds / 60L
+                val remainingSeconds = totalSeconds % 60L
+                String.format(locale, "%02d:%02d", minutes, remainingSeconds)
+            }
+            else -> {
+                val hours = totalSeconds / 3_600L
+                val minutes = (totalSeconds % 3_600L) / 60L
+                val remainingSeconds = totalSeconds % 60L
+                String.format(locale, "%02d:%02d:%02d", hours, minutes, remainingSeconds)
+            }
         }
     }
 }
