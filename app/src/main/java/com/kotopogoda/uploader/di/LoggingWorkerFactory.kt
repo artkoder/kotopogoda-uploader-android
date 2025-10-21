@@ -33,6 +33,13 @@ open class LoggingWorkerFactory @Inject constructor(
             "work_id" to workerParameters.id,
             "tags" to workerParameters.tags.joinToString(),
         )
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "attempt_create",
+                details = details,
+            ),
+        )
         for (factory in delegates) {
             val worker = try {
                 factory.createWorker(appContext, workerClassName, workerParameters)
@@ -48,6 +55,15 @@ open class LoggingWorkerFactory @Inject constructor(
                 throw error
             }
             if (worker != null) {
+                Timber.tag(LOG_TAG).i(
+                    UploadLog.message(
+                        category = "WORK/Factory",
+                        action = "delegate_success",
+                        details = details + arrayOf(
+                            "factory" to factory.javaClass.name,
+                        ),
+                    ),
+                )
                 return worker
             }
             if (factory === hiltWorkerFactory) {
@@ -66,6 +82,14 @@ open class LoggingWorkerFactory @Inject constructor(
             details = details,
         )
         Timber.tag(LOG_TAG).w(message)
+
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                category = "WORK/Factory",
+                action = "fallback_start",
+                details = details,
+            ),
+        )
 
         val fallbackWorker = try {
             fallbackCreateWorker(appContext, workerClassName, workerParameters)
@@ -92,6 +116,13 @@ open class LoggingWorkerFactory @Inject constructor(
             Timber.tag(LOG_TAG).i(fallbackMessage)
         } else {
             Timber.tag(LOG_TAG).w(fallbackMessage)
+            Timber.tag(LOG_TAG).e(
+                UploadLog.message(
+                    category = "WORK/Factory",
+                    action = "fallback_null",
+                    details = details,
+                ),
+            )
         }
 
         return fallbackWorker
