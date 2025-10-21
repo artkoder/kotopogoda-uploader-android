@@ -90,14 +90,13 @@ class QueueWorkInfoMapper @Inject constructor(
 
     private fun buildWaitingReasons(info: WorkInfo, kind: UploadWorkKind): List<QueueItemWaitingReason> {
         val retryReason = nextRetryReason(info)
-        if (info.state == WorkInfo.State.ENQUEUED && retryReason != null) {
+        if (retryReason != null) {
             return listOf(retryReason)
         }
         val reasons = mutableListOf<QueueItemWaitingReason>()
         if (!(kind == UploadWorkKind.POLL && info.state == WorkInfo.State.RUNNING)) {
             reasons += networkReasons(info.constraints)
         }
-        retryReason?.let(reasons::add)
         return reasons
     }
 

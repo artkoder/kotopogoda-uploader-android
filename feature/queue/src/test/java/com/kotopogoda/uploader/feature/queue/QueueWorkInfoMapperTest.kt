@@ -126,9 +126,10 @@ class QueueWorkInfoMapperTest {
         assertEquals(R.string.queue_status_running, mapped.statusResId)
         assertTrue(mapped.isActiveTransfer)
         val waitingReasons = mapped.waitingReasons
-        assertEquals(R.string.queue_network_unmetered, waitingReasons[0].messageResId)
-        assertEquals(R.string.queue_retry_in, waitingReasons[1].messageResId)
-        assertEquals(listOf("01:00"), waitingReasons[1].formatArgs)
+        assertEquals(1, waitingReasons.size)
+        val reason = waitingReasons.single()
+        assertEquals(R.string.queue_retry_in, reason.messageResId)
+        assertEquals(listOf("01:00"), reason.formatArgs)
     }
 
     @Test

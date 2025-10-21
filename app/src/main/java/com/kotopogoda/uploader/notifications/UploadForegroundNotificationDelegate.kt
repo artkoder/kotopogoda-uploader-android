@@ -66,14 +66,21 @@ class UploadForegroundNotificationDelegate @Inject constructor(
             )
             .build()
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ForegroundInfo(
-                notificationId,
-                notification,
+        val serviceType = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> {
+                when (kind) {
+                    UploadForegroundKind.UPLOAD -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    UploadForegroundKind.POLL ->
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                }
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            ForegroundInfo(notificationId, notification)
+            }
+            else -> null
         }
+        return serviceType?.let {
+            ForegroundInfo(notificationId, notification, it)
+        } ?: ForegroundInfo(notificationId, notification)
     }
 }
