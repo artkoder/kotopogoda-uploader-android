@@ -47,6 +47,7 @@ class QueueWorkInfoMapper @Inject constructor(
         return when (kind) {
             UploadWorkKind.UPLOAD -> statusForUpload(info.state)
             UploadWorkKind.POLL -> statusForPoll(info)
+            UploadWorkKind.DRAIN -> statusForUpload(info.state)
         }
     }
 

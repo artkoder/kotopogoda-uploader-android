@@ -5,6 +5,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkQuery
 import com.kotopogoda.uploader.core.network.upload.UploadTags
+import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -51,7 +52,10 @@ class UploadWorkObserverTest {
         every { workInfo.id } returns workId
         every { workInfo.state } returns WorkInfo.State.RUNNING
         every { workInfo.runAttemptCount } returns 0
-        every { workInfo.tags } returns setOf(UploadTags.TAG_DRAIN)
+        every { workInfo.tags } returns setOf(
+            UploadTags.TAG_DRAIN,
+            UploadTags.kindTag(UploadWorkKind.DRAIN),
+        )
         val emptyData = Data.Builder().build()
         every { workInfo.progress } returns emptyData
         every { workInfo.outputData } returns emptyData
@@ -68,7 +72,7 @@ class UploadWorkObserverTest {
 
         logTree.assertLogged(
             category = "WORK/STATE_CHANGE",
-            predicate = { it.contains("action=running") && it.contains("kind=upload") },
+            predicate = { it.contains("action=running") && it.contains("kind=drain") },
         )
         logTree.assertLogged(category = "WORK/ENQUEUE")
         logTree.assertLogged(category = "WORK/START")

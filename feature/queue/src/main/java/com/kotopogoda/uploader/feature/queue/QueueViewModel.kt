@@ -247,6 +247,7 @@ data class QueueItemWorkInfos(
         return when (info.kind) {
             UploadWorkKind.UPLOAD -> copy(upload = info)
             UploadWorkKind.POLL -> copy(poll = info)
+            UploadWorkKind.DRAIN -> this
         }
     }
 

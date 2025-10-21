@@ -110,7 +110,14 @@ class UploadEnqueuerTest {
         val request = requests.single()
         assertEquals(Constraints.NONE, request.workSpec.constraints)
         assertTrue(!request.workSpec.expedited)
-        assertTrue(request.tags.contains(UploadTags.TAG_DRAIN))
+        assertTrue(
+            request.tags.containsAll(
+                setOf(
+                    UploadTags.TAG_DRAIN,
+                    UploadTags.kindTag(UploadWorkKind.DRAIN),
+                ),
+            ),
+        )
         assertEquals(listOf(ExistingWorkPolicy.APPEND_OR_REPLACE), policies)
     }
 
@@ -139,7 +146,14 @@ class UploadEnqueuerTest {
                 requestSlot.captured,
             )
         }
-        assertTrue(requestSlot.captured.tags.contains(UploadTags.TAG_DRAIN))
+        assertTrue(
+            requestSlot.captured.tags.containsAll(
+                setOf(
+                    UploadTags.TAG_DRAIN,
+                    UploadTags.kindTag(UploadWorkKind.DRAIN),
+                ),
+            ),
+        )
     }
 
     @Test
@@ -160,7 +174,12 @@ class UploadEnqueuerTest {
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match {
                     it.workSpec.constraints == Constraints.NONE &&
-                        it.tags.contains(UploadTags.TAG_DRAIN)
+                        it.tags.containsAll(
+                            setOf(
+                                UploadTags.TAG_DRAIN,
+                                UploadTags.kindTag(UploadWorkKind.DRAIN),
+                            ),
+                        )
                 }
             )
         }
@@ -189,7 +208,12 @@ class UploadEnqueuerTest {
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match {
                     it.workSpec.constraints == Constraints.NONE &&
-                        it.tags.contains(UploadTags.TAG_DRAIN)
+                        it.tags.containsAll(
+                            setOf(
+                                UploadTags.TAG_DRAIN,
+                                UploadTags.kindTag(UploadWorkKind.DRAIN),
+                            ),
+                        )
                 }
             )
         }
@@ -217,7 +241,12 @@ class UploadEnqueuerTest {
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match {
                     it.workSpec.constraints == Constraints.NONE &&
-                        it.tags.contains(UploadTags.TAG_DRAIN)
+                        it.tags.containsAll(
+                            setOf(
+                                UploadTags.TAG_DRAIN,
+                                UploadTags.kindTag(UploadWorkKind.DRAIN),
+                            ),
+                        )
                 }
             )
         }
@@ -251,7 +280,12 @@ class UploadEnqueuerTest {
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match {
                     it.workSpec.constraints == Constraints.NONE &&
-                        it.tags.contains(UploadTags.TAG_DRAIN)
+                        it.tags.containsAll(
+                            setOf(
+                                UploadTags.TAG_DRAIN,
+                                UploadTags.kindTag(UploadWorkKind.DRAIN),
+                            ),
+                        )
                 }
             )
         }
@@ -479,7 +513,12 @@ class UploadEnqueuerTest {
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 match {
                     it.workSpec.constraints == Constraints.NONE &&
-                        it.tags.contains(UploadTags.TAG_DRAIN)
+                        it.tags.containsAll(
+                            setOf(
+                                UploadTags.TAG_DRAIN,
+                                UploadTags.kindTag(UploadWorkKind.DRAIN),
+                            ),
+                        )
                 }
             )
         }
@@ -510,7 +549,14 @@ class UploadEnqueuerTest {
             )
         }
         assertTrue(!requestSlot.captured.workSpec.expedited)
-        assertTrue(requestSlot.captured.tags.contains(UploadTags.TAG_DRAIN))
+        assertTrue(
+            requestSlot.captured.tags.containsAll(
+                setOf(
+                    UploadTags.TAG_DRAIN,
+                    UploadTags.kindTag(UploadWorkKind.DRAIN),
+                ),
+            ),
+        )
         verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
     }
 

@@ -65,7 +65,8 @@ data class UploadWorkMetadata(
 
 enum class UploadWorkKind(val rawValue: String) {
     UPLOAD("upload"),
-    POLL("poll");
+    POLL("poll"),
+    DRAIN("drain");
 
     companion object {
         fun fromRawValue(raw: String): UploadWorkKind? {
