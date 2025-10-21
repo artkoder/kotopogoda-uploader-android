@@ -8,7 +8,6 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import java.util.UUID
-import org.junit.Assert.assertNull
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -65,7 +64,7 @@ class LoggingWorkerFactoryTest {
     }
 
     @Test
-    fun `createWorker logs and falls back when delegate returns null`() {
+    fun `createWorker logs and throws when delegate returns null`() {
         val tree = RecordingTree()
         Timber.plant(tree)
 
@@ -75,12 +74,16 @@ class LoggingWorkerFactoryTest {
         every { workerParameters.id } returns workerId
         every { workerParameters.tags } returns setOf("tag3")
 
-        val factory = TestLoggingWorkerFactory(hiltWorkerFactory)
+        val factory = LoggingWorkerFactory(hiltWorkerFactory)
 
-        val worker = factory.createWorker(context, "com.example.LegacyWorker", workerParameters)
+        val thrown = assertThrows(IllegalStateException::class.java) {
+            factory.createWorker(context, "com.example.LegacyWorker", workerParameters)
+        }
+        val exceptionMessage = thrown.message ?: ""
+        assertTrue(exceptionMessage.contains("worker_class_name=com.example.LegacyWorker"))
+        assertTrue(exceptionMessage.contains("work_id=$workerId"))
+        assertTrue(exceptionMessage.contains("tags=tag3"))
 
-        assertNull(worker)
-        assertTrue(factory.fallbackCalled)
         val message = tree.message
         assertTrue(message.contains("action=create_null"))
         assertTrue(message.contains("worker_class_name=com.example.LegacyWorker"))
@@ -95,22 +98,6 @@ class LoggingWorkerFactoryTest {
         override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
             this.message = message
             this.throwable = t
-        }
-    }
-
-    private class TestLoggingWorkerFactory(
-        hiltWorkerFactory: HiltWorkerFactory,
-    ) : LoggingWorkerFactory(hiltWorkerFactory) {
-
-        var fallbackCalled: Boolean = false
-
-        override fun createFallbackWorker(
-            appContext: Context,
-            workerClassName: String,
-            workerParameters: WorkerParameters,
-        ) = run {
-            fallbackCalled = true
-            null
         }
     }
 }
