@@ -65,7 +65,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
-import javax.inject.Provider
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 
 @RunWith(RobolectricTestRunner::class)
 class UploadWorkerTest {
@@ -76,7 +76,7 @@ class UploadWorkerTest {
     private lateinit var workerFactory: WorkerFactory
     private lateinit var uploadQueueRepository: UploadQueueRepository
     private lateinit var workManager: WorkManager
-    private lateinit var workManagerProvider: Provider<WorkManager>
+    private lateinit var workManagerProvider: WorkManagerProvider
     private lateinit var constraintsProvider: UploadConstraintsProvider
     private lateinit var constraintsState: MutableStateFlow<Constraints?>
 
@@ -87,7 +87,7 @@ class UploadWorkerTest {
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
         workManager = mockk(relaxed = true)
-        workManagerProvider = Provider { workManager }
+        workManagerProvider = WorkManagerProvider { workManager }
         constraintsProvider = mockk(relaxed = true)
         constraintsState = MutableStateFlow(Constraints.Builder().build())
         every { constraintsProvider.constraintsState } returns constraintsState

@@ -36,7 +36,7 @@ import org.junit.Before
 import org.junit.Test
 import timber.log.Timber
 import java.util.UUID
-import javax.inject.Provider
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 
 class QueueDrainWorkerTest {
 
@@ -943,4 +943,4 @@ class QueueDrainWorkerTest {
     )
 }
 
-private fun providerOf(workManager: WorkManager): Provider<WorkManager> = Provider { workManager }
+private fun providerOf(workManager: WorkManager): WorkManagerProvider = WorkManagerProvider { workManager }

@@ -8,9 +8,9 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import java.security.MessageDigest
 import javax.inject.Inject
-import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
@@ -19,7 +19,7 @@ import timber.log.Timber
 
 @Singleton
 class UploadEnqueuer @Inject constructor(
-    private val workManagerProvider: Provider<WorkManager>,
+    private val workManagerProvider: WorkManagerProvider,
     private val summaryStarter: UploadSummaryStarter,
     private val uploadItemsRepository: UploadItemsRepository,
     private val constraintsProvider: UploadConstraintsProvider,

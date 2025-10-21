@@ -26,7 +26,7 @@ object UploadLog {
         details: Array<out Pair<String, Any?>> = emptyArray(),
     ): String {
         val parts = mutableListOf<String>()
-        parts += category
+        appendPart(parts, "category", category)
         val context = diagnosticContextProvider.get()?.snapshot().orEmpty()
         context.forEach { (key, value) ->
             appendPart(parts, key, value)

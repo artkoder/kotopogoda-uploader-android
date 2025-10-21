@@ -5,19 +5,18 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import javax.inject.Provider
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -30,7 +29,7 @@ class QueueViewModel @Inject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val uploadEnqueuer: UploadEnqueuer,
     private val summaryStarter: UploadSummaryStarter,
-    private val workManagerProvider: Provider<WorkManager>,
+    private val workManagerProvider: WorkManagerProvider,
     private val workInfoMapper: QueueWorkInfoMapper,
 ) : ViewModel() {
 

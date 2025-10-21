@@ -14,16 +14,17 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import timber.log.Timber
-import javax.inject.Provider
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 
 class UploadWorkObserverTest {
 
     private val workManager = mockk<WorkManager>()
-    private val workManagerProvider: Provider<WorkManager> = Provider { workManager }
+    private val workManagerProvider: WorkManagerProvider = WorkManagerProvider { workManager }
     private lateinit var logTree: RecordingTree
 
     @BeforeTest
@@ -39,6 +40,7 @@ class UploadWorkObserverTest {
         Timber.uprootAll()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `logs state changes for drain work`() = runTest {
         val flow = MutableSharedFlow<List<WorkInfo>>()
@@ -47,37 +49,41 @@ class UploadWorkObserverTest {
 
         val observer = UploadWorkObserver(workManagerProvider)
         observer.start(this)
-        advanceUntilIdle()
+        try {
+            advanceUntilIdle()
 
-        val workId = java.util.UUID.randomUUID()
-        val workInfo = mockk<WorkInfo>()
-        every { workInfo.id } returns workId
-        every { workInfo.state } returns WorkInfo.State.RUNNING
-        every { workInfo.runAttemptCount } returns 0
-        every { workInfo.tags } returns setOf(
-            UploadTags.TAG_DRAIN,
-            UploadTags.kindTag(UploadWorkKind.DRAIN),
-        )
-        val emptyData = Data.Builder().build()
-        every { workInfo.progress } returns emptyData
-        every { workInfo.outputData } returns emptyData
+            val workId = java.util.UUID.randomUUID()
+            val workInfo = mockk<WorkInfo>()
+            every { workInfo.id } returns workId
+            every { workInfo.state } returns WorkInfo.State.RUNNING
+            every { workInfo.runAttemptCount } returns 0
+            every { workInfo.tags } returns setOf(
+                UploadTags.TAG_DRAIN,
+                UploadTags.kindTag(UploadWorkKind.DRAIN),
+            )
+            val emptyData = Data.Builder().build()
+            every { workInfo.progress } returns emptyData
+            every { workInfo.outputData } returns emptyData
 
-        flow.emit(listOf(workInfo))
-        advanceUntilIdle()
+            flow.emit(listOf(workInfo))
+            advanceUntilIdle()
 
-        assertTrue(
-            querySlot.captured.tags.containsAll(
-                listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL, UploadTags.TAG_DRAIN)
-            ),
-            "Запрос наблюдателя должен включать теги загрузок, опросов и дренера",
-        )
+            assertTrue(
+                querySlot.captured.tags.containsAll(
+                    listOf(UploadTags.TAG_UPLOAD, UploadTags.TAG_POLL, UploadTags.TAG_DRAIN)
+                ),
+                "Запрос наблюдателя должен включать теги загрузок, опросов и дренера",
+            )
 
-        logTree.assertLogged(
-            category = "WORK/STATE_CHANGE",
-            predicate = { it.contains("action=running") && it.contains("kind=drain") },
-        )
-        logTree.assertLogged(category = "WORK/ENQUEUE")
-        logTree.assertLogged(category = "WORK/START")
+            logTree.assertLogged(
+                category = "WORK/STATE_CHANGE",
+                predicate = { it.contains("action=running") && it.contains("kind=drain") },
+            )
+            logTree.assertLogged(category = "WORK/ENQUEUE")
+            logTree.assertLogged(category = "WORK/START")
+        } finally {
+            observer.stop()
+        }
     }
 
     private class RecordingTree : Timber.DebugTree() {

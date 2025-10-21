@@ -14,20 +14,20 @@ import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.work.UploadWorker
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import javax.inject.Provider
 
 @HiltWorker
 class QueueDrainWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: UploadQueueRepository,
-    private val workManagerProvider: Provider<WorkManager>,
+    private val workManagerProvider: WorkManagerProvider,
     private val constraintsProvider: UploadConstraintsProvider,
 ) : CoroutineWorker(appContext, params) {
 

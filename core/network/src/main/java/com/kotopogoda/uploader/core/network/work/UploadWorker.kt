@@ -25,6 +25,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.work.UploadErrorKind
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.IOException
@@ -42,7 +43,6 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import timber.log.Timber
-import javax.inject.Provider
 
 @HiltWorker
 class UploadWorker @AssistedInject constructor(
@@ -52,7 +52,7 @@ class UploadWorker @AssistedInject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
-    private val workManagerProvider: Provider<WorkManager>,
+    private val workManagerProvider: WorkManagerProvider,
     private val constraintsProvider: UploadConstraintsProvider,
 ) : CoroutineWorker(appContext, params) {
 

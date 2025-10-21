@@ -3,7 +3,6 @@ package com.kotopogoda.uploader.notifications
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Build
 import androidx.core.content.ContextCompat
 import io.mockk.every
 import io.mockk.mockk
@@ -21,9 +20,7 @@ class NotificationPermissionCheckerTest {
 
     @BeforeTest
     fun setUp() {
-        mockkStatic(Build.VERSION::class)
         mockkStatic(ContextCompat::class)
-        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.TIRAMISU
         Timber.uprootAll()
         Timber.plant(tree)
     }
@@ -40,6 +37,7 @@ class NotificationPermissionCheckerTest {
         val context = mockk<Context>(relaxed = true)
         every { ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) } returns PackageManager.PERMISSION_GRANTED
         val checker = NotificationPermissionChecker(context)
+        checker.overrideSdkInt = android.os.Build.VERSION_CODES.TIRAMISU
 
         tree.clear()
         every { ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) } returns PackageManager.PERMISSION_DENIED
