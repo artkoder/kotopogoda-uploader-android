@@ -60,7 +60,6 @@ class UploadWorker @AssistedInject constructor(
     private var currentItemId: Long? = null
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        summaryStarter.ensureRunning()
         val itemId = inputData.getLong(UploadEnqueuer.KEY_ITEM_ID, -1L)
             .takeIf { it >= 0 }
             ?: return@withContext Result.failure()
@@ -84,6 +83,7 @@ class UploadWorker @AssistedInject constructor(
         )
 
         currentItemId = itemId
+        ensureSummaryRunning(displayName, uri)
         try {
             val totalBytes = appContext.contentResolver
                 .openAssetFileDescriptor(uri, "r")
@@ -345,7 +345,19 @@ class UploadWorker @AssistedInject constructor(
         errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
     ) {
-        currentItemId?.let { uploadQueueRepository.updateProcessingHeartbeat(it) }
+        currentItemId?.let {
+            try {
+                uploadQueueRepository.updateProcessingHeartbeat(it)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                logGuardError(
+                    action = "update_heartbeat_failed",
+                    details = guardDetails(displayName = displayName),
+                    throwable = error,
+                )
+            }
+        }
         val normalizedProgress = if (progress == INDETERMINATE_PROGRESS) {
             INDETERMINATE_PROGRESS
         } else {
@@ -375,18 +387,50 @@ class UploadWorker @AssistedInject constructor(
         resolvedTotalBytes?.let { builder.putLong(UploadEnqueuer.KEY_TOTAL_BYTES, it) }
         errorKind?.let { builder.putString(UploadEnqueuer.KEY_ERROR_KIND, it.rawValue) }
         httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
-        setProgress(builder.build())
-        setForeground(createForeground(displayName, resolvedProgress))
-
-        val details = buildList {
-            currentItemId?.let { add("queue_item_id" to it) }
-            add("display_name" to displayName)
-            add("progress" to resolvedProgress)
-            resolvedBytesSent?.let { add("bytes_sent" to it) }
-            resolvedTotalBytes?.let { add("total_bytes" to it) }
-            errorKind?.let { add("error_kind" to it) }
-            httpCode?.let { add("http_code" to it) }
+        val progressData = builder.build()
+        val details = guardDetails(
+            displayName = displayName,
+            progress = resolvedProgress,
+            bytesSent = resolvedBytesSent,
+            totalBytes = resolvedTotalBytes,
+            errorKind = errorKind,
+            httpCode = httpCode,
+        )
+        try {
+            setProgress(progressData)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            logGuardError(
+                action = "set_progress_failed",
+                details = details,
+                throwable = error,
+            )
         }
+        val foreground = try {
+            createForeground(displayName, resolvedProgress)
+        } catch (error: Exception) {
+            logGuardError(
+                action = "create_foreground_failed",
+                details = details,
+                throwable = error,
+            )
+            null
+        }
+        if (foreground != null) {
+            try {
+                setForeground(foreground)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                logGuardError(
+                    action = "set_foreground_failed",
+                    details = details,
+                    throwable = error,
+                )
+            }
+        }
+
         Timber.tag("WorkManager").i(
             UploadLog.message(
                 category = CATEGORY_UPLOAD_PROGRESS_STATE,
@@ -455,12 +499,27 @@ class UploadWorker @AssistedInject constructor(
             )
         )
         recordError(displayName, errorKind, httpCode)
-        uploadQueueRepository.markFailed(
-            id = itemId,
-            errorKind = errorKind,
-            httpCode = httpCode,
-            requeue = false,
-        )
+        try {
+            uploadQueueRepository.markFailed(
+                id = itemId,
+                errorKind = errorKind,
+                httpCode = httpCode,
+                requeue = false,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            logGuardError(
+                action = "mark_failed_failed",
+                uri = parsedUri,
+                details = guardDetails(
+                    displayName = displayName,
+                    errorKind = errorKind,
+                    httpCode = httpCode,
+                ),
+                throwable = error,
+            )
+        }
         return Result.failure(
             buildResultData(
                 displayName = displayName,
@@ -495,6 +554,21 @@ class UploadWorker @AssistedInject constructor(
 
     private fun createForeground(displayName: String, progress: Int): ForegroundInfo {
         return foregroundDelegate.create(displayName, progress, id, UploadForegroundKind.UPLOAD)
+    }
+
+    private fun ensureSummaryRunning(displayName: String, uri: Uri) {
+        try {
+            summaryStarter.ensureRunning()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            logGuardError(
+                action = "summary_start_failed",
+                uri = uri,
+                details = guardDetails(displayName = displayName),
+                throwable = error,
+            )
+        }
     }
 
     private suspend fun enqueuePollWork(
@@ -564,6 +638,7 @@ class UploadWorker @AssistedInject constructor(
         private const val CATEGORY_HTTP_REQUEST = "HTTP/REQUEST"
         private const val CATEGORY_HTTP_RESPONSE = "HTTP/RESPONSE"
         private const val CATEGORY_WORK_SCHEDULE = "WORK/SCHEDULE"
+        private const val CATEGORY_UPLOAD_GUARD = "UPLOAD/GUARD"
     }
 
     private data class FilePayload(
@@ -583,4 +658,45 @@ class UploadWorker @AssistedInject constructor(
 
     private fun ByteArray.toHexString(): String =
         joinToString(separator = "") { byte -> "%02x".format(byte) }
+
+    private fun guardDetails(
+        displayName: String? = null,
+        progress: Int? = null,
+        bytesSent: Long? = null,
+        totalBytes: Long? = null,
+        errorKind: UploadErrorKind? = null,
+        httpCode: Int? = null,
+        additional: List<Pair<String, Any?>> = emptyList(),
+    ): List<Pair<String, Any?>> {
+        val details = mutableListOf<Pair<String, Any?>>()
+        val itemId = currentItemId
+        if (itemId != null) {
+            details += "queue_item_id" to itemId
+        }
+        displayName?.let { details += "display_name" to it }
+        progress?.let { details += "progress" to it }
+        bytesSent?.let { details += "bytes_sent" to it }
+        totalBytes?.let { details += "total_bytes" to it }
+        errorKind?.let { details += "error_kind" to it }
+        httpCode?.let { details += "http_code" to it }
+        details += additional
+        return details
+    }
+
+    private fun logGuardError(
+        action: String,
+        uri: Uri? = null,
+        details: List<Pair<String, Any?>>,
+        throwable: Throwable,
+    ) {
+        Timber.tag("WorkManager").e(
+            throwable,
+            UploadLog.message(
+                category = CATEGORY_UPLOAD_GUARD,
+                action = action,
+                uri = uri,
+                details = details.toTypedArray(),
+            ),
+        )
+    }
 }

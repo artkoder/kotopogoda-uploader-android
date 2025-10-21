@@ -12,6 +12,7 @@ import androidx.lifecycle.Observer
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.ForegroundUpdater
 import androidx.work.ListenableWorker.Result.Failure
 import androidx.work.ListenableWorker.Result.Retry
@@ -28,8 +29,11 @@ import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
+import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
+import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
+import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
@@ -40,6 +44,7 @@ import java.io.FileNotFoundException
 import java.io.InputStream
 import java.net.UnknownHostException
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.test.assertEquals
@@ -473,6 +478,147 @@ class UploadWorkerTest {
     }
 
     @Test
+    fun summaryStarterExceptionDoesNotCrashWorker() = runBlocking {
+        val previousFactory = workerFactory
+        workerFactory = object : WorkerFactory() {
+            override fun createWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters
+            ): UploadWorker? {
+                if (workerClassName == UploadWorker::class.qualifiedName) {
+                    return UploadWorker(
+                        appContext,
+                        workerParameters,
+                        uploadApi,
+                        uploadQueueRepository,
+                        TestForegroundDelegate(appContext),
+                        ThrowingUploadSummaryStarter,
+                        workManagerProvider,
+                        constraintsProvider,
+                    )
+                }
+                return null
+            }
+        }
+
+        try {
+            val file = createTempFileWithContent("summary")
+            val inputData = inputDataFor(file)
+            mockWebServer.enqueue(
+                MockResponse()
+                    .setResponseCode(202)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"upload_id":"summary","status":"accepted"}""")
+            )
+
+            val worker = createWorker(inputData)
+            val result = worker.doWork()
+
+            assertTrue(result is Success)
+        } finally {
+            workerFactory = previousFactory
+        }
+    }
+
+    @Test
+    fun foregroundUpdaterExceptionDoesNotCrashOnRetry() = runBlocking {
+        val previousFactory = workerFactory
+        val failingApi = object : UploadApi {
+            override suspend fun upload(
+                idempotencyKey: String,
+                file: okhttp3.MultipartBody.Part,
+                contentSha256Part: okhttp3.RequestBody,
+                mime: okhttp3.RequestBody,
+                size: okhttp3.RequestBody,
+                exifDate: okhttp3.RequestBody?,
+                originalRelpath: okhttp3.RequestBody?,
+            ): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadAcceptedDto> {
+                throw UnknownHostException("fgs")
+            }
+
+            override suspend fun getStatus(uploadId: String) = throw UnsupportedOperationException()
+        }
+        workerFactory = object : WorkerFactory() {
+            override fun createWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters
+            ): UploadWorker? {
+                if (workerClassName == UploadWorker::class.qualifiedName) {
+                    return UploadWorker(
+                        appContext,
+                        workerParameters,
+                        failingApi,
+                        uploadQueueRepository,
+                        TestForegroundDelegate(appContext),
+                        NoopUploadSummaryStarter,
+                        workManagerProvider,
+                        constraintsProvider,
+                    )
+                }
+                return null
+            }
+        }
+
+        try {
+            val file = createTempFileWithContent("retry-guard")
+            val inputData = inputDataFor(file)
+
+            val worker = createWorker(
+                inputData = inputData,
+                foregroundUpdater = ForegroundUpdater { _, _ ->
+                    throw IllegalStateException("fg update forbidden")
+                }
+            )
+            val result = worker.doWork()
+
+            assertTrue(result is Retry)
+        } finally {
+            workerFactory = previousFactory
+        }
+    }
+
+    @Test
+    fun foregroundDelegateExceptionDoesNotCrashOnFailure() = runBlocking {
+        val previousFactory = workerFactory
+        workerFactory = object : WorkerFactory() {
+            override fun createWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters
+            ): UploadWorker? {
+                if (workerClassName == UploadWorker::class.qualifiedName) {
+                    return UploadWorker(
+                        appContext,
+                        workerParameters,
+                        uploadApi,
+                        uploadQueueRepository,
+                        ThrowingForegroundDelegate,
+                        NoopUploadSummaryStarter,
+                        workManagerProvider,
+                        constraintsProvider,
+                    )
+                }
+                return null
+            }
+        }
+
+        try {
+            val file = createTempFileWithContent("fail-guard")
+            val inputData = inputDataFor(file)
+            mockWebServer.enqueue(MockResponse().setResponseCode(413))
+
+            val worker = createWorker(inputData)
+            val result = worker.doWork()
+
+            assertTrue(result is Failure)
+        } finally {
+            workerFactory = previousFactory
+        }
+    }
+
+    @Test
     fun securityExceptionFailsWithoutRetry() = runBlocking {
         val authority = "com.kotopogoda.test.secure"
         val uri = Uri.parse("content://$authority/items/1")
@@ -488,11 +634,15 @@ class UploadWorkerTest {
         assertEquals(UploadErrorKind.IO.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
     }
 
-    private fun createWorker(inputData: Data): UploadWorker {
+    private fun createWorker(
+        inputData: Data,
+        factory: WorkerFactory = workerFactory,
+        foregroundUpdater: ForegroundUpdater = ForegroundUpdater { _, _ -> },
+    ): UploadWorker {
         return TestListenableWorkerBuilder<UploadWorker>(context)
-            .setWorkerFactory(workerFactory)
+            .setWorkerFactory(factory)
             .setInputData(inputData)
-            .setForegroundUpdater(ForegroundUpdater { _, _ -> })
+            .setForegroundUpdater(foregroundUpdater)
             .build() as UploadWorker
     }
 
@@ -600,6 +750,23 @@ class UploadWorkerTest {
 
     private companion object {
         const val STREAMING_TEST_SIZE = 256 * 1024 + 123
+    }
+
+    private object ThrowingUploadSummaryStarter : UploadSummaryStarter {
+        override fun ensureRunning() {
+            throw IllegalStateException("summary service start blocked")
+        }
+    }
+
+    private object ThrowingForegroundDelegate : UploadForegroundDelegate {
+        override fun create(
+            displayName: String,
+            progress: Int,
+            workId: UUID,
+            kind: UploadForegroundKind
+        ): ForegroundInfo {
+            throw IllegalStateException("foreground notification denied")
+        }
     }
 
     private class ThrowingSecurityProvider(
