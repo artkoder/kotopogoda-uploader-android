@@ -66,10 +66,11 @@ class HmacInterceptorTest {
             val expectedCanonical = listOf(
                 "POST",
                 "/v1/upload",
+                deviceCreds.deviceId,
                 expectedTimestamp,
                 nonce,
                 expectedContentSha,
-            ).joinToString(separator = "|")
+            ).joinToString(separator = "\n")
 
             val expectedSignature = sign(deviceCreds.hmacKey, expectedCanonical)
             assertEquals(expectedSignature, recorded.getHeader("X-Signature"))
