@@ -35,11 +35,8 @@ class HmacInterceptor @Inject constructor(
 
         val timestamp = clock.instant().truncatedTo(ChronoUnit.SECONDS).toString()
         val nonce = nonceProvider()
-        val existingContentSha = originalRequest.header(HEADER_CONTENT_SHA)?.takeIf { it.isNotBlank() }
-        val contentSha = existingContentSha ?: run {
-            val bodyBytes = originalRequest.body?.let { captureBody(it) } ?: EMPTY_BYTE_ARRAY
-            sha256Hex(bodyBytes)
-        }
+        val bodyBytes = originalRequest.body?.let { captureBody(it) } ?: EMPTY_BYTE_ARRAY
+        val contentSha = sha256Hex(bodyBytes)
         val canonical = buildCanonicalString(
             request = originalRequest,
             deviceId = creds.deviceId,

@@ -81,7 +81,7 @@ class HmacInterceptorTest {
     }
 
     @Test
-    fun `interceptor reuses provided content sha without rebuffering body`() {
+    fun `interceptor recomputes content sha even when header is present`() {
         val fixedInstant = Instant.parse("2024-03-23T10:15:30.123Z")
         val clock = Clock.fixed(fixedInstant, ZoneOffset.UTC)
         val nonce = "fixed-nonce"
@@ -100,7 +100,7 @@ class HmacInterceptorTest {
                 .build()
 
             val payloadBytes = ByteArray(128) { index -> (index % 251).toByte() }
-            val providedSha = sha256Hex(payloadBytes)
+            val providedSha = "deadbeef"
             val countingBody = CountingRequestBody(
                 data = payloadBytes,
                 mediaType = "application/octet-stream".toMediaType(),
@@ -116,7 +116,7 @@ class HmacInterceptorTest {
                 assertEquals(200, response.code)
             }
 
-            assertEquals(1, countingBody.writeCount)
+            assertEquals(2, countingBody.writeCount)
 
             val recorded = server.takeRequest(1, TimeUnit.SECONDS) ?: fail("Request was not recorded")
 
@@ -124,7 +124,8 @@ class HmacInterceptorTest {
             assertEquals(expectedTimestamp, recorded.getHeader("X-Timestamp"))
             assertEquals(nonce, recorded.getHeader("X-Nonce"))
             assertEquals(deviceCreds.deviceId, recorded.getHeader("X-Device-Id"))
-            assertEquals(providedSha, recorded.getHeader("X-Content-SHA256"))
+            val expectedContentSha = sha256Hex(payloadBytes)
+            assertEquals(expectedContentSha, recorded.getHeader("X-Content-SHA256"))
 
             val expectedCanonical = listOf(
                 "POST",
@@ -132,7 +133,7 @@ class HmacInterceptorTest {
                 deviceCreds.deviceId,
                 expectedTimestamp,
                 nonce,
-                providedSha,
+                expectedContentSha,
             ).joinToString(separator = "\n")
 
             val expectedSignature = sign(deviceCreds.hmacKey, expectedCanonical)
