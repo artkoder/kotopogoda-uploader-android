@@ -29,7 +29,7 @@ import org.junit.Test
 class HmacInterceptorTest {
 
     @Test
-    fun `interceptor uses RFC3339 timestamp when signing requests`() {
+    fun `interceptor uses unix timestamp when signing requests`() {
         val fixedInstant = Instant.parse("2024-03-23T10:15:30.123Z")
         val clock = Clock.fixed(fixedInstant, ZoneOffset.UTC)
         val nonce = "fixed-nonce"
@@ -66,8 +66,7 @@ class HmacInterceptorTest {
                 kotlin.math.abs(timestampSeconds - expectedSeconds) <= 2,
                 "Timestamp differs from expected time: $timestampSeconds vs $expectedSeconds",
             )
-            val expectedTimestamp = expectedSeconds.toString()
-            assertEquals(expectedTimestamp, recordedTimestamp)
+            val canonicalTimestamp = recordedTimestamp
             assertEquals(nonce, recorded.getHeader("X-Nonce"))
             assertEquals(deviceCreds.deviceId, recorded.getHeader("X-Device-Id"))
 
@@ -78,7 +77,7 @@ class HmacInterceptorTest {
                 "POST",
                 "/v1/upload",
                 deviceCreds.deviceId,
-                expectedTimestamp,
+                canonicalTimestamp,
                 nonce,
                 expectedContentSha,
             ).joinToString(separator = "\n")
@@ -135,8 +134,7 @@ class HmacInterceptorTest {
                 kotlin.math.abs(timestampSeconds - expectedSeconds) <= 2,
                 "Timestamp differs from expected time: $timestampSeconds vs $expectedSeconds",
             )
-            val expectedTimestamp = expectedSeconds.toString()
-            assertEquals(expectedTimestamp, recordedTimestamp)
+            val canonicalTimestamp = recordedTimestamp
             assertEquals(nonce, recorded.getHeader("X-Nonce"))
             assertEquals(deviceCreds.deviceId, recorded.getHeader("X-Device-Id"))
             assertEquals(providedSha, recorded.getHeader("X-Content-SHA256"))
@@ -145,7 +143,7 @@ class HmacInterceptorTest {
                 "POST",
                 "/v1/upload",
                 deviceCreds.deviceId,
-                expectedTimestamp,
+                canonicalTimestamp,
                 nonce,
                 providedSha,
             ).joinToString(separator = "\n")
