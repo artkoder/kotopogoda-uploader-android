@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,8 +59,15 @@ class HmacInterceptorTest {
 
             val recorded = server.takeRequest(1, TimeUnit.SECONDS) ?: fail("Request was not recorded")
 
-            val expectedTimestamp = "2024-03-23T10:15:30Z"
-            assertEquals(expectedTimestamp, recorded.getHeader("X-Timestamp"))
+            val recordedTimestamp = recorded.getHeader("X-Timestamp") ?: fail("Timestamp header is missing")
+            val timestampSeconds = recordedTimestamp.toLongOrNull() ?: fail("Timestamp is not numeric")
+            val expectedSeconds = fixedInstant.epochSecond
+            assertTrue(
+                kotlin.math.abs(timestampSeconds - expectedSeconds) <= 2,
+                "Timestamp differs from expected time: $timestampSeconds vs $expectedSeconds",
+            )
+            val expectedTimestamp = expectedSeconds.toString()
+            assertEquals(expectedTimestamp, recordedTimestamp)
             assertEquals(nonce, recorded.getHeader("X-Nonce"))
             assertEquals(deviceCreds.deviceId, recorded.getHeader("X-Device-Id"))
 
@@ -120,8 +128,15 @@ class HmacInterceptorTest {
 
             val recorded = server.takeRequest(1, TimeUnit.SECONDS) ?: fail("Request was not recorded")
 
-            val expectedTimestamp = "2024-03-23T10:15:30Z"
-            assertEquals(expectedTimestamp, recorded.getHeader("X-Timestamp"))
+            val recordedTimestamp = recorded.getHeader("X-Timestamp") ?: fail("Timestamp header is missing")
+            val timestampSeconds = recordedTimestamp.toLongOrNull() ?: fail("Timestamp is not numeric")
+            val expectedSeconds = fixedInstant.epochSecond
+            assertTrue(
+                kotlin.math.abs(timestampSeconds - expectedSeconds) <= 2,
+                "Timestamp differs from expected time: $timestampSeconds vs $expectedSeconds",
+            )
+            val expectedTimestamp = expectedSeconds.toString()
+            assertEquals(expectedTimestamp, recordedTimestamp)
             assertEquals(nonce, recorded.getHeader("X-Nonce"))
             assertEquals(deviceCreds.deviceId, recorded.getHeader("X-Device-Id"))
             assertEquals(providedSha, recorded.getHeader("X-Content-SHA256"))
