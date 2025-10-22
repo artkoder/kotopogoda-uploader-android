@@ -213,6 +213,8 @@ class QueueWorkInfoMapperTest {
             nextScheduleTimeMillis = clock.millis() + 60_000L,
         )
 
+        assertTrue(workInfo.nextScheduleTimeMillis > clock.millis())
+
         val mapped = mapper.map(workInfo)
 
         assertNotNull(mapped)
