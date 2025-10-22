@@ -36,6 +36,8 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.security.MessageDigest
 import java.time.Instant
 import kotlin.text.Charsets
@@ -274,21 +276,33 @@ class ViewerViewModelDocumentInfoTest {
         )
         val documentId = "primary:Kotopogoda/saf.jpg"
         val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2Fsaf.jpg")
-        val resolver = TestContentResolver { uri, _ ->
-            if (uri == fileUri) {
-                createSafCursor(documentId, displayName = "saf.jpg", size = 4096L, lastModified = 5555L)
-            } else {
-                null
+        val fileBytes = "saf-content".toByteArray()
+        val resolver = TestContentResolver(
+            queryHandler = { uri, _ ->
+                if (uri == fileUri) {
+                    createSafCursor(documentId, displayName = "saf.jpg", size = 4096L, lastModified = 5555L)
+                } else {
+                    null
+                }
+            },
+            inputStreamHandler = { uri ->
+                if (uri == fileUri) ByteArrayInputStream(fileBytes) else null
             }
-        }
+        )
         val context = TestContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
         val idempotencySlot = slot<String>()
+        val contentShaSlot = slot<String>()
         val displayNameSlot = slot<String>()
         coEvery {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), capture(idempotencySlot), capture(displayNameSlot))
+            environment.uploadEnqueuer.enqueue(
+                eq(fileUri),
+                capture(idempotencySlot),
+                capture(displayNameSlot),
+                capture(contentShaSlot)
+            )
         } just Runs
 
         val photo = PhotoItem(id = "3", uri = fileUri, takenAt = Instant.ofEpochMilli(3_000))
@@ -298,11 +312,12 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any())
+            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any())
         }
         assertEquals("saf.jpg", displayNameSlot.captured)
-        val expectedKey = buildExpectedIdempotencyKey(fileUri, size = 4096L, lastModified = 5555L)
+        val expectedKey = buildExpectedIdempotencyKey(fileBytes)
         assertEquals(expectedKey, idempotencySlot.captured)
+        assertEquals(expectedDigest(fileBytes), contentShaSlot.captured)
     }
 
     @Test
@@ -317,27 +332,39 @@ class ViewerViewModelDocumentInfoTest {
             lastViewedAt = null
         )
         val fileUri = Uri.parse("content://media/external/images/media/99")
-        val resolver = TestContentResolver { uri, _ ->
-            if (uri == fileUri) {
-                createMediaStoreCursor(
-                    displayName = "media.jpg",
-                    size = 8192L,
-                    dateModifiedSeconds = 20L,
-                    dateTaken = 123_456L,
-                    relativePath = "Kotopogoda/"
-                )
-            } else {
-                null
+        val fileBytes = "media-content".toByteArray()
+        val resolver = TestContentResolver(
+            queryHandler = { uri, _ ->
+                if (uri == fileUri) {
+                    createMediaStoreCursor(
+                        displayName = "media.jpg",
+                        size = 8192L,
+                        dateModifiedSeconds = 20L,
+                        dateTaken = 123_456L,
+                        relativePath = "Kotopogoda/"
+                    )
+                } else {
+                    null
+                }
+            },
+            inputStreamHandler = { uri ->
+                if (uri == fileUri) ByteArrayInputStream(fileBytes) else null
             }
-        }
+        )
         val context = TestContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
         val idempotencySlot = slot<String>()
+        val contentShaSlot = slot<String>()
         val displayNameSlot = slot<String>()
         coEvery {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), capture(idempotencySlot), capture(displayNameSlot))
+            environment.uploadEnqueuer.enqueue(
+                eq(fileUri),
+                capture(idempotencySlot),
+                capture(displayNameSlot),
+                capture(contentShaSlot)
+            )
         } just Runs
 
         val photo = PhotoItem(id = "4", uri = fileUri, takenAt = Instant.ofEpochMilli(4_000))
@@ -347,11 +374,12 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any())
+            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any())
         }
         assertEquals("media.jpg", displayNameSlot.captured)
-        val expectedKey = buildExpectedIdempotencyKey(fileUri, size = 8192L, lastModified = 20_000L)
+        val expectedKey = buildExpectedIdempotencyKey(fileBytes)
         assertEquals(expectedKey, idempotencySlot.captured)
+        assertEquals(expectedDigest(fileBytes), contentShaSlot.captured)
     }
 
     @Test
@@ -635,14 +663,13 @@ class ViewerViewModelDocumentInfoTest {
         }
     }
 
-    private fun buildExpectedIdempotencyKey(uri: Uri, size: Long?, lastModified: Long?): String {
-        val base = if (size != null && size >= 0 && lastModified != null && lastModified > 0) {
-            "${uri}|${size}|${lastModified}"
-        } else {
-            uri.toString()
-        }
+    private fun buildExpectedIdempotencyKey(content: ByteArray): String {
+        return "upload:${expectedDigest(content)}"
+    }
+
+    private fun expectedDigest(content: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val bytes = digest.digest(base.toByteArray(Charsets.UTF_8))
+        val bytes = digest.digest(content)
         return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 
@@ -653,7 +680,8 @@ class ViewerViewModelDocumentInfoTest {
     }
 
     private class TestContentResolver(
-        private val handler: (Uri, Array<out String>?) -> Cursor?
+        private val handler: (Uri, Array<out String>?) -> Cursor?,
+        private val inputStreamHandler: (Uri) -> InputStream? = { null }
     ) : MockContentResolver() {
         override fun query(
             uri: Uri,
@@ -662,6 +690,8 @@ class ViewerViewModelDocumentInfoTest {
             selectionArgs: Array<out String>?,
             sortOrder: String?
         ): Cursor? = handler(uri, projection)
+
+        override fun openInputStream(uri: Uri): InputStream? = inputStreamHandler(uri)
     }
 
     private data class ViewModelEnvironment(

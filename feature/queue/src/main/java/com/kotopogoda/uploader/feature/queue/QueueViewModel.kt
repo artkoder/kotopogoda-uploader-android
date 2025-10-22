@@ -90,8 +90,7 @@ class QueueViewModel @Inject constructor(
         val entity = item.source.entity
         val displayName = entity.displayName.takeIf { it.isNotBlank() } ?: item.title
         val idempotencyKey = entity.idempotencyKey.takeIf { it.isNotBlank() }
-            ?: entity.photoId
-        if (idempotencyKey.isBlank()) {
+        if (idempotencyKey.isNullOrBlank()) {
             return null
         }
         return UploadWorkMetadata(

@@ -6,6 +6,9 @@ import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoEntity
+import com.kotopogoda.uploader.core.data.upload.contentSha256FromIdempotencyKey
+import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
+import com.kotopogoda.uploader.core.data.util.Hashing
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import java.time.Clock
 import kotlinx.coroutines.Dispatchers
@@ -58,16 +61,25 @@ class UploadQueueRepository @Inject constructor(
         ).distinctUntilChanged()
     }
 
-    suspend fun enqueue(uri: Uri, idempotencyKey: String) = withContext(Dispatchers.IO) {
+    suspend fun enqueue(uri: Uri, idempotencyKey: String, contentSha256: String?) = withContext(Dispatchers.IO) {
         val uriString = uri.toString()
-        val photo = photoDao.getByUri(uriString)
-            ?: createFallbackPhoto(uri, uriString)
+        val initialPhoto = photoDao.getByUri(uriString)
+            ?: createFallbackPhoto(uri, uriString, contentSha256)
+        val photo = if (!contentSha256.isNullOrBlank() && initialPhoto.sha256 != contentSha256) {
+            val updated = initialPhoto.copy(sha256 = contentSha256)
+            runCatching { photoDao.upsert(updated) }.onFailure { error ->
+                Timber.tag("Queue").w(error, "Failed to update photo hash for %s", uri)
+            }
+            updated
+        } else {
+            initialPhoto
+        }
         val now = currentTimeMillis()
         val existing = uploadItemDao.getByPhotoId(photo.id)
         val displayName = buildDisplayName(photo.relPath, uri)
         val effectiveIdempotencyKey = idempotencyKey.takeIf { it.isNotBlank() }
             ?: existing?.entityIdempotencyKey()
-            ?: buildIdempotencyKey(photo.id)
+            ?: buildIdempotencyKey(photo)
         Timber.tag("Queue").i(
             UploadLog.message(
                 category = CATEGORY_ENQUEUE_REQUEST,
@@ -134,6 +146,29 @@ class UploadQueueRepository @Inject constructor(
                 ),
             )
         }
+    }
+
+    suspend fun findStoredContentSha256(uri: Uri): String? = withContext(Dispatchers.IO) {
+        val uriString = uri.toString()
+        val photo = photoDao.getByUri(uriString)
+        val photoDigest = photo?.sha256?.takeIf { it.isNotBlank() }
+        if (photoDigest != null) {
+            return@withContext photoDigest
+        }
+        val existing = uploadItemDao.getByUri(uriString)
+        existing?.idempotencyKey?.let(::contentSha256FromIdempotencyKey)
+    }
+
+    suspend fun computeAndStoreContentSha256(uri: Uri): String = withContext(Dispatchers.IO) {
+        val digest = Hashing.sha256(contentResolver, uri)
+        val uriString = uri.toString()
+        val photo = photoDao.getByUri(uriString)
+        if (photo != null && photo.sha256 != digest) {
+            runCatching { photoDao.upsert(photo.copy(sha256 = digest)) }.onFailure { error ->
+                Timber.tag("Queue").w(error, "Failed to persist photo hash for %s", uri)
+            }
+        }
+        digest
     }
 
     suspend fun markQueued(uri: Uri) = withContext(Dispatchers.IO) {
@@ -447,24 +482,22 @@ class UploadQueueRepository @Inject constructor(
         return fromRelPath ?: fromUri ?: DEFAULT_DISPLAY_NAME
     }
 
-    private suspend fun createFallbackPhoto(uri: Uri, uriString: String): PhotoEntity {
+    private suspend fun createFallbackPhoto(
+        uri: Uri,
+        uriString: String,
+        contentSha256: String?
+    ): PhotoEntity {
         val metadata = metadataReader.read(uri)
+        val resolvedSha256 = contentSha256 ?: Hashing.sha256(contentResolver, uri)
         val entity = PhotoEntity(
             id = uriString,
             uri = uriString,
             relPath = buildRelPath(metadata, uri),
-            sha256 = uriString,
+            sha256 = resolvedSha256,
             takenAt = resolveTakenAt(metadata),
             size = metadata?.size ?: 0L,
             mime = metadata?.mimeType ?: DEFAULT_MIME,
         )
-        val inputStream = try {
-            contentResolver.openInputStream(uri)
-        } catch (error: Exception) {
-            throw IllegalStateException("Unable to open input stream for uri: $uri", error)
-        }
-        inputStream?.use { }
-            ?: throw IllegalStateException("Unable to open input stream for uri: $uri")
         try {
             photoDao.upsert(entity)
         } catch (error: Throwable) {
@@ -501,8 +534,16 @@ class UploadQueueRepository @Inject constructor(
         return normalizedStored ?: fromUri ?: DEFAULT_DISPLAY_NAME
     }
 
-    private fun buildIdempotencyKey(photoId: String): String {
-        return photoId
+    private suspend fun buildIdempotencyKey(photoId: String): String {
+        val photo = photoDao.getById(photoId)
+            ?: throw IllegalStateException("Photo not found for id $photoId")
+        return buildIdempotencyKey(photo)
+    }
+
+    private fun buildIdempotencyKey(photo: PhotoEntity): String {
+        val digest = photo.sha256.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Missing digest for photo ${photo.id}")
+        return idempotencyKeyFromContentSha256(digest)
     }
 
     private fun currentTimeMillis(): Long = clock.instant().toEpochMilli()

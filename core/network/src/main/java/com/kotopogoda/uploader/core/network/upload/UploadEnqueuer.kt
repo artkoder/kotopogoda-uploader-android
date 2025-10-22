@@ -8,6 +8,8 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
+import com.kotopogoda.uploader.core.data.upload.contentSha256FromIdempotencyKey
+import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
 import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -25,8 +27,8 @@ class UploadEnqueuer @Inject constructor(
     private val constraintsProvider: UploadConstraintsProvider,
 ) {
 
-    suspend fun enqueue(uri: Uri, idempotencyKey: String, displayName: String) {
-        uploadItemsRepository.enqueue(uri, idempotencyKey)
+    suspend fun enqueue(uri: Uri, idempotencyKey: String, displayName: String, contentSha256: String) {
+        uploadItemsRepository.enqueue(uri, idempotencyKey, contentSha256)
         summaryStarter.ensureRunning()
         scheduleDrain()
     }
@@ -56,8 +58,12 @@ class UploadEnqueuer @Inject constructor(
         val uniqueName = uniqueName(uri)
         val workManager = workManagerProvider.get()
         workManager.cancelAllWorkByTag(UploadTags.uniqueTag(uniqueName))
-        val key = metadata.idempotencyKey ?: sha256(uri.toString())
-        uploadItemsRepository.enqueue(uri, key)
+        val storedDigest = metadata.idempotencyKey?.let(::contentSha256FromIdempotencyKey)
+            ?: uploadItemsRepository.findStoredContentSha256(uri)
+            ?: uploadItemsRepository.computeAndStoreContentSha256(uri)
+        val key = metadata.idempotencyKey?.takeIf { contentSha256FromIdempotencyKey(it) != null }
+            ?: idempotencyKeyFromContentSha256(storedDigest)
+        uploadItemsRepository.enqueue(uri, key, storedDigest)
         summaryStarter.ensureRunning()
         scheduleDrain()
     }
