@@ -121,6 +121,14 @@ class QueueWorkInfoMapper @Inject constructor(
     }
 
     private fun nextRetryReason(info: WorkInfo): QueueItemWaitingReason? {
+        when (info.state) {
+            WorkInfo.State.ENQUEUED,
+            WorkInfo.State.BLOCKED,
+            WorkInfo.State.RUNNING -> Unit
+            WorkInfo.State.SUCCEEDED,
+            WorkInfo.State.FAILED,
+            WorkInfo.State.CANCELLED -> return null
+        }
         if (info.runAttemptCount <= 0) {
             return null
         }
