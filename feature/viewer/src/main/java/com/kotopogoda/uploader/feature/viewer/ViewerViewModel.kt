@@ -24,6 +24,9 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.contentSha256FromIdempotencyKey
+import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
+import com.kotopogoda.uploader.core.data.util.Hashing
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
@@ -31,7 +34,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.Serializable
-import java.security.MessageDigest
 import java.time.Instant
 import java.time.ZoneId
 import java.util.ArrayList
@@ -56,7 +58,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.collections.ArrayDeque
-import kotlin.text.Charsets
 import kotlin.math.max
 import kotlin.system.measureTimeMillis
 import timber.log.Timber
@@ -516,10 +517,13 @@ class ViewerViewModel @Inject constructor(
                 val fromIndex = currentIndex.value
                 val toIndex = computeNextIndex(fromIndex)
                 val idempotencyKey = buildIdempotencyKey(documentInfo)
+                val contentSha256 = contentSha256FromIdempotencyKey(idempotencyKey)
+                    ?: throw IllegalStateException("Invalid idempotency key format: $idempotencyKey")
                 uploadEnqueuer.enqueue(
                     uri = current.uri,
                     idempotencyKey = idempotencyKey,
-                    displayName = documentInfo.displayName
+                    displayName = documentInfo.displayName,
+                    contentSha256 = contentSha256
                 )
                 pushAction(
                     UserAction.EnqueuedUpload(
@@ -1506,15 +1510,9 @@ class ViewerViewModel @Inject constructor(
         _undoCount.value = undoStack.size
     }
 
-    private fun buildIdempotencyKey(info: DocumentInfo): String {
-        val base = if (info.size != null && info.size >= 0 && info.lastModified != null && info.lastModified > 0) {
-            "${info.uri}|${info.size}|${info.lastModified}"
-        } else {
-            info.uri.toString()
-        }
-        val digest = MessageDigest.getInstance("SHA-256")
-        val bytes = digest.digest(base.toByteArray(Charsets.UTF_8))
-        return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
+    private suspend fun buildIdempotencyKey(info: DocumentInfo): String = withContext(Dispatchers.IO) {
+        val digest = Hashing.sha256(context.contentResolver, info.uri)
+        idempotencyKeyFromContentSha256(digest)
     }
 
     sealed interface ViewerEvent {

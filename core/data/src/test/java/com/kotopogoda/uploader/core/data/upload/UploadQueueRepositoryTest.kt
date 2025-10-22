@@ -17,7 +17,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import java.io.ByteArrayInputStream
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -54,9 +53,9 @@ class UploadQueueRepositoryTest {
         coEvery { photoDao.upsert(any()) } returns Unit
         coEvery { uploadItemDao.getByPhotoId(uri.toString()) } returns null
         coEvery { uploadItemDao.insert(any()) } returns 1L
-        every { contentResolver.openInputStream(uri) } returns ByteArrayInputStream(ByteArray(0))
+        val providedDigest = "provided-digest"
 
-        repository.enqueue(uri, idempotencyKey = "key-1")
+        repository.enqueue(uri, idempotencyKey = "key-1", contentSha256 = providedDigest)
 
         coVerify {
             photoDao.upsert(withArg { entity ->
@@ -65,6 +64,7 @@ class UploadQueueRepositoryTest {
                 assertEquals("image/png", entity.mime)
                 assertEquals(1280L, entity.size)
                 assertEquals(10_000L, entity.takenAt)
+                assertEquals(providedDigest, entity.sha256)
             })
         }
         coVerify {
@@ -76,7 +76,6 @@ class UploadQueueRepositoryTest {
                 assertEquals("key-1", entity.idempotencyKey)
             })
         }
-        verify(exactly = 1) { contentResolver.openInputStream(uri) }
     }
 
     @Test
@@ -87,7 +86,7 @@ class UploadQueueRepositoryTest {
         every { contentResolver.openInputStream(uri) } returns null
 
         val error = assertFailsWith<IllegalStateException> {
-            repository.enqueue(uri, idempotencyKey = "key-2")
+            repository.enqueue(uri, idempotencyKey = "key-2", contentSha256 = null)
         }
 
         assertEquals("Unable to open input stream for uri: $uri", error.message)
@@ -119,9 +118,12 @@ class UploadQueueRepositoryTest {
         coEvery { photoDao.getByUri(uri.toString()) } returns photo
         coEvery { uploadItemDao.getByPhotoId(photo.id) } returns existing
 
-        repository.enqueue(uri, idempotencyKey = "new-key")
+        coEvery { photoDao.upsert(photo.copy(sha256 = "new-digest")) } returns Unit
+
+        repository.enqueue(uri, idempotencyKey = "new-key", contentSha256 = "new-digest")
 
         val expectedNow = clock.instant().toEpochMilli()
+        coVerify { photoDao.upsert(photo.copy(sha256 = "new-digest")) }
         coVerify {
             uploadItemDao.updateStateWithMetadata(
                 id = existing.id,
@@ -160,7 +162,7 @@ class UploadQueueRepositoryTest {
         coEvery { photoDao.getByUri(uri.toString()) } returns photo
         coEvery { uploadItemDao.getByPhotoId(photo.id) } returns existing
 
-        repository.enqueue(uri, idempotencyKey = "")
+        repository.enqueue(uri, idempotencyKey = "", contentSha256 = "hash")
 
         val expectedNow = clock.instant().toEpochMilli()
         coVerify {

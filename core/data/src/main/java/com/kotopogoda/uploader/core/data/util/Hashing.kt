@@ -1,5 +1,7 @@
 package com.kotopogoda.uploader.core.data.util
 
+import android.content.ContentResolver
+import android.net.Uri
 import java.io.InputStream
 import java.security.MessageDigest
 
@@ -22,6 +24,13 @@ object Hashing {
         }
         return digest.digest().joinToString(separator = "") { byte ->
             "%02x".format(byte)
+        }
+    }
+
+    fun sha256(contentResolver: ContentResolver, uri: Uri): String {
+        return sha256 {
+            contentResolver.openInputStream(uri)
+                ?: throw IllegalStateException("Unable to open input stream for uri: $uri")
         }
     }
 }

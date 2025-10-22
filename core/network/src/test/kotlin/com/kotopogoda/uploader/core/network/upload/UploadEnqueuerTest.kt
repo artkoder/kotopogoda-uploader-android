@@ -164,9 +164,9 @@ class UploadEnqueuerTest {
         resetConstraintMocks()
         val uri = Uri.parse("content://example/1")
 
-        enqueuer.enqueue(uri, "key-1", "file-1")
+        enqueuer.enqueue(uri, "key-1", "file-1", "digest-1")
 
-        coVerify { uploadItemsRepository.enqueue(uri, "key-1") }
+        coVerify { uploadItemsRepository.enqueue(uri, "key-1", "digest-1") }
         verify { summaryStarter.ensureRunning() }
         verify {
             workManager.enqueueUniqueWork(
@@ -259,6 +259,7 @@ class UploadEnqueuerTest {
         constraintsState.value = Constraints.NONE
         resetConstraintMocks()
         val uri = Uri.parse("content://example/3")
+        coEvery { uploadItemsRepository.findStoredContentSha256(uri) } returns "stored-digest"
         val metadata = UploadWorkMetadata(
             uniqueName = enqueuer.uniqueName(uri),
             uri = uri,
@@ -271,7 +272,7 @@ class UploadEnqueuerTest {
 
         val uniqueTag = UploadTags.uniqueTag(enqueuer.uniqueName(uri))
         verify { workManager.cancelAllWorkByTag(uniqueTag) }
-        coVerify { uploadItemsRepository.enqueue(uri, "key-3") }
+        coVerify { uploadItemsRepository.enqueue(uri, "upload:stored-digest", "stored-digest") }
         verify { summaryStarter.ensureRunning() }
         verify(exactly = 0) { constraintsProvider.shouldUseExpeditedWork() }
         verify {
@@ -577,7 +578,7 @@ class UploadEnqueuerTest {
 
         repeat(6) { index ->
             val uri = Uri.parse("content://example/batch/$index")
-            enqueuer.enqueue(uri, "key-$index", "file-$index")
+            enqueuer.enqueue(uri, "key-$index", "file-$index", "digest-$index")
         }
 
         assertEquals(6, policies.size)

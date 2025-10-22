@@ -11,6 +11,9 @@ interface UploadItemDao {
     @Query("SELECT * FROM upload_items WHERE photo_id = :photoId LIMIT 1")
     suspend fun getByPhotoId(photoId: String): UploadItemEntity?
 
+    @Query("SELECT * FROM upload_items WHERE uri = :uri LIMIT 1")
+    suspend fun getByUri(uri: String): UploadItemEntity?
+
     @Insert
     suspend fun insert(entity: UploadItemEntity): Long
 
