@@ -11,6 +11,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -162,5 +163,33 @@ class QueueWorkInfoMapperTest {
         val reason = mapped.waitingReasons.single()
         assertEquals(R.string.queue_retry_in, reason.messageResId)
         assertEquals(listOf("30\u202fс"), reason.formatArgs)
+    }
+
+    @Test
+    fun retryDelayIsClampedToTwentyFourHours() {
+        val tags = setOf(
+            UploadTags.TAG_UPLOAD,
+            UploadTags.uniqueTag("unique"),
+            UploadTags.uriTag("file:///tmp/photo.jpg"),
+            UploadTags.kindTag(UploadWorkKind.UPLOAD)
+        )
+        val workInfo = WorkInfo(
+            id = UUID.randomUUID(),
+            state = WorkInfo.State.ENQUEUED,
+            tags = tags,
+            progress = Data.EMPTY,
+            outputData = Data.EMPTY,
+            runAttemptCount = 2,
+            generation = 0,
+            constraints = Constraints.NONE,
+            nextScheduleTimeMillis = clock.millis() + TimeUnit.DAYS.toMillis(90),
+        )
+
+        val mapped = mapper.map(workInfo)
+
+        assertNotNull(mapped)
+        val reason = mapped.waitingReasons.single()
+        assertEquals(R.string.queue_retry_in, reason.messageResId)
+        assertEquals(listOf("24:00:00"), reason.formatArgs)
     }
 }

@@ -12,6 +12,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.feature.queue.R
 import java.time.Clock
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 class QueueWorkInfoMapper @Inject constructor(
@@ -122,11 +123,14 @@ class QueueWorkInfoMapper @Inject constructor(
             return null
         }
         val now = clock.millis()
-        val delta = nextTime - now
-        if (delta <= 0L) {
+        if (nextTime <= now) {
             return null
         }
-        val seconds = (delta / 1_000L).coerceAtLeast(0L)
+        val deltaMillis = (nextTime - now).coerceAtMost(MAX_RETRY_DELAY_MILLIS)
+        val seconds = (deltaMillis / 1_000L).coerceAtLeast(0L)
+        if (seconds <= 0L) {
+            return null
+        }
         val formatted = formatElapsedTime(seconds)
         return QueueItemWaitingReason(
             messageResId = R.string.queue_retry_in,
@@ -151,6 +155,9 @@ class QueueWorkInfoMapper @Inject constructor(
                 String.format(locale, "%02d:%02d:%02d", hours, minutes, remainingSeconds)
             }
         }
+    }
+    companion object {
+        private val MAX_RETRY_DELAY_MILLIS: Long = TimeUnit.HOURS.toMillis(24)
     }
 }
 
