@@ -192,4 +192,30 @@ class QueueWorkInfoMapperTest {
         assertEquals(R.string.queue_retry_in, reason.messageResId)
         assertEquals(listOf("24:00:00"), reason.formatArgs)
     }
+
+    @Test
+    fun failedWorkDoesNotExposeRetryReasons() {
+        val tags = setOf(
+            UploadTags.TAG_UPLOAD,
+            UploadTags.uniqueTag("unique"),
+            UploadTags.uriTag("file:///tmp/photo.jpg"),
+            UploadTags.kindTag(UploadWorkKind.UPLOAD)
+        )
+        val workInfo = WorkInfo(
+            id = UUID.randomUUID(),
+            state = WorkInfo.State.FAILED,
+            tags = tags,
+            progress = Data.EMPTY,
+            outputData = Data.EMPTY,
+            runAttemptCount = 3,
+            generation = 0,
+            constraints = Constraints.NONE,
+            nextScheduleTimeMillis = clock.millis() + 60_000L,
+        )
+
+        val mapped = mapper.map(workInfo)
+
+        assertNotNull(mapped)
+        assertTrue(mapped.waitingReasons.isEmpty())
+    }
 }

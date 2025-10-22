@@ -203,7 +203,14 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
     val mergedStatusResId = resolvedWorkInfo?.statusResId ?: baseStatusResId
     val mergedBytesSent = resolvedWorkInfo?.bytesSent
     val mergedTotalBytes = resolvedWorkInfo?.totalBytes ?: entity.size.takeIf { it > 0 }
-    val mergedWaitingReasons = resolvedWorkInfo?.waitingReasons ?: emptyList()
+    val mergedWaitingReasons = resolvedWorkInfo?.let { info ->
+        when (info.state) {
+            WorkInfo.State.SUCCEEDED,
+            WorkInfo.State.FAILED,
+            WorkInfo.State.CANCELLED -> emptyList()
+            else -> info.waitingReasons
+        }
+    } ?: emptyList()
     val mergedIsActive = resolvedWorkInfo?.isActiveTransfer ?: false
     val finalCanCancel = when (resolvedWorkInfo?.state) {
         WorkInfo.State.SUCCEEDED,
