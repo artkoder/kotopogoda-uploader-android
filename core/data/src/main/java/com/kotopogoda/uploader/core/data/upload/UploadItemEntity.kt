@@ -36,4 +36,6 @@ data class UploadItemEntity(
     val lastErrorKind: String? = null,
     @ColumnInfo(name = "http_code")
     val httpCode: Int? = null,
+    @ColumnInfo(name = "last_error_message")
+    val lastErrorMessage: String? = null,
 )

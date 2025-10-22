@@ -169,6 +169,7 @@ data class QueueItemUiModel(
     val totalBytes: Long?,
     val lastErrorKind: UploadErrorKind?,
     val lastErrorHttpCode: Int?,
+    val lastErrorMessage: String?,
     val waitingReasons: List<QueueItemWaitingReason>,
     val isActiveTransfer: Boolean,
 ) {
@@ -233,6 +234,7 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
         totalBytes = mergedTotalBytes,
         lastErrorKind = lastErrorKind,
         lastErrorHttpCode = lastErrorHttpCode,
+        lastErrorMessage = entity.lastErrorMessage,
         waitingReasons = mergedWaitingReasons,
         isActiveTransfer = mergedIsActive,
     )

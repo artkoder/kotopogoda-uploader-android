@@ -91,6 +91,7 @@ class UploadEnqueuer @Inject constructor(
         const val KEY_TOTAL_BYTES = "totalBytes"
         const val KEY_ERROR_KIND = "errorKind"
         const val KEY_HTTP_CODE = "httpCode"
+        const val KEY_ERROR_MESSAGE = "errorMessage"
         const val KEY_DELETED = "deleted"
         const val KEY_COMPLETION_STATE = "completionState"
         const val STATE_UPLOADED_DELETED = "uploadedDeleted"

@@ -47,6 +47,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import retrofit2.Response
 import timber.log.Timber
+import org.json.JSONObject
 
 @HiltWorker
 class UploadWorker @AssistedInject constructor(
@@ -245,20 +246,29 @@ class UploadWorker @AssistedInject constructor(
                 )
             }
 
+            val responseCode = response.code()
+            val errorMessage = if (responseCode in 400..499) {
+                response.extractErrorMessage()
+            } else {
+                null
+            }
             Timber.tag("WorkManager").i(
                 UploadLog.message(
                     category = CATEGORY_HTTP_RESPONSE,
                     action = "upload_response_code",
                     uri = uri,
-                    details = arrayOf(
-                        "queue_item_id" to itemId,
-                        "display_name" to displayName,
-                        "http_code" to response.code(),
-                    ),
+                    details = buildList {
+                        add("queue_item_id" to itemId)
+                        add("display_name" to displayName)
+                        add("http_code" to responseCode)
+                        if (!errorMessage.isNullOrBlank()) {
+                            add("error_message" to errorMessage)
+                        }
+                    }.toTypedArray(),
                 )
             )
 
-            val result = when (response.code()) {
+            val result = when (responseCode) {
                 202, 409 -> {
                     val uploadId = response.body()?.uploadId
                     if (uploadId.isNullOrBlank()) {
@@ -307,18 +317,19 @@ class UploadWorker @AssistedInject constructor(
                     displayName = displayName,
                     uriString = uriString,
                     errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code()
+                    httpCode = responseCode,
+                    errorMessage = errorMessage,
                 )
                 429 -> retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code(),
+                    httpCode = responseCode,
                     uri = uri,
                 )
                 in 500..599 -> retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code(),
+                    httpCode = responseCode,
                     uri = uri,
                 )
                 else -> failureResult(
@@ -326,7 +337,8 @@ class UploadWorker @AssistedInject constructor(
                     displayName = displayName,
                     uriString = uriString,
                     errorKind = UploadErrorKind.HTTP,
-                    httpCode = response.code()
+                    httpCode = responseCode,
+                    errorMessage = errorMessage,
                 )
             }
             return result
@@ -585,9 +597,12 @@ class UploadWorker @AssistedInject constructor(
         uriString: String,
         errorKind: UploadErrorKind,
         httpCode: Int? = null,
+        errorMessage: String? = null,
         throwable: Throwable? = null,
     ): Result {
         val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
+        val resolvedMessage = errorMessage
+            ?: throwable?.message?.takeIf { it.isNotBlank() }
         Timber.tag("WorkManager").e(
             throwable,
             UploadLog.message(
@@ -599,7 +614,7 @@ class UploadWorker @AssistedInject constructor(
                     add("display_name" to displayName)
                     add("error_kind" to errorKind)
                     httpCode?.let { add("http_code" to it) }
-                    throwable?.message?.let { add("message" to it) }
+                    resolvedMessage?.let { add("message" to it) }
                 }.toTypedArray(),
             )
         )
@@ -610,6 +625,7 @@ class UploadWorker @AssistedInject constructor(
                 errorKind = errorKind,
                 httpCode = httpCode,
                 requeue = false,
+                errorMessage = resolvedMessage,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -632,7 +648,8 @@ class UploadWorker @AssistedInject constructor(
                 bytesSent = lastProgressSnapshot.bytesSent,
                 totalBytes = lastProgressSnapshot.totalBytes,
                 errorKind = errorKind,
-                httpCode = httpCode
+                httpCode = httpCode,
+                errorMessage = resolvedMessage,
             )
         )
     }
@@ -645,6 +662,7 @@ class UploadWorker @AssistedInject constructor(
         totalBytes: Long? = null,
         errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
+        errorMessage: String? = null,
     ): Data {
         val builder = Data.Builder()
             .putString(UploadEnqueuer.KEY_URI, uriString)
@@ -654,7 +672,19 @@ class UploadWorker @AssistedInject constructor(
         totalBytes?.let { builder.putLong(UploadEnqueuer.KEY_TOTAL_BYTES, it) }
         errorKind?.let { builder.putString(UploadEnqueuer.KEY_ERROR_KIND, it.rawValue) }
         httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
+        errorMessage?.let { builder.putString(UploadEnqueuer.KEY_ERROR_MESSAGE, it) }
         return builder.build()
+    }
+
+    private fun Response<*>.extractErrorMessage(): String? {
+        val rawBody = runCatching { errorBody()?.string() }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: return null
+        return runCatching {
+            val json = JSONObject(rawBody)
+            val message = json.optString("message").takeIf { it.isNotBlank() }
+            val error = json.optString("error").takeIf { it.isNotBlank() }
+            message ?: error
+        }.getOrNull() ?: rawBody
     }
 
     private fun createForeground(displayName: String, progress: Int): ForegroundInfo {

@@ -40,6 +40,7 @@ class UploadQueueRepository @Inject constructor(
                         state = state,
                         lastErrorKind = UploadErrorKind.fromRawValue(entity.lastErrorKind),
                         lastErrorHttpCode = entity.httpCode,
+                        lastErrorMessage = entity.lastErrorMessage,
                     )
                 }
             }
@@ -263,6 +264,7 @@ class UploadQueueRepository @Inject constructor(
                         state = UploadItemState.FAILED.rawValue,
                         lastErrorKind = UploadErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
+                        lastErrorMessage = null,
                         updatedAt = updateTimestamp,
                     )
                     Timber.tag("Queue").w(
@@ -285,6 +287,7 @@ class UploadQueueRepository @Inject constructor(
                         state = UploadItemState.FAILED.rawValue,
                         lastErrorKind = UploadErrorKind.UNEXPECTED.rawValue,
                         httpCode = null,
+                        lastErrorMessage = null,
                         updatedAt = updateTimestamp,
                     )
                     Timber.tag("Queue").w(
@@ -315,6 +318,7 @@ class UploadQueueRepository @Inject constructor(
                         updatedAt = entity.updatedAt,
                         lastErrorKind = UploadErrorKind.fromRawValue(entity.lastErrorKind),
                         lastErrorHttpCode = entity.httpCode,
+                        lastErrorMessage = entity.lastErrorMessage,
                     )
                 )
                 Timber.tag("Queue").i(
@@ -412,6 +416,7 @@ class UploadQueueRepository @Inject constructor(
         errorKind: UploadErrorKind,
         httpCode: Int? = null,
         requeue: Boolean = false,
+        errorMessage: String? = null,
     ) = withContext(Dispatchers.IO) {
         val state = if (requeue) UploadItemState.QUEUED else UploadItemState.FAILED
         uploadItemDao.updateStateWithError(
@@ -419,6 +424,7 @@ class UploadQueueRepository @Inject constructor(
             state = state.rawValue,
             lastErrorKind = errorKind.rawValue,
             httpCode = httpCode,
+            lastErrorMessage = errorMessage,
             updatedAt = currentTimeMillis(),
         )
         Timber.tag("Queue").w(
@@ -426,12 +432,15 @@ class UploadQueueRepository @Inject constructor(
                 category = CATEGORY_STATE,
                 action = "mark_failed",
                 state = state,
-                details = arrayOf(
-                    "queue_item_id" to id,
-                    "error_kind" to errorKind,
-                    "http_code" to httpCode,
-                    "requeue" to requeue,
-                ),
+                details = buildList {
+                    add("queue_item_id" to id)
+                    add("error_kind" to errorKind)
+                    add("http_code" to httpCode)
+                    add("requeue" to requeue)
+                    if (!errorMessage.isNullOrBlank()) {
+                        add("error_message" to errorMessage)
+                    }
+                }.toTypedArray(),
             ),
         )
     }
@@ -601,6 +610,7 @@ data class UploadQueueEntry(
     val state: UploadItemState,
     val lastErrorKind: UploadErrorKind?,
     val lastErrorHttpCode: Int?,
+    val lastErrorMessage: String? = null,
 )
 
 data class UploadQueueStats(
@@ -621,4 +631,5 @@ data class UploadQueueItem(
     val updatedAt: Long? = null,
     val lastErrorKind: UploadErrorKind? = null,
     val lastErrorHttpCode: Int? = null,
+    val lastErrorMessage: String? = null,
 )

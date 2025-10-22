@@ -14,7 +14,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -95,7 +95,8 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                         `created_at` INTEGER NOT NULL,
                         `updated_at` INTEGER,
                         `last_error_kind` TEXT,
-                        `http_code` INTEGER
+                        `http_code` INTEGER,
+                        `last_error_message` TEXT
                     )
                     """
                         .trimIndent()
@@ -196,6 +197,15 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                     """
                         .trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = getTableColumns(db, "upload_items")
+                if ("last_error_message" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `last_error_message` TEXT")
+                }
             }
         }
 

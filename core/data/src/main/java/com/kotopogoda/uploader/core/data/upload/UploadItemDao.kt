@@ -50,7 +50,7 @@ interface UploadItemDao {
 
     @Query(
         "UPDATE upload_items SET state = :state, uri = :uri, display_name = :displayName, size = :size, " +
-            "idempotency_key = :idempotencyKey, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE id = :id"
+            "idempotency_key = :idempotencyKey, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateStateWithMetadata(
         id: Long,
@@ -63,7 +63,7 @@ interface UploadItemDao {
     )
 
     @Query(
-        "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE id = :id"
+        "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateState(id: Long, state: String, updatedAt: Long)
 
@@ -89,13 +89,14 @@ interface UploadItemDao {
     ): Int
 
     @Query(
-        "UPDATE upload_items SET state = :state, last_error_kind = :lastErrorKind, http_code = :httpCode, updated_at = :updatedAt WHERE id = :id"
+        "UPDATE upload_items SET state = :state, last_error_kind = :lastErrorKind, http_code = :httpCode, last_error_message = :lastErrorMessage, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateStateWithError(
         id: Long,
         state: String,
         lastErrorKind: String?,
         httpCode: Int?,
+        lastErrorMessage: String?,
         updatedAt: Long,
     )
 
@@ -103,12 +104,12 @@ interface UploadItemDao {
     suspend fun countByState(state: String): Int
 
     @Query(
-        "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt WHERE state IN (:states)"
+        "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE state IN (:states)"
     )
     suspend fun updateStatesClearingError(states: List<String>, state: String, updatedAt: Long)
 
     @Query(
-        "UPDATE upload_items SET state = :queuedState, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt " +
+        "UPDATE upload_items SET state = :queuedState, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt " +
             "WHERE state = :processingState AND updated_at <= :updatedBefore"
     )
     suspend fun requeueProcessingToQueued(
@@ -119,7 +120,7 @@ interface UploadItemDao {
     ): Int
 
     @Query(
-        "UPDATE upload_items SET state = :queuedState, last_error_kind = NULL, http_code = NULL, updated_at = :updatedAt " +
+        "UPDATE upload_items SET state = :queuedState, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt " +
             "WHERE state = :processingState"
     )
     suspend fun requeueAllProcessingToQueued(
