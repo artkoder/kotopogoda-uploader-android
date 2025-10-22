@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.feature.queue
 
+import android.content.res.Resources
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -226,25 +227,10 @@ private fun QueueItemCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
-            val errorMessage = item.lastErrorKind?.let { kind ->
-                when (kind) {
-                    UploadErrorKind.HTTP -> {
-                        val code = item.lastErrorHttpCode
-                        if (code != null) {
-                            stringResource(id = R.string.queue_error_http_with_code, code)
-                        } else {
-                            stringResource(id = R.string.queue_error_http)
-                        }
-                    }
-                    UploadErrorKind.NETWORK -> stringResource(id = R.string.queue_error_network)
-                    UploadErrorKind.IO -> stringResource(id = R.string.queue_error_io)
-                    UploadErrorKind.REMOTE_FAILURE -> stringResource(id = R.string.queue_error_remote_failure)
-                    UploadErrorKind.UNEXPECTED -> stringResource(id = R.string.queue_error_unexpected)
-                }
-            }
+            val errorMessage = queueItemErrorMessage(context.resources, item)
             if (!errorMessage.isNullOrBlank()) {
                 Text(
-                    text = stringResource(id = R.string.queue_last_error, errorMessage),
+                    text = errorMessage,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 8.dp)
@@ -295,6 +281,27 @@ private fun QueueItemCard(
             }
         }
     }
+}
+
+internal fun queueItemErrorMessage(resources: Resources, item: QueueItemUiModel): String? {
+    val message = item.lastErrorMessage?.takeIf { it.isNotBlank() }
+        ?: item.lastErrorKind?.let { kind ->
+            when (kind) {
+                UploadErrorKind.HTTP -> {
+                    val code = item.lastErrorHttpCode
+                    if (code != null) {
+                        resources.getString(R.string.queue_error_http_with_code, code)
+                    } else {
+                        resources.getString(R.string.queue_error_http)
+                    }
+                }
+                UploadErrorKind.NETWORK -> resources.getString(R.string.queue_error_network)
+                UploadErrorKind.IO -> resources.getString(R.string.queue_error_io)
+                UploadErrorKind.REMOTE_FAILURE -> resources.getString(R.string.queue_error_remote_failure)
+                UploadErrorKind.UNEXPECTED -> resources.getString(R.string.queue_error_unexpected)
+            }
+        }
+    return message?.let { resources.getString(R.string.queue_last_error, it) }
 }
 
 @Composable

@@ -66,6 +66,7 @@ import org.robolectric.shadows.ShadowContentResolver
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -399,6 +400,38 @@ class UploadWorkerTest {
         val outputData = (result as Failure).outputData
         assertEquals(UploadErrorKind.HTTP.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
         assertEquals(415, outputData.getInt(UploadEnqueuer.KEY_HTTP_CODE, -1))
+    }
+
+    @Test
+    fun httpErrorMessageIsPropagated() = runBlocking {
+        val file = createTempFileWithContent("server-error")
+        val inputData = inputDataFor(file)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(422)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":"invalid_header","message":"X-Timestamp must be an integer"}""")
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals(
+            "X-Timestamp must be an integer",
+            outputData.getString(UploadEnqueuer.KEY_ERROR_MESSAGE)
+        )
+        coVerify {
+            uploadQueueRepository.markFailed(
+                id = 1L,
+                errorKind = UploadErrorKind.HTTP,
+                httpCode = 422,
+                requeue = false,
+                errorMessage = "X-Timestamp must be an integer",
+            )
+        }
     }
 
     @Test

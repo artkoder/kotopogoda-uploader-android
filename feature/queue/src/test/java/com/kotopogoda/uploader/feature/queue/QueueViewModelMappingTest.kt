@@ -41,6 +41,7 @@ class QueueViewModelMappingTest {
         assertFalse(uiModel.canRetry)
         assertTrue(uiModel.waitingReasons.isEmpty())
         assertFalse(uiModel.isActiveTransfer)
+        assertNull(uiModel.lastErrorMessage)
     }
 
     @Test
@@ -56,6 +57,7 @@ class QueueViewModelMappingTest {
             updatedAt = 2L,
             lastErrorKind = UploadErrorKind.HTTP.rawValue,
             httpCode = 413,
+            lastErrorMessage = "Payload too large",
         )
         val entry = UploadQueueEntry(
             entity = entity,
@@ -63,12 +65,14 @@ class QueueViewModelMappingTest {
             state = UploadItemState.FAILED,
             lastErrorKind = UploadErrorKind.HTTP,
             lastErrorHttpCode = 413,
+            lastErrorMessage = entity.lastErrorMessage,
         )
 
         val uiModel = entry.toQueueItemUiModel(workInfo = null)
 
         assertEquals(UploadErrorKind.HTTP, uiModel.lastErrorKind)
         assertEquals(413, uiModel.lastErrorHttpCode)
+        assertEquals("Payload too large", uiModel.lastErrorMessage)
         assertEquals(0, uiModel.progressPercent)
         assertEquals(R.string.queue_status_failed, uiModel.statusResId)
         assertTrue(uiModel.waitingReasons.isEmpty())

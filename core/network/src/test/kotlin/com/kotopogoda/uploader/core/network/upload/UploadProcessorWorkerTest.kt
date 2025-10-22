@@ -114,7 +114,7 @@ class UploadProcessorWorkerTest {
         assertEquals(Result.success(), result)
         coVerify { repository.getState(queueItem.id) }
         coVerify(exactly = 0) { repository.markSucceeded(queueItem.id) }
-        coVerify(exactly = 0) { repository.markFailed(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.markFailed(any(), any(), any(), any(), any()) }
     }
 
     @Test
