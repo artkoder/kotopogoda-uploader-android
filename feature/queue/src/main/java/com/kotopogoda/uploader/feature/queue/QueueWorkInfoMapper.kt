@@ -90,6 +90,12 @@ class QueueWorkInfoMapper @Inject constructor(
     }
 
     private fun buildWaitingReasons(info: WorkInfo, kind: UploadWorkKind): List<QueueItemWaitingReason> {
+        when (info.state) {
+            WorkInfo.State.SUCCEEDED,
+            WorkInfo.State.FAILED,
+            WorkInfo.State.CANCELLED -> return emptyList()
+            else -> Unit
+        }
         val retryReason = nextRetryReason(info)
         if (retryReason != null) {
             return listOf(retryReason)
