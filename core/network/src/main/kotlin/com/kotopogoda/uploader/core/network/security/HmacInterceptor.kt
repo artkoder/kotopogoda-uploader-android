@@ -5,7 +5,6 @@ import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
-import java.time.temporal.ChronoUnit
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -33,7 +32,7 @@ class HmacInterceptor @Inject constructor(
         val creds = runBlocking { deviceCredsStore.get() }
             ?: throw DeviceNotPairedException()
 
-        val timestamp = clock.instant().truncatedTo(ChronoUnit.SECONDS).toString()
+        val timestamp = clock.instant().epochSecond.toString()
         val nonce = nonceProvider()
         val existingContentSha = originalRequest.header(HEADER_CONTENT_SHA)?.takeIf { it.isNotBlank() }
         val contentSha = existingContentSha ?: run {
