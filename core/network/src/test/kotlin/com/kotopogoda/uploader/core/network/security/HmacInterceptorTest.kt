@@ -81,7 +81,7 @@ class HmacInterceptorTest {
     }
 
     @Test
-    fun `interceptor recomputes content sha even when header is present`() {
+    fun `interceptor reuses provided content sha when header is present`() {
         val fixedInstant = Instant.parse("2024-03-23T10:15:30.123Z")
         val clock = Clock.fixed(fixedInstant, ZoneOffset.UTC)
         val nonce = "fixed-nonce"
@@ -100,7 +100,7 @@ class HmacInterceptorTest {
                 .build()
 
             val payloadBytes = ByteArray(128) { index -> (index % 251).toByte() }
-            val providedSha = "deadbeef"
+            val providedSha = sha256Hex(payloadBytes)
             val countingBody = CountingRequestBody(
                 data = payloadBytes,
                 mediaType = "application/octet-stream".toMediaType(),
@@ -116,7 +116,7 @@ class HmacInterceptorTest {
                 assertEquals(200, response.code)
             }
 
-            assertEquals(2, countingBody.writeCount)
+            assertEquals(1, countingBody.writeCount)
 
             val recorded = server.takeRequest(1, TimeUnit.SECONDS) ?: fail("Request was not recorded")
 
@@ -124,7 +124,7 @@ class HmacInterceptorTest {
             assertEquals(expectedTimestamp, recorded.getHeader("X-Timestamp"))
             assertEquals(nonce, recorded.getHeader("X-Nonce"))
             assertEquals(deviceCreds.deviceId, recorded.getHeader("X-Device-Id"))
-            val expectedContentSha = sha256Hex(payloadBytes)
+            val expectedContentSha = providedSha
             assertEquals(expectedContentSha, recorded.getHeader("X-Content-SHA256"))
 
             val expectedCanonical = listOf(
