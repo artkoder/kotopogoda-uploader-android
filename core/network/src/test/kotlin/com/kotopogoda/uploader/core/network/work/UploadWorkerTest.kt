@@ -173,7 +173,8 @@ class UploadWorkerTest {
         val bodyBytes = request.body.readByteArray()
         val body = String(bodyBytes, Charsets.UTF_8)
         val expectedFileSha = file.readBytes().sha256Hex()
-        assertEquals(expectedFileSha, request.getHeader("X-Content-SHA256"))
+        val expectedRequestSha = bodyBytes.sha256Hex()
+        assertEquals(expectedRequestSha, request.getHeader("X-Content-SHA256"))
         val boundary = request.getHeader("Content-Type")?.substringAfter("boundary=")?.trim()
         requireNotNull(boundary) { "Multipart boundary missing" }
         val contentShaPart = body.findMultipartValue(boundary, "content_sha256")
@@ -235,7 +236,7 @@ class UploadWorkerTest {
         val uri = Uri.parse("content://$authority/items/1")
         val data = ByteArray(STREAMING_TEST_SIZE) { index -> (index % 251).toByte() }
         val streamFactory = TrackingInputStreamFactory(uri, data, context.contentResolver)
-        streamFactory.prepare(streamCount = 2)
+        streamFactory.prepare(streamCount = 3)
 
         mockWebServer.enqueue(
             MockResponse()
@@ -256,7 +257,8 @@ class UploadWorkerTest {
         val bodyBytes = request.body.readByteArray()
         val bodyString = String(bodyBytes, Charsets.UTF_8)
         val expectedFileSha = data.sha256Hex()
-        assertEquals(expectedFileSha, request.headers["X-Content-SHA256"])
+        val expectedRequestSha = bodyBytes.sha256Hex()
+        assertEquals(expectedRequestSha, request.headers["X-Content-SHA256"])
         val boundary = request.getHeader("Content-Type")?.substringAfter("boundary=")?.trim()
         requireNotNull(boundary) { "Multipart boundary missing" }
         val contentShaPart = bodyString.findMultipartValue(boundary, "content_sha256")
@@ -264,7 +266,7 @@ class UploadWorkerTest {
         assertTrue(bodyString.contains(expectedFileSha))
 
         val readHistory = streamFactory.readHistory
-        assertEquals(2, readHistory.size)
+        assertEquals(3, readHistory.size)
         readHistory.forEach { reads ->
             assertEquals(STREAMING_TEST_SIZE, reads.sum())
             assertTrue(reads.size > 1, "Expected multiple chunk reads, got $reads")

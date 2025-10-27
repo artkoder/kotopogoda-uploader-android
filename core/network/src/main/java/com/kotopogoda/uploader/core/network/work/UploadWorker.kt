@@ -18,13 +18,14 @@ import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.api.UploadAcceptedDto
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
-import com.kotopogoda.uploader.core.network.upload.ProgressRequestBody
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
-import com.kotopogoda.uploader.core.network.upload.UploadTags
+import com.kotopogoda.uploader.core.network.upload.UploadRequestPayload
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
+import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
+import com.kotopogoda.uploader.core.network.upload.prepareUploadRequestPayload
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import dagger.assisted.Assisted
@@ -33,7 +34,6 @@ import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.security.MessageDigest
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -41,10 +41,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
 import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import okio.BufferedSink
 import retrofit2.Response
 import timber.log.Timber
 import org.json.JSONObject
@@ -115,7 +112,14 @@ class UploadWorker @AssistedInject constructor(
                 appContext.contentResolver.getType(uri)
             }?.takeIf { it.isNotBlank() } ?: DEFAULT_MIME_TYPE
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
-            val payload = readDocumentPayload(uri, totalBytes, mediaType)
+            val payload = prepareUploadPayload(
+                uri = uri,
+                displayName = displayName,
+                idempotencyKey = idempotencyKey,
+                totalBytes = totalBytes,
+                mediaType = mediaType,
+                mimeType = mimeType,
+            )
             Timber.tag("WorkManager").i(
                 UploadLog.message(
                     category = CATEGORY_UPLOAD_CONTENT,
@@ -124,8 +128,9 @@ class UploadWorker @AssistedInject constructor(
                     details = arrayOf(
                         "queue_item_id" to itemId,
                         "display_name" to displayName,
-                        "size" to payload.size,
-                        "sha256" to payload.sha256Hex,
+                        "size" to payload.fileSize,
+                        "file_sha256" to payload.fileSha256Hex,
+                        "request_sha256" to payload.requestSha256Hex,
                     ),
                 ),
             )
@@ -138,18 +143,16 @@ class UploadWorker @AssistedInject constructor(
                         "queue_item_id" to itemId,
                         "display_name" to displayName,
                         "mime_type" to mimeType,
-                        "size" to payload.size,
+                        "size" to payload.fileSize,
                     ),
                 )
             )
 
             var lastReportedPercent = -1
             var lastBytesSent: Long? = null
-            val fileRequestBody = ProgressRequestBody(
-                payload.requestBody,
-                onProgress = { bytesSent: Long, _: Long ->
-                val percent = if (payload.size > 0) {
-                    ((bytesSent * 100) / payload.size).toInt().coerceIn(0, 100)
+            val requestBody = payload.createRequestBody { bytesSent, _ ->
+                val percent = if (payload.fileSize > 0) {
+                    ((bytesSent * 100) / payload.fileSize).toInt().coerceIn(0, 100)
                 } else {
                     100
                 }
@@ -167,7 +170,7 @@ class UploadWorker @AssistedInject constructor(
                                     add("display_name" to displayName)
                                     add("progress" to percent)
                                     add("bytes_sent" to bytesSent)
-                                    payload.size.takeIf { it > 0 }?.let { add("total_bytes" to it) }
+                                    payload.fileSize.takeIf { it > 0 }?.let { add("total_bytes" to it) }
                                 }.toTypedArray(),
                             )
                         )
@@ -175,17 +178,11 @@ class UploadWorker @AssistedInject constructor(
                             displayName = displayName,
                             progress = percent,
                             bytesSent = bytesSent,
-                            totalBytes = payload.size.takeIf { it > 0 }
+                            totalBytes = payload.fileSize.takeIf { it > 0 }
                         )
                     }
                 }
-                }
-            )
-            val filePart = MultipartBody.Part.createFormData(
-                "file",
-                displayName,
-                fileRequestBody
-            )
+            }
             Timber.tag("WorkManager").i(
                 UploadLog.message(
                     category = CATEGORY_HTTP_REQUEST,
@@ -201,9 +198,8 @@ class UploadWorker @AssistedInject constructor(
             val response = try {
                 executeUpload(
                     idempotencyKey = idempotencyKey,
-                    filePart = filePart,
                     payload = payload,
-                    mimeType = mimeType,
+                    requestBody = requestBody,
                 )
             } catch (timeout: SocketTimeoutException) {
                 logUploadError(
@@ -278,8 +274,8 @@ class UploadWorker @AssistedInject constructor(
                         updateProgress(
                             displayName = displayName,
                             progress = 100,
-                            bytesSent = lastBytesSent ?: payload.size,
-                            totalBytes = payload.size.takeIf { it > 0 }
+                            bytesSent = lastBytesSent ?: payload.fileSize,
+                            totalBytes = payload.fileSize.takeIf { it > 0 }
                         )
                         val resultData = buildResultData(
                             displayName = displayName,
@@ -297,7 +293,7 @@ class UploadWorker @AssistedInject constructor(
                                     add("queue_item_id" to itemId)
                                     add("display_name" to displayName)
                                     add("upload_id" to uploadId)
-                                    add("bytes_sent" to (lastProgressSnapshot.bytesSent ?: payload.size))
+                                    add("bytes_sent" to (lastProgressSnapshot.bytesSent ?: payload.fileSize))
                                 }.toTypedArray(),
                             )
                         )
@@ -364,61 +360,22 @@ class UploadWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun readDocumentPayload(
+    private suspend fun prepareUploadPayload(
         uri: Uri,
+        displayName: String,
+        idempotencyKey: String,
         totalBytes: Long,
         mediaType: MediaType,
-    ): FilePayload = withContext(Dispatchers.IO) {
-        val resolver = appContext.contentResolver
-        val inputStream = resolver.openInputStream(uri)
-            ?: throw IOException("Unable to open input stream for $uri")
-        var total = 0L
-        val digest = MessageDigest.getInstance("SHA-256")
-        inputStream.use { stream ->
-            val buffer = ByteArray(BUFFER_SIZE)
-            while (true) {
-                val read = stream.read(buffer)
-                if (read == -1) {
-                    break
-                }
-                if (read > 0) {
-                    total += read
-                    digest.update(buffer, 0, read)
-                }
-            }
-        }
-        val sha256Hex = digest.digest().toHexString()
-        val contentLength = if (totalBytes > 0) totalBytes else total
-        val requestBody = object : RequestBody() {
-            override fun contentType(): MediaType = mediaType
-
-            override fun contentLength(): Long = contentLength
-
-            override fun writeTo(sink: BufferedSink) {
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        val stream = resolver.openInputStream(uri)
-                            ?: throw IOException("Unable to open input stream for $uri")
-                        stream.use { input ->
-                            val buffer = ByteArray(BUFFER_SIZE)
-                            while (true) {
-                                val read = input.read(buffer)
-                                if (read == -1) {
-                                    break
-                                }
-                                if (read > 0) {
-                                    sink.write(buffer, 0, read)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        FilePayload(
-            requestBody = requestBody,
-            size = total,
-            sha256Hex = sha256Hex,
+        mimeType: String,
+    ): UploadRequestPayload {
+        return prepareUploadRequestPayload(
+            resolver = appContext.contentResolver,
+            uri = uri,
+            displayName = displayName,
+            mimeType = mimeType,
+            mediaType = mediaType,
+            totalBytes = totalBytes,
+            boundarySeed = idempotencyKey,
         )
     }
 
@@ -777,23 +734,11 @@ class UploadWorker @AssistedInject constructor(
         private const val CATEGORY_UPLOAD_GUARD = "UPLOAD/GUARD"
     }
 
-    private data class FilePayload(
-        val requestBody: RequestBody,
-        val size: Long,
-        val sha256Hex: String,
-    )
-
     private data class ProgressSnapshot(
         val progress: Int = INDETERMINATE_PROGRESS,
         val bytesSent: Long? = null,
         val totalBytes: Long? = null,
     )
-
-    private fun String.toPlainRequestBody() =
-        toRequestBody("text/plain".toMediaType())
-
-    private fun ByteArray.toHexString(): String =
-        joinToString(separator = "") { byte -> "%02x".format(byte) }
 
     private fun guardDetails(
         displayName: String? = null,
@@ -842,17 +787,13 @@ class UploadWorker @AssistedInject constructor(
 
     private suspend fun executeUpload(
         idempotencyKey: String,
-        filePart: MultipartBody.Part,
-        payload: FilePayload,
-        mimeType: String,
+        payload: UploadRequestPayload,
+        requestBody: RequestBody,
     ): Response<UploadAcceptedDto> = withContext(Dispatchers.IO) {
         uploadApi.upload(
             idempotencyKey = idempotencyKey,
-            contentSha256Header = payload.sha256Hex,
-            file = filePart,
-            contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
-            mime = mimeType.toPlainRequestBody(),
-            size = payload.size.toString().toPlainRequestBody(),
+            contentSha256Header = payload.requestSha256Hex,
+            body = requestBody,
         )
     }
 }

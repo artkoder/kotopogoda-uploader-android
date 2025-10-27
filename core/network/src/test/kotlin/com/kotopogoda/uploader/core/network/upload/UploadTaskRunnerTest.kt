@@ -1,143 +1,139 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import android.content.ContentResolver
-import android.content.Context
 import android.net.Uri
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
 import java.io.InputStream
 import java.security.MessageDigest
+import kotlin.math.min
 import okio.Buffer
+import okhttp3.MediaType.Companion.toMediaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-import com.kotopogoda.uploader.core.network.api.UploadApi
-import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
-
 class UploadTaskRunnerTest {
 
     @Test
-    fun `readDocumentPayload streams data in blocks`() {
+    fun `prepareUploadRequestPayload streams data and computes digests`() {
         val uri = Uri.parse("content://test/document")
         val data = ByteArray(25_000) { (it % 251).toByte() }
-        val digestStream = RecordingInputStream(data, chunkSize = 1_024)
-        val requestStream = RecordingInputStream(data, chunkSize = 1_024)
+        val streamFactory = RecordingStreamFactory(data, chunkSize = 1_024)
         val resolver = mockk<ContentResolver>()
         every { resolver.openAssetFileDescriptor(uri, any()) } returns null
-        every { resolver.openInputStream(uri) } returnsMany listOf(digestStream, requestStream)
+        every { resolver.openInputStream(uri) } answers { streamFactory.nextStream() }
         every { resolver.getType(uri) } returns "image/jpeg"
 
-        val context = mockk<Context>(relaxed = true)
-        every { context.contentResolver } returns resolver
+        val payload = prepareUploadRequestPayload(
+            resolver = resolver,
+            uri = uri,
+            displayName = "photo.jpg",
+            mimeType = "image/jpeg",
+            mediaType = "image/jpeg".toMediaType(),
+            totalBytes = -1L,
+            boundarySeed = "digest-test",
+        )
 
-        val uploadApi = mockk<UploadApi>(relaxed = true)
-        val summaryStarter = mockk<UploadSummaryStarter>(relaxed = true)
+        val expectedFileSha = MessageDigest.getInstance("SHA-256")
+            .digest(data)
+            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        assertEquals(data.size.toLong(), payload.fileSize)
+        assertEquals(expectedFileSha, payload.fileSha256Hex)
 
-        val runner = UploadTaskRunner(context, uploadApi, summaryStarter)
-        val payload = invokeReadDocumentPayload(runner, uri)
-
-        val expectedSha = MessageDigest.getInstance("SHA-256").digest(data).joinToString(separator = "") {
-            byte -> "%02x".format(byte)
-        }
-
-        assertEquals(data.size.toLong(), payload.size)
-        assertEquals(expectedSha, payload.sha256Hex)
-
-        val bufferSize = resolveBufferSize(runner)
-        assertTrue(digestStream.readSizes.isNotEmpty())
-        assertTrue(digestStream.readSizes.all { it == bufferSize })
-        assertTrue(digestStream.totalReads > 1)
-
-        val body = payload.requestBody
-        assertEquals(data.size.toLong(), body.contentLength())
-
+        val requestBody = payload.createRequestBody(null)
         val sink = Buffer()
-        body.writeTo(sink)
+        requestBody.writeTo(sink)
+        val bodyBytes = sink.readByteArray()
+        val expectedRequestSha = MessageDigest.getInstance("SHA-256")
+            .digest(bodyBytes)
+            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        assertEquals(expectedRequestSha, payload.requestSha256Hex)
 
-        assertTrue(requestStream.closed)
-        assertTrue(requestStream.totalReads > 1)
-        assertEquals(digestStream.totalBytesRead, requestStream.totalBytesRead)
-        assertTrue(requestStream.readSizes.all { it == bufferSize })
-
-        assertEquals(data.toList(), sink.readByteArray().toList())
+        assertEquals(3, streamFactory.streams.size)
+        streamFactory.streams.forEach { stream ->
+            assertTrue(stream.closed)
+            assertTrue("Expected multiple reads per stream", stream.totalReads > 1)
+            assertEquals(data.size.toLong(), stream.totalBytesRead)
+            assertTrue(stream.readSizes.all { it <= stream.chunkSize })
+        }
     }
 
     @Test(expected = IOException::class)
-    fun `readDocumentPayload throws when input stream missing`() {
+    fun `prepareUploadRequestPayload throws when input stream missing`() {
         val uri = Uri.parse("content://test/missing")
         val resolver = mockk<ContentResolver>()
         every { resolver.openAssetFileDescriptor(uri, any()) } returns null
         every { resolver.openInputStream(uri) } returns null
-        val context = mockk<Context>(relaxed = true)
-        every { context.contentResolver } returns resolver
 
-        val uploadApi = mockk<UploadApi>(relaxed = true)
-        val summaryStarter = mockk<UploadSummaryStarter>(relaxed = true)
-
-        val runner = UploadTaskRunner(context, uploadApi, summaryStarter)
-
-        invokeReadDocumentPayload(runner, uri)
-    }
-
-    private fun invokeReadDocumentPayload(runner: UploadTaskRunner, uri: Uri): UploadTaskRunner.FilePayload {
-        val mediaType = runner.javaClass.getDeclaredMethod("resolveMediaType", Uri::class.java)
-            .apply { isAccessible = true }
-            .invoke(runner, uri) as okhttp3.MediaType
-        val method = runner.javaClass.getDeclaredMethod(
-            "readDocumentPayload",
-            Uri::class.java,
-            okhttp3.MediaType::class.java
+        prepareUploadRequestPayload(
+            resolver = resolver,
+            uri = uri,
+            displayName = "missing.jpg",
+            mimeType = "image/jpeg",
+            mediaType = "image/jpeg".toMediaType(),
+            totalBytes = -1L,
+            boundarySeed = "missing",
         )
-        method.isAccessible = true
-        return method.invoke(runner, uri, mediaType) as UploadTaskRunner.FilePayload
     }
 
-    private fun resolveBufferSize(runner: UploadTaskRunner): Int {
-        val companionField = UploadTaskRunner::class.java.getDeclaredField("Companion")
-        companionField.isAccessible = true
-        val companion = companionField.get(null)
-        val bufferField = companion.javaClass.getDeclaredField("BUFFER_SIZE")
-        bufferField.isAccessible = true
-        return bufferField.getInt(companion)
-    }
-
-    private class RecordingInputStream(
+    private class RecordingStreamFactory(
         private val data: ByteArray,
-        private val chunkSize: Int,
-    ) : InputStream() {
+        val chunkSize: Int,
+    ) {
+        val streams = mutableListOf<RecordingStream>()
+        private var provided = 0
 
-        private var position = 0
-        val readSizes = mutableListOf<Int>()
-        var totalReads: Int = 0
-            private set
-        var totalBytesRead: Long = 0
-            private set
-        var closed: Boolean = false
-            private set
-
-        override fun read(): Int {
-            val buffer = ByteArray(1)
-            val read = read(buffer, 0, 1)
-            return if (read == -1) -1 else buffer[0].toInt() and 0xFF
-        }
-
-        override fun read(b: ByteArray, off: Int, len: Int): Int {
-            readSizes += len
-            if (position >= data.size) {
-                return -1
+        fun nextStream(): InputStream {
+            if (provided >= MAX_STREAMS) {
+                throw IllegalStateException("Unexpected stream request #$provided")
             }
-            val toRead = minOf(len, chunkSize, data.size - position)
-            System.arraycopy(data, position, b, off, toRead)
-            position += toRead
-            totalReads += 1
-            totalBytesRead += toRead
-            return toRead
+            val stream = RecordingStream(data, chunkSize)
+            streams += stream
+            provided += 1
+            return stream
         }
 
-        override fun close() {
-            closed = true
+        private class RecordingStream(
+            private val data: ByteArray,
+            val chunkSize: Int,
+        ) : InputStream() {
+            private var position = 0
+            val readSizes = mutableListOf<Int>()
+            var totalReads: Int = 0
+                private set
+            var totalBytesRead: Long = 0
+                private set
+            var closed: Boolean = false
+                private set
+
+            override fun read(): Int {
+                val buffer = ByteArray(1)
+                val read = read(buffer, 0, 1)
+                return if (read == -1) -1 else buffer[0].toInt() and 0xFF
+            }
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (position >= data.size) {
+                    return -1
+                }
+                val toRead = min(len, min(chunkSize, data.size - position))
+                System.arraycopy(data, position, b, off, toRead)
+                position += toRead
+                readSizes += toRead
+                totalReads += 1
+                totalBytesRead += toRead
+                return toRead
+            }
+
+            override fun close() {
+                closed = true
+            }
+        }
+
+        companion object {
+            private const val MAX_STREAMS = 3
         }
     }
 }
