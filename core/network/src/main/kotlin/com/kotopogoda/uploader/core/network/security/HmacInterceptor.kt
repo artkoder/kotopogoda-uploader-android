@@ -4,8 +4,9 @@ import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.time.Clock
-import java.util.UUID
+import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
@@ -14,13 +15,15 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.HttpUrl
 import okio.Buffer
+import java.util.Base64
 
 @Singleton
 class HmacInterceptor @Inject constructor(
     private val deviceCredsStore: DeviceCredsStore,
     private val clock: Clock = Clock.systemUTC(),
-    private val nonceProvider: () -> String = { UUID.randomUUID().toString() },
+    private val nonceProvider: () -> String = Companion::generateNonce,
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -39,12 +42,14 @@ class HmacInterceptor @Inject constructor(
             val bodyBytes = originalRequest.body?.let { captureBody(it) } ?: EMPTY_BYTE_ARRAY
             sha256Hex(bodyBytes)
         }
+        val idempotencyKey = originalRequest.header(HEADER_IDEMPOTENCY_KEY)?.takeIf { it.isNotBlank() }
         val canonical = buildCanonicalString(
             request = originalRequest,
             deviceId = creds.deviceId,
             timestamp = timestamp,
             nonce = nonce,
             contentSha = contentSha,
+            idempotencyKey = idempotencyKey,
         )
         val signature = sign(creds.hmacKey, canonical)
 
@@ -76,14 +81,21 @@ class HmacInterceptor @Inject constructor(
         timestamp: String,
         nonce: String,
         contentSha: String,
+        idempotencyKey: String?,
     ): String {
+        val method = request.method.uppercase(Locale.US)
+        val path = normalizePath(request.url.encodedPath)
+        val canonicalQuery = buildCanonicalQuery(request.url) ?: "-"
+        val canonicalIdempotencyKey = idempotencyKey ?: "-"
         return listOf(
-            request.method,
-            request.url.encodedPath,
-            deviceId,
+            method,
+            path,
+            canonicalQuery,
             timestamp,
             nonce,
+            deviceId,
             contentSha,
+            canonicalIdempotencyKey,
         ).joinToString(separator = LINE_SEPARATOR)
     }
 
@@ -97,10 +109,60 @@ class HmacInterceptor @Inject constructor(
 
     private fun sign(secret: String, canonical: String): String {
         val mac = Mac.getInstance("HmacSHA256")
-        val keySpec = SecretKeySpec(secret.toByteArray(StandardCharsets.UTF_8), "HmacSHA256")
+        val keySpec = SecretKeySpec(decodeSecret(secret), "HmacSHA256")
         mac.init(keySpec)
         val signature = mac.doFinal(canonical.toByteArray(StandardCharsets.UTF_8))
         return signature.joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+    private fun normalizePath(path: String): String {
+        if (path.isEmpty() || path == "/") return "/"
+        var trimmed = path
+        while (trimmed.length > 1 && trimmed.endsWith('/')) {
+            trimmed = trimmed.dropLast(1)
+        }
+        return trimmed
+    }
+
+    private fun buildCanonicalQuery(url: HttpUrl): String? {
+        val encodedQuery = url.encodedQuery ?: return null
+        if (encodedQuery.isBlank()) return null
+        val parts = encodedQuery.split('&')
+            .filter { it.isNotEmpty() }
+            .map { part ->
+                val separatorIndex = part.indexOf('=')
+                if (separatorIndex == -1) {
+                    part to null
+                } else {
+                    part.substring(0, separatorIndex) to part.substring(separatorIndex + 1)
+                }
+            }
+        if (parts.isEmpty()) return null
+        return parts
+            .sortedWith(compareBy({ it.first }, { it.second ?: "" }))
+            .joinToString(separator = "&") { (name, value) ->
+                if (value == null) name else "$name=$value"
+            }
+    }
+
+    private fun decodeSecret(secret: String): ByteArray {
+        val trimmed = secret.trim()
+        return when {
+            trimmed.startsWith(PREFIX_HEX, ignoreCase = true) -> hexToBytes(trimmed.substring(PREFIX_HEX.length))
+            trimmed.startsWith(PREFIX_BASE64, ignoreCase = true) -> Base64.getDecoder().decode(trimmed.substring(PREFIX_BASE64.length))
+            else -> trimmed.toByteArray(StandardCharsets.UTF_8)
+        }
+    }
+
+    private fun hexToBytes(value: String): ByteArray {
+        val cleaned = value.trim()
+        require(cleaned.length % 2 == 0) { "Hex value must have even length" }
+        val byteArray = ByteArray(cleaned.length / 2)
+        for (index in cleaned.indices step 2) {
+            val byte = cleaned.substring(index, index + 2).toInt(16)
+            byteArray[index / 2] = byte.toByte()
+        }
+        return byteArray
     }
 
     private companion object {
@@ -114,7 +176,17 @@ class HmacInterceptor @Inject constructor(
         private const val HEADER_NONCE = "X-Nonce"
         private const val HEADER_CONTENT_SHA = "X-Content-SHA256"
         private const val HEADER_SIGNATURE = "X-Signature"
+        private const val HEADER_IDEMPOTENCY_KEY = "Idempotency-Key"
         private val EMPTY_BYTE_ARRAY = ByteArray(0)
+        private const val PREFIX_HEX = "hex:"
+        private const val PREFIX_BASE64 = "base64:"
+        private val secureRandom = SecureRandom()
+
+        private fun generateNonce(): String {
+            val bytes = ByteArray(16)
+            secureRandom.nextBytes(bytes)
+            return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
+        }
     }
 }
 
