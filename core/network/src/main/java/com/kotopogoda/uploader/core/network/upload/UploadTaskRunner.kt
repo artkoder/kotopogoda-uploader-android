@@ -11,7 +11,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
 import java.net.UnknownHostException
-import java.security.MessageDigest
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -24,9 +23,6 @@ import okhttp3.Headers
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.api.UploadStatusDto
@@ -50,21 +46,21 @@ class UploadTaskRunner @Inject constructor(
         val uri = params.uri
         try {
             val mediaType = resolveMediaType(uri)
-            val payload = readDocumentPayload(uri, mediaType)
-            val requestBody = payload.requestBody
-            val filePart = MultipartBody.Part.createFormData(
-                "file",
-                params.displayName,
-                requestBody
+            val payload = prepareUploadRequestPayload(
+                resolver = appContext.contentResolver,
+                uri = uri,
+                displayName = params.displayName,
+                mimeType = mediaType.toString(),
+                mediaType = mediaType,
+                totalBytes = -1L,
+                boundarySeed = params.idempotencyKey,
             )
+            val requestBody = payload.createRequestBody(null)
             val response = try {
                 uploadApi.upload(
                     idempotencyKey = params.idempotencyKey,
-                    contentSha256Header = payload.sha256Hex,
-                    file = filePart,
-                    contentSha256Part = payload.sha256Hex.toPlainRequestBody(),
-                    mime = mediaType.toString().toPlainRequestBody(),
-                    size = payload.size.toString().toPlainRequestBody(),
+                    contentSha256Header = payload.requestSha256Hex,
+                    body = requestBody,
                 )
             } catch (unknown: UnknownHostException) {
                 return@withContext Failure(UploadErrorKind.NETWORK, httpCode = null, retryable = true)
@@ -77,7 +73,7 @@ class UploadTaskRunner @Inject constructor(
                     if (uploadId.isNullOrBlank()) {
                         return@withContext Failure(UploadErrorKind.UNEXPECTED, httpCode = null, retryable = true)
                     }
-                    return@withContext pollUntilComplete(uploadId, params, payload.size)
+                    return@withContext pollUntilComplete(uploadId, params, payload.fileSize)
                 }
                 413, 415 -> return@withContext Failure(
                     UploadErrorKind.HTTP,
@@ -219,44 +215,6 @@ class UploadTaskRunner @Inject constructor(
         return mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
     }
 
-    private fun readDocumentPayload(uri: Uri, mediaType: MediaType): FilePayload {
-        val resolver = appContext.contentResolver
-        val declaredLength = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-        val digest = MessageDigest.getInstance("SHA-256")
-        var total = 0L
-
-        val checksumStream = resolver.openInputStream(uri)
-            ?: throw IOException("Unable to open input stream for $uri")
-        checksumStream.use { stream ->
-            val buffer = ByteArray(BUFFER_SIZE)
-            while (true) {
-                val read = stream.read(buffer)
-                if (read == -1) {
-                    break
-                }
-                if (read > 0) {
-                    total += read
-                    digest.update(buffer, 0, read)
-                }
-            }
-        }
-
-        val requestStream = resolver.openInputStream(uri)
-            ?: throw IOException("Unable to open input stream for $uri")
-        val requestBody = InputStreamRequestBody(
-            mediaType = mediaType,
-            inputStream = requestStream,
-            contentLength = total.takeIf { it >= 0L }
-                ?: declaredLength.takeIf { it >= 0L }
-                ?: -1L,
-        )
-        return FilePayload(
-            requestBody = requestBody,
-            size = total,
-            sha256Hex = digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
-        )
-    }
-
     private fun deleteDocument(uri: Uri): DeleteCompletionState {
         if (uri.scheme == ContentResolver.SCHEME_FILE) {
             val path = uri.path ?: return DeleteCompletionState.UNKNOWN
@@ -288,19 +246,10 @@ class UploadTaskRunner @Inject constructor(
         return uri.authority == MediaStore.AUTHORITY
     }
 
-    private fun String.toPlainRequestBody(): RequestBody =
-        toRequestBody("text/plain".toMediaType())
-
     data class UploadTaskParams(
         val uri: Uri,
         val idempotencyKey: String,
         val displayName: String,
-    )
-
-    data class FilePayload(
-        val requestBody: RequestBody,
-        val size: Long,
-        val sha256Hex: String,
     )
 
     sealed class UploadTaskResult {
@@ -333,7 +282,6 @@ class UploadTaskRunner @Inject constructor(
     companion object {
         private const val DEFAULT_MIME_TYPE = "application/octet-stream"
         private const val DEFAULT_RETRY_DELAY_MILLIS = 30_000L
-        private const val BUFFER_SIZE = 8 * 1024
         private const val RETRY_AFTER_HEADER = "Retry-After"
     }
 }
