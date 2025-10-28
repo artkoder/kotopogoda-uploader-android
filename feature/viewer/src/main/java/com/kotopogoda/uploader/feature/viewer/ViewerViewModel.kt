@@ -2017,11 +2017,11 @@ class ViewerViewModel @Inject constructor(
         private const val ENHANCE_CATEGORY = "ENHANCE"
         private const val DEFAULT_ENHANCE_TILE_SIZE = 256
         private val FALLBACK_PROFILE = EnhanceEngine.Profile(
-            luminanceGain = 1f,
-            darkBoost = 0f,
-            contrastGain = 1f,
+            kDce = 0f,
             restormerMix = 0f,
-            sharpenGain = 1f,
+            alphaDetail = 1f,
+            postSharpen = 0f,
+            vibranceGain = 0f,
             saturationGain = 1f,
         )
 
