@@ -39,7 +39,9 @@ import java.time.ZoneId
 import java.util.ArrayList
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,8 +59,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import kotlin.collections.ArrayDeque
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.system.measureTimeMillis
 import timber.log.Timber
 
@@ -129,6 +133,10 @@ class ViewerViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = _selection.value.isNotEmpty()
         )
+
+    private val _enhancementState = MutableStateFlow(EnhancementState())
+    val enhancementState: StateFlow<EnhancementState> = _enhancementState.asStateFlow()
+    private var enhancementJob: Job? = null
 
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
@@ -436,6 +444,27 @@ class ViewerViewModel @Inject constructor(
 
     fun onDeleteSelection() {
         requestDeleteSelection(_selection.value.toList())
+    }
+
+    fun onEnhancementStrengthChange(value: Float) {
+        cancelEnhancementJob()
+        val clamped = value.coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
+        _enhancementState.update { state ->
+            if (state.strength == clamped && !state.isResultReady) {
+                state
+            } else {
+                state.copy(
+                    strength = clamped,
+                    isResultReady = false,
+                    progressByTile = emptyMap()
+                )
+            }
+        }
+    }
+
+    fun onEnhancementStrengthChangeFinished() {
+        val target = currentPhoto.value ?: return
+        startEnhancementJob(target, _enhancementState.value.strength)
     }
 
     fun onMoveToProcessing(photo: PhotoItem?) {
@@ -1479,6 +1508,9 @@ class ViewerViewModel @Inject constructor(
 
     fun updateVisiblePhoto(totalCount: Int, photo: PhotoItem?) {
         photoCount.value = totalCount
+        if (photo != currentPhoto.value) {
+            cancelEnhancementJob(resetToReady = true)
+        }
         currentPhoto.value = photo
     }
 
@@ -1494,6 +1526,78 @@ class ViewerViewModel @Inject constructor(
             states.add(action.toState())
         }
         savedStateHandle[undoStackKey] = states
+    }
+
+    private fun startEnhancementJob(photo: PhotoItem, strength: Float) {
+        cancelEnhancementJob()
+        val job = viewModelScope.launch {
+            val tileCount = computeTileCount(strength)
+            val initialProgress = (0 until tileCount).associateWith { 0f }
+            _enhancementState.update {
+                it.copy(
+                    inProgress = true,
+                    isResultReady = false,
+                    progressByTile = initialProgress
+                )
+            }
+            try {
+                for (tileIndex in 0 until tileCount) {
+                    delay(ENHANCEMENT_STEP_DELAY_MS)
+                    _enhancementState.update { state ->
+                        val updated = state.progressByTile.toMutableMap()
+                        updated[tileIndex] = 1f
+                        state.copy(progressByTile = updated)
+                    }
+                }
+                _enhancementState.update { it.copy(inProgress = false, isResultReady = true) }
+            } catch (error: CancellationException) {
+                _enhancementState.update { it.copy(inProgress = false) }
+                throw error
+            }
+        }
+        enhancementJob = job
+        job.invokeOnCompletion { throwable ->
+            if (throwable is CancellationException) {
+                return@invokeOnCompletion
+            }
+            if (throwable != null) {
+                Timber.tag(UI_TAG).e(
+                    throwable,
+                    "Enhancement failed for %s",
+                    photo.uri
+                )
+                _enhancementState.update {
+                    it.copy(
+                        inProgress = false,
+                        isResultReady = false,
+                        progressByTile = emptyMap()
+                    )
+                }
+            }
+            if (enhancementJob === job) {
+                enhancementJob = null
+            }
+        }
+    }
+
+    private fun cancelEnhancementJob(resetToReady: Boolean = false) {
+        val job = enhancementJob
+        if (job != null) {
+            job.cancel()
+            enhancementJob = null
+        }
+        _enhancementState.update { state ->
+            state.copy(
+                inProgress = false,
+                isResultReady = if (resetToReady) true else state.isResultReady,
+                progressByTile = emptyMap()
+            )
+        }
+    }
+
+    private fun computeTileCount(strength: Float): Int {
+        val scaled = (strength * TILE_PROGRESS_SCALE).roundToInt()
+        return max(1, scaled)
     }
 
     private fun restoreUndoStack() {
@@ -1718,7 +1822,18 @@ class ViewerViewModel @Inject constructor(
         private const val DEFAULT_MIME = "image/jpeg"
         private const val UI_TAG = "UI"
         private const val PERMISSION_TAG = "Permissions"
+        private const val MIN_ENHANCEMENT_STRENGTH = 0f
+        private const val MAX_ENHANCEMENT_STRENGTH = 1f
+        private const val TILE_PROGRESS_SCALE = 8
+        private const val ENHANCEMENT_STEP_DELAY_MS = 50L
 
         internal var buildVersionOverride: Int? = null
     }
+
+    data class EnhancementState(
+        val strength: Float = 0.5f,
+        val progressByTile: Map<Int, Float> = emptyMap(),
+        val inProgress: Boolean = false,
+        val isResultReady: Boolean = true,
+    )
 }
