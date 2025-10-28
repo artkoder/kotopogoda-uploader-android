@@ -50,8 +50,13 @@ object ModelChecksumVerifier {
             Timber.tag("app").i(
                 UploadLog.message(
                     category = "ML/CHECKSUM",
-                    action = "verified",
-                    details = arrayOf("asset" to asset.modelPath),
+                    action = "sha256_ok",
+                    details = arrayOf(
+                        "asset" to asset.modelPath,
+                        "expected" to expected,
+                        "actual" to actual,
+                        "sha256_ok" to true,
+                    ),
                 ),
             )
         }

@@ -476,6 +476,8 @@ class ViewerViewModelDocumentInfoTest {
                 profile = EnhanceEngine.Profile(1f, 0f, 1f, 0f, 1f, 1f),
                 delegate = EnhancementDelegateType.PRIMARY,
                 engineDelegate = EnhanceEngine.Delegate.GPU,
+                pipeline = EnhanceEngine.Pipeline(),
+                timings = EnhanceEngine.Timings(),
             )
             val stateField = ViewerViewModel::class.java.getDeclaredField("_enhancementState")
             stateField.isAccessible = true

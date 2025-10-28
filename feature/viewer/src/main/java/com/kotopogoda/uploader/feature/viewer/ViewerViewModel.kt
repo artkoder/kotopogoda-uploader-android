@@ -44,6 +44,7 @@ import java.io.Serializable
 import java.time.Instant
 import java.time.ZoneId
 import java.util.ArrayList
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -1708,7 +1709,7 @@ class ViewerViewModel @Inject constructor(
                         }
                     }
                 }
-                val startTime = System.currentTimeMillis()
+                var fallbackReason: String? = null
                 val result = try {
                     if (delegatePlan.delegateType == EnhancementDelegateType.PRIMARY) {
                         val engineResult = enhanceEngine.enhance(
@@ -1730,8 +1731,11 @@ class ViewerViewModel @Inject constructor(
                             profile = engineResult.profile,
                             delegate = EnhancementDelegateType.PRIMARY,
                             engineDelegate = engineResult.delegate,
+                            pipeline = engineResult.pipeline,
+                            timings = engineResult.timings,
                         )
                     } else {
+                        fallbackReason = "precondition"
                         logEnhancement(
                             action = "delegate_fallback",
                             photo = photo,
@@ -1745,6 +1749,7 @@ class ViewerViewModel @Inject constructor(
                     throw error
                 } catch (error: Exception) {
                     Timber.tag(UI_TAG).e(error, "Enhancement failed for %s", photo.uri)
+                    fallbackReason = error.message ?: error::class.java.simpleName
                     logEnhancement(
                         action = "delegate_fallback",
                         photo = photo,
@@ -1767,25 +1772,20 @@ class ViewerViewModel @Inject constructor(
                         isResultForCurrentPhoto = matchesCurrentPhoto,
                     )
                 }
-                logEnhancement(
-                    action = "enhance_metrics",
-                    photo = photo,
-                    "l_mean" to "%.3f".format(result.metrics.lMean),
-                    "p_dark" to "%.3f".format(result.metrics.pDark),
-                    "b_sharpness" to "%.3f".format(result.metrics.bSharpness),
-                    "n_noise" to "%.3f".format(result.metrics.nNoise),
-                    "delegate" to result.delegate.name.lowercase(),
-                    "engine_delegate" to (result.engineDelegate?.name?.lowercase() ?: "none"),
-                )
-                logEnhancement(
-                    action = "enhance_result",
-                    photo = photo,
-                    "delegate" to result.delegate.name.lowercase(),
-                    "engine_delegate" to (result.engineDelegate?.name?.lowercase() ?: "none"),
-                    "duration_ms" to (System.currentTimeMillis() - startTime),
-                    "file_size" to result.file.length(),
-                    "strength" to "%.2f".format(normalized),
-                )
+                logEnhancementDecision(photo, normalized, delegatePlan, analysis, result)
+                logEnhancementMetrics(photo, result)
+                logEnhancementResult(photo, result, normalized)
+                if (result.delegate == EnhancementDelegateType.FALLBACK) {
+                    logEnhancement(
+                        action = "enhance_fallback_result",
+                        photo = photo,
+                        "reason" to (fallbackReason ?: "unknown"),
+                        "delegate" to result.delegate.name.lowercase(),
+                        "engine_delegate" to (result.engineDelegate?.name?.lowercase() ?: "none"),
+                        "pipeline" to result.pipeline.stages.joinToString(separator = "+"),
+                        "tile_count" to result.pipeline.tileCount,
+                    )
+                }
             } finally {
                 if (producedResult == null) {
                     workspace.cleanup()
@@ -1899,6 +1899,18 @@ class ViewerViewModel @Inject constructor(
             profile = FALLBACK_PROFILE,
             delegate = EnhancementDelegateType.FALLBACK,
             engineDelegate = null,
+            pipeline = EnhanceEngine.Pipeline(
+                stages = listOf("copy"),
+                tileSize = 0,
+                overlap = 0,
+                tileCount = 0,
+                zeroDceIterations = 0,
+                zeroDceApplied = false,
+                restormerMix = 0f,
+                restormerApplied = false,
+                hasSeamFix = false,
+            ),
+            timings = EnhanceEngine.Timings(),
         )
     }
 
@@ -1916,6 +1928,10 @@ class ViewerViewModel @Inject constructor(
         runCatching { if (output.exists()) output.delete() }
     }
 
+    private fun Double.format3(): String = String.format(Locale.US, "%.3f", this)
+    private fun Float.format3(): String = String.format(Locale.US, "%.3f", this)
+    private fun Float.format2(): String = String.format(Locale.US, "%.2f", this)
+
     private fun logEnhancement(action: String, photo: PhotoItem, vararg details: Pair<String, Any?>) {
         Timber.tag(ENHANCE_TAG).i(
             UploadLog.message(
@@ -1925,6 +1941,104 @@ class ViewerViewModel @Inject constructor(
                 uri = photo.uri,
                 details = details,
             )
+        )
+    }
+
+    private fun logEnhancementDecision(
+        photo: PhotoItem,
+        normalizedStrength: Float,
+        plan: EnhancementDelegatePlan,
+        analysis: WorkspaceAnalysis,
+        result: EnhancementResult,
+    ) {
+        val pipelineStages = result.pipeline.stages.joinToString(separator = "+").ifEmpty { "none" }
+        val engineDelegateActual = result.engineDelegate?.name?.lowercase() ?: "none"
+        logEnhancement(
+            action = "enhance_decision",
+            photo = photo,
+            "strength" to normalizedStrength.format2(),
+            "pipeline" to pipelineStages,
+            "delegate_plan" to plan.delegateType.name.lowercase(),
+            "delegate_actual" to result.delegate.name.lowercase(),
+            "engine_delegate_plan" to plan.engineDelegate.name.lowercase(),
+            "engine_delegate_actual" to engineDelegateActual,
+            "k_dce" to result.profile.kDce.format3(),
+            "alpha_detail" to result.profile.alphaDetail.format3(),
+            "restormer_mix" to result.profile.restormerMix.format3(),
+            "sharpen_amount" to result.profile.sharpenAmount.format3(),
+            "sharpen_radius" to result.profile.sharpenRadius.format3(),
+            "sharpen_threshold" to result.profile.sharpenThreshold.format3(),
+            "vibrance_gain" to result.profile.vibranceGain.format3(),
+            "saturation_gain" to result.profile.saturationGain.format3(),
+            "tile_size" to result.pipeline.tileSize,
+            "tile_overlap" to result.pipeline.overlap,
+            "tile_count" to result.pipeline.tileCount,
+            "zero_dce_iterations" to result.pipeline.zeroDceIterations,
+            "zero_dce_applied" to result.pipeline.zeroDceApplied,
+            "restormer_applied" to result.pipeline.restormerApplied,
+            "has_seam_fix" to result.pipeline.hasSeamFix,
+            "metrics_l_mean" to analysis.metrics.lMean.format3(),
+            "metrics_p_dark" to analysis.metrics.pDark.format3(),
+            "metrics_b_sharpness" to analysis.metrics.bSharpness.format3(),
+            "metrics_n_noise" to analysis.metrics.nNoise.format3(),
+        )
+    }
+
+    private fun logEnhancementMetrics(photo: PhotoItem, result: EnhancementResult) {
+        val pipelineStages = result.pipeline.stages.joinToString(separator = "+").ifEmpty { "none" }
+        val engineDelegateActual = result.engineDelegate?.name?.lowercase() ?: "none"
+        logEnhancement(
+            action = "enhance_metrics",
+            photo = photo,
+            "pipeline" to pipelineStages,
+            "delegate" to result.delegate.name.lowercase(),
+            "engine_delegate" to engineDelegateActual,
+            "l_mean" to result.metrics.lMean.format3(),
+            "p_dark" to result.metrics.pDark.format3(),
+            "b_sharpness" to result.metrics.bSharpness.format3(),
+            "n_noise" to result.metrics.nNoise.format3(),
+            "k_dce" to result.profile.kDce.format3(),
+            "alpha_detail" to result.profile.alphaDetail.format3(),
+            "restormer_mix" to result.profile.restormerMix.format3(),
+            "sharpen_amount" to result.profile.sharpenAmount.format3(),
+            "vibrance_gain" to result.profile.vibranceGain.format3(),
+            "saturation_gain" to result.profile.saturationGain.format3(),
+        )
+    }
+
+    private fun logEnhancementResult(
+        photo: PhotoItem,
+        result: EnhancementResult,
+        normalizedStrength: Float,
+    ) {
+        val pipelineStages = result.pipeline.stages.joinToString(separator = "+").ifEmpty { "none" }
+        val engineDelegateActual = result.engineDelegate?.name?.lowercase() ?: "none"
+        val timings = result.timings
+        logEnhancement(
+            action = "enhance_result",
+            photo = photo,
+            "pipeline" to pipelineStages,
+            "delegate" to result.delegate.name.lowercase(),
+            "engine_delegate" to engineDelegateActual,
+            "strength" to normalizedStrength.format2(),
+            "file_size" to result.file.length(),
+            "duration_total_ms" to timings.total,
+            "duration_decode_ms" to timings.decode,
+            "duration_metrics_ms" to timings.metrics,
+            "duration_zero_dce_ms" to timings.zeroDce,
+            "duration_restormer_ms" to timings.restormer,
+            "duration_blend_ms" to timings.blend,
+            "duration_sharpen_ms" to timings.sharpen,
+            "duration_vibrance_ms" to timings.vibrance,
+            "duration_encode_ms" to timings.encode,
+            "duration_exif_ms" to timings.exif,
+            "tile_size" to result.pipeline.tileSize,
+            "tile_overlap" to result.pipeline.overlap,
+            "tile_count" to result.pipeline.tileCount,
+            "zero_dce_iterations" to result.pipeline.zeroDceIterations,
+            "zero_dce_applied" to result.pipeline.zeroDceApplied,
+            "restormer_applied" to result.pipeline.restormerApplied,
+            "has_seam_fix" to result.pipeline.hasSeamFix,
         )
     }
 
@@ -2189,6 +2303,8 @@ class ViewerViewModel @Inject constructor(
         val profile: EnhanceEngine.Profile,
         val delegate: EnhancementDelegateType,
         val engineDelegate: EnhanceEngine.Delegate?,
+        val pipeline: EnhanceEngine.Pipeline,
+        val timings: EnhanceEngine.Timings,
     )
 
     enum class EnhancementDelegateType { PRIMARY, FALLBACK }

@@ -14,6 +14,7 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -54,6 +55,33 @@ class EnhanceEngine(
         val metrics: Metrics,
         val profile: Profile,
         val delegate: Delegate,
+        val pipeline: Pipeline,
+        val timings: Timings,
+    )
+
+    data class Pipeline(
+        val stages: List<String> = emptyList(),
+        val tileSize: Int = DEFAULT_TILE_SIZE,
+        val overlap: Int = DEFAULT_TILE_OVERLAP,
+        val tileCount: Int = 0,
+        val zeroDceIterations: Int = 0,
+        val zeroDceApplied: Boolean = false,
+        val restormerMix: Float = 0f,
+        val restormerApplied: Boolean = false,
+        val hasSeamFix: Boolean = false,
+    )
+
+    data class Timings(
+        val decode: Long = 0,
+        val metrics: Long = 0,
+        val zeroDce: Long = 0,
+        val restormer: Long = 0,
+        val blend: Long = 0,
+        val sharpen: Long = 0,
+        val vibrance: Long = 0,
+        val encode: Long = 0,
+        val exif: Long = 0,
+        val total: Long = 0,
     )
 
     data class ModelResult(
@@ -63,37 +91,89 @@ class EnhanceEngine(
 
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
         val strength = request.strength.coerceIn(0f, 1f)
-        val buffer = decoder.decode(request.source)
-        val metrics = MetricsCalculator.calculate(buffer)
-        val profile = ProfileCalculator.calculate(metrics, strength)
 
-        val zeroResult = applyZeroDce(buffer.copy(), profile, request.delegate, request.zeroDceIterations)
-        var actualDelegate = zeroResult.delegate
-        val restResult = runRestormer(
-            buffer = zeroResult.buffer,
-            mix = profile.restormerMix,
-            tileSize = request.tileSize,
-            overlap = request.overlap,
-            delegate = zeroResult.delegate,
-            onTileProgress = request.onTileProgress,
-        )
-        val denoised = if (restResult != null && profile.alphaDetail > 1e-3f) {
-            actualDelegate = restResult.delegate
-            blendBuffers(zeroResult.buffer, restResult.buffer, profile.alphaDetail)
-        } else {
-            zeroResult.buffer
+        lateinit var buffer: ImageBuffer
+        lateinit var metrics: Metrics
+        lateinit var profile: Profile
+        lateinit var zeroResult: ModelResult
+        lateinit var restReport: RestormerReport
+        lateinit var denoised: ImageBuffer
+        lateinit var sharpened: ImageBuffer
+        lateinit var saturated: ImageBuffer
+        lateinit var output: File
+
+        var actualDelegate = request.delegate
+        var decodeDuration = 0L
+        var metricsDuration = 0L
+        var zeroDuration = 0L
+        var restormerDuration = 0L
+        var blendDuration = 0L
+        var sharpenDuration = 0L
+        var vibranceDuration = 0L
+        var encodeDuration = 0L
+        var exifDuration = 0L
+
+        val totalDuration = measureTimeMillis {
+            decodeDuration = measureTimeMillis {
+                buffer = decoder.decode(request.source)
+            }
+            metricsDuration = measureTimeMillis {
+                metrics = MetricsCalculator.calculate(buffer)
+            }
+            profile = ProfileCalculator.calculate(metrics, strength)
+
+            zeroDuration = measureTimeMillis {
+                zeroResult = applyZeroDce(buffer.copy(), profile, request.delegate, request.zeroDceIterations)
+            }
+            actualDelegate = zeroResult.delegate
+
+            restormerDuration = measureTimeMillis {
+                restReport = runRestormer(
+                    buffer = zeroResult.buffer,
+                    mix = profile.restormerMix,
+                    tileSize = request.tileSize,
+                    overlap = request.overlap,
+                    delegate = zeroResult.delegate,
+                    onTileProgress = request.onTileProgress,
+                )
+            }
+
+            val restResult = restReport.result
+            denoised = if (restResult != null && profile.alphaDetail > 1e-3f) {
+                actualDelegate = restResult.delegate
+                var blended: ImageBuffer
+                blendDuration = measureTimeMillis {
+                    blended = blendBuffers(zeroResult.buffer, restResult.buffer, profile.alphaDetail)
+                }
+                blended
+            } else {
+                zeroResult.buffer
+            }
+
+            sharpenDuration = measureTimeMillis {
+                sharpened = applyEdgeAwareUnsharp(
+                    denoised,
+                    profile.sharpenAmount,
+                    profile.sharpenRadius,
+                    profile.sharpenThreshold,
+                )
+            }
+            vibranceDuration = measureTimeMillis {
+                saturated = applyVibranceAndSaturation(
+                    sharpened,
+                    profile.vibranceGain,
+                    profile.saturationGain,
+                )
+            }
+
+            output = request.outputFile ?: buildOutputFile(request.source)
+            encodeDuration = measureTimeMillis {
+                encoder.encode(saturated, output)
+            }
+            exifDuration = measureTimeMillis {
+                tryCopyExif(request.exif, request.source, output)
+            }
         }
-        val sharpened = applyEdgeAwareUnsharp(
-            denoised,
-            profile.sharpenAmount,
-            profile.sharpenRadius,
-            profile.sharpenThreshold,
-        )
-        val saturated = applyVibranceAndSaturation(sharpened, profile.vibranceGain, profile.saturationGain)
-
-        val output = request.outputFile ?: buildOutputFile(request.source)
-        encoder.encode(saturated, output)
-        tryCopyExif(request.exif, request.source, output)
 
         if (actualDelegate != request.delegate) {
             Timber.tag(LOG_TAG).i("Enhance delegate fallback: requested=%s actual=%s", request.delegate, actualDelegate)
@@ -101,11 +181,27 @@ class EnhanceEngine(
             Timber.tag(LOG_TAG).i("Enhance delegate: %s", actualDelegate)
         }
 
+        val pipeline = buildPipeline(profile, request, restReport)
+        val timings = Timings(
+            decode = decodeDuration,
+            metrics = metricsDuration,
+            zeroDce = zeroDuration,
+            restormer = restormerDuration,
+            blend = blendDuration,
+            sharpen = sharpenDuration,
+            vibrance = vibranceDuration,
+            encode = encodeDuration,
+            exif = exifDuration,
+            total = totalDuration,
+        )
+
         Result(
             file = output,
             metrics = metrics,
             profile = profile,
             delegate = actualDelegate,
+            pipeline = pipeline,
+            timings = timings,
         )
     }
 
@@ -126,6 +222,13 @@ class EnhanceEngine(
         return ModelResult(blended, processed.delegate)
     }
 
+    private data class RestormerReport(
+        val result: ModelResult?,
+        val delegate: Delegate,
+        val tileCount: Int,
+        val seamFixApplied: Boolean,
+    )
+
     private suspend fun runRestormer(
         buffer: ImageBuffer,
         mix: Float,
@@ -133,12 +236,17 @@ class EnhanceEngine(
         overlap: Int,
         delegate: Delegate,
         onTileProgress: (tileIndex: Int, total: Int, progress: Float) -> Unit,
-    ): ModelResult? {
+    ): RestormerReport {
         val model = restormer
         if (mix <= 1e-3f || model == null) {
             val totalTiles = computeTileCount(buffer.width, buffer.height, tileSize)
             repeat(totalTiles) { onTileProgress(it, totalTiles, 1f) }
-            return null
+            return RestormerReport(
+                result = null,
+                delegate = delegate,
+                tileCount = totalTiles,
+                seamFixApplied = overlap > 0,
+            )
         }
         val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
         val step = max(1, safeTile - overlap * 2)
@@ -201,7 +309,54 @@ class EnhanceEngine(
             val processedB = if (weight > 0f) accB[i] / weight / 255f else Color.blue(baseColor) / 255f
             resultPixels[i] = composeColor(Color.alpha(baseColor), processedR, processedG, processedB)
         }
-        return ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate)
+        return RestormerReport(
+            result = ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate),
+            delegate = currentDelegate,
+            tileCount = totalTiles,
+            seamFixApplied = overlap > 0 && totalTiles > 0,
+        )
+    }
+
+    private fun buildPipeline(profile: Profile, request: Request, restReport: RestormerReport): Pipeline {
+        val stages = mutableListOf<String>()
+        val zeroApplied = profile.isLowLight && profile.kDce > 1e-3f
+        if (zeroApplied) {
+            stages += "zero_dce"
+        }
+        val restormerUsed = restReport.result != null && profile.restormerMix > 1e-3f && profile.alphaDetail > 1e-3f
+        if (restormerUsed) {
+            stages += "restormer"
+        }
+        if (profile.sharpenAmount > 1e-3f && profile.sharpenRadius > 0.1f) {
+            stages += "sharpen"
+        }
+        if (profile.vibranceGain > 1e-3f) {
+            stages += "vibrance"
+        }
+        if (kotlin.math.abs(profile.saturationGain - 1f) > 1e-3f) {
+            stages += "saturation"
+        }
+        val zeroIterations = if (zeroApplied) max(1, request.zeroDceIterations) else 0
+        return Pipeline(
+            stages = stages,
+            tileSize = request.tileSize,
+            overlap = request.overlap,
+            tileCount = restReport.tileCount,
+            zeroDceIterations = zeroIterations,
+            zeroDceApplied = zeroApplied,
+            restormerMix = profile.restormerMix,
+            restormerApplied = restormerUsed,
+            hasSeamFix = restReport.seamFixApplied && restormerUsed,
+        )
+    }
+
+    private fun computeTileCount(width: Int, height: Int, tileSize: Int): Int {
+        if (tileSize <= 0 || width <= 0 || height <= 0) {
+            return 0
+        }
+        val tilesX = (width + tileSize - 1) / tileSize
+        val tilesY = (height + tileSize - 1) / tileSize
+        return tilesX * tilesY
     }
 
     private fun applyEdgeAwareUnsharp(
@@ -610,20 +765,31 @@ class EnhanceEngine(
 
         private val EXIF_TAGS = arrayOf(
             ExifInterface.TAG_DATETIME,
+            ExifInterface.TAG_DATETIME_ORIGINAL,
+            ExifInterface.TAG_DATETIME_DIGITIZED,
+            ExifInterface.TAG_SUBSEC_TIME,
+            ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+            ExifInterface.TAG_SUBSEC_TIME_DIGITIZED,
             ExifInterface.TAG_MAKE,
             ExifInterface.TAG_MODEL,
             ExifInterface.TAG_ORIENTATION,
             ExifInterface.TAG_FLASH,
             ExifInterface.TAG_FOCAL_LENGTH,
             ExifInterface.TAG_WHITE_BALANCE,
-            ExifInterface.TAG_GPS_LATITUDE,
-            ExifInterface.TAG_GPS_LONGITUDE,
-            ExifInterface.TAG_GPS_ALTITUDE,
-            ExifInterface.TAG_GPS_TIMESTAMP,
-            ExifInterface.TAG_GPS_DATESTAMP,
             ExifInterface.TAG_EXPOSURE_TIME,
             ExifInterface.TAG_APERTURE,
             ExifInterface.TAG_ISO_SPEED_RATINGS,
+            ExifInterface.TAG_GPS_LATITUDE_REF,
+            ExifInterface.TAG_GPS_LATITUDE,
+            ExifInterface.TAG_GPS_LONGITUDE_REF,
+            ExifInterface.TAG_GPS_LONGITUDE,
+            ExifInterface.TAG_GPS_ALTITUDE_REF,
+            ExifInterface.TAG_GPS_ALTITUDE,
+            ExifInterface.TAG_GPS_TIMESTAMP,
+            ExifInterface.TAG_GPS_DATESTAMP,
+            ExifInterface.TAG_GPS_PROCESSING_METHOD,
+            ExifInterface.TAG_GPS_SPEED_REF,
+            ExifInterface.TAG_GPS_SPEED,
         )
     }
 }
@@ -701,13 +867,6 @@ private fun hsvToRgb(h: Float, s: Float, v: Float): Triple<Float, Float, Float> 
         4 -> Triple(t, p, v)
         else -> Triple(v, p, q)
     }
-}
-
-private fun computeTileCount(width: Int, height: Int, tileSize: Int): Int {
-    if (tileSize <= 0) return 0
-    val xTiles = (width + tileSize - 1) / tileSize
-    val yTiles = (height + tileSize - 1) / tileSize
-    return xTiles * yTiles
 }
 
 private fun featherWeight(position: Int, size: Int, overlap: Int): Float {
