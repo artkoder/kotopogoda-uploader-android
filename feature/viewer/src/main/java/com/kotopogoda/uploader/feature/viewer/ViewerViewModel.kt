@@ -23,6 +23,9 @@ import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.MoveResult
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.data.upload.UploadEnqueueOptions
+import com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo
+import com.kotopogoda.uploader.core.data.upload.UploadEnhancementMetrics
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
@@ -64,6 +67,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.collections.ArrayDeque
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -555,15 +559,104 @@ class ViewerViewModel @Inject constructor(
                 val documentInfo = loadDocumentInfo(current.uri)
                 val fromIndex = currentIndex.value
                 val toIndex = computeNextIndex(fromIndex)
-                val idempotencyKey = buildIdempotencyKey(documentInfo)
-                val contentSha256 = contentSha256FromIdempotencyKey(idempotencyKey)
-                    ?: throw IllegalStateException("Invalid idempotency key format: $idempotencyKey")
+                val enhancementSnapshot = _enhancementState.value
+                val enhancementResult = enhancementSnapshot.result
+                val normalizedStrength = enhancementSnapshot.strength
+                    .coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
+                val matchesCurrentPhoto = enhancementSnapshot.resultPhotoId == current.id
+                val useEnhancedResult = enhancementSnapshot.isResultReady && matchesCurrentPhoto && enhancementResult != null
+                val publishDetails = mutableListOf(
+                    "has_result" to (enhancementResult != null),
+                    "matches_photo" to matchesCurrentPhoto,
+                    "enhanced" to useEnhancedResult,
+                    "strength" to "%.2f".format(normalizedStrength),
+                )
+                enhancementResult?.let { publishDetails += "delegate" to it.delegate.name.lowercase() }
+                logEnhancement(
+                    action = "publish_click",
+                    photo = current,
+                    *publishDetails.filterNot { it.second == null }.toTypedArray(),
+                )
+
+                val enqueueUri: Uri
+                val idempotencyKey: String
+                val contentSha256: String
+                val enqueueOptions: UploadEnqueueOptions
+                if (useEnhancedResult && enhancementResult != null) {
+                    val digest = withContext(Dispatchers.IO) {
+                        withTimeoutOrNull(10_000L) {
+                            Hashing.sha256(context.contentResolver, enhancementResult.uri)
+                        }
+                    } ?: throw IOException("Timed out computing digest for ${enhancementResult.uri}")
+                    val delegateName = enhancementResult.delegate.name.lowercase()
+                    val metrics = enhancementResult.metrics
+                    val metricsPayload = UploadEnhancementMetrics(
+                        lMean = metrics.lMean,
+                        pDark = metrics.pDark,
+                        bSharpness = metrics.bSharpness,
+                        nNoise = metrics.nNoise,
+                    )
+                    val fileSize = enhancementResult.file.length().takeIf { it > 0 }
+                    enqueueUri = enhancementResult.uri
+                    idempotencyKey = idempotencyKeyFromContentSha256(digest)
+                    contentSha256 = digest
+                    enqueueOptions = UploadEnqueueOptions(
+                        photoId = current.id,
+                        overrideDisplayName = documentInfo.displayName,
+                        overrideSize = fileSize ?: documentInfo.size,
+                        enhancement = UploadEnhancementInfo(
+                            strength = normalizedStrength,
+                            delegate = delegateName,
+                            metrics = metricsPayload,
+                            fileSize = fileSize,
+                        ),
+                    )
+                } else {
+                    val builtKey = buildIdempotencyKey(documentInfo)
+                    val digest = contentSha256FromIdempotencyKey(builtKey)
+                        ?: throw IllegalStateException("Invalid idempotency key format: $builtKey")
+                    enqueueUri = current.uri
+                    idempotencyKey = builtKey
+                    contentSha256 = digest
+                    enqueueOptions = UploadEnqueueOptions(
+                        photoId = current.id,
+                        overrideDisplayName = documentInfo.displayName,
+                        overrideSize = documentInfo.size,
+                    )
+                }
                 uploadEnqueuer.enqueue(
-                    uri = current.uri,
+                    uri = enqueueUri,
                     idempotencyKey = idempotencyKey,
                     displayName = documentInfo.displayName,
-                    contentSha256 = contentSha256
+                    contentSha256 = contentSha256,
+                    options = enqueueOptions,
                 )
+                if (useEnhancedResult && enhancementResult != null) {
+                    logEnhancement(
+                        action = "enhance_result_publish",
+                        photo = current,
+                        "delegate" to enhancementResult.delegate.name.lowercase(),
+                        "strength" to "%.2f".format(normalizedStrength),
+                        "sha256" to contentSha256,
+                        "size" to (enqueueOptions.overrideSize ?: enhancementResult.file.length()),
+                    )
+                    val cleanupDuration = measureTimeMillis { disposeEnhancementResult(enhancementResult) }
+                    val cleanupSucceeded = !enhancementResult.file.exists() && !enhancementResult.sourceFile.exists()
+                    logEnhancement(
+                        action = "enhance_cleanup",
+                        photo = current,
+                        "duration_ms" to cleanupDuration,
+                        "success" to cleanupSucceeded,
+                    )
+                    _enhancementState.update { state ->
+                        state.copy(
+                            result = null,
+                            resultUri = null,
+                            resultPhotoId = null,
+                            isResultForCurrentPhoto = false,
+                        )
+                    }
+                }
                 pushAction(
                     UserAction.EnqueuedUpload(
                         uri = current.uri,
@@ -1685,6 +1778,7 @@ class ViewerViewModel @Inject constructor(
                     "delegate" to result.delegate.name.lowercase(),
                     "duration_ms" to (System.currentTimeMillis() - startTime),
                     "file_size" to result.file.length(),
+                    "strength" to "%.2f".format(normalized),
                 )
             } finally {
                 if (producedResult == null) {

@@ -8,6 +8,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import android.test.mock.MockContentResolver
 import android.test.mock.MockContext
 import android.os.Build
@@ -19,11 +20,18 @@ import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.MoveResult
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
+import com.kotopogoda.uploader.core.data.upload.UploadEnqueueOptions
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
+import com.kotopogoda.uploader.core.data.util.Hashing
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.feature.viewer.R
+import com.kotopogoda.uploader.feature.viewer.ViewerViewModel
+import com.kotopogoda.uploader.feature.viewer.ViewerViewModel.EnhancementDelegateType
+import com.kotopogoda.uploader.feature.viewer.ViewerViewModel.EnhancementResult
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import io.mockk.Runs
 import io.mockk.clearMocks
 import io.mockk.coEvery
@@ -32,11 +40,14 @@ import io.mockk.eq
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
+import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 import java.time.Instant
@@ -296,12 +307,14 @@ class ViewerViewModelDocumentInfoTest {
         val idempotencySlot = slot<String>()
         val contentShaSlot = slot<String>()
         val displayNameSlot = slot<String>()
+        val optionsSlot = slot<UploadEnqueueOptions>()
         coEvery {
             environment.uploadEnqueuer.enqueue(
                 eq(fileUri),
                 capture(idempotencySlot),
                 capture(displayNameSlot),
-                capture(contentShaSlot)
+                capture(contentShaSlot),
+                capture(optionsSlot),
             )
         } just Runs
 
@@ -312,7 +325,7 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any())
+            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any(), any())
         }
         assertEquals("saf.jpg", displayNameSlot.captured)
         val expectedKey = buildExpectedIdempotencyKey(fileBytes)
@@ -358,12 +371,14 @@ class ViewerViewModelDocumentInfoTest {
         val idempotencySlot = slot<String>()
         val contentShaSlot = slot<String>()
         val displayNameSlot = slot<String>()
+        val optionsSlot = slot<UploadEnqueueOptions>()
         coEvery {
             environment.uploadEnqueuer.enqueue(
                 eq(fileUri),
                 capture(idempotencySlot),
                 capture(displayNameSlot),
-                capture(contentShaSlot)
+                capture(contentShaSlot),
+                capture(optionsSlot),
             )
         } just Runs
 
@@ -374,12 +389,130 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any())
+            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any(), any())
         }
         assertEquals("media.jpg", displayNameSlot.captured)
         val expectedKey = buildExpectedIdempotencyKey(fileBytes)
         assertEquals(expectedKey, idempotencySlot.captured)
         assertEquals(expectedDigest(fileBytes), contentShaSlot.captured)
+    }
+
+    @Test
+    fun enqueueUploadUsesEnhancedResultWhenAvailable() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val fileUri = Uri.parse("content://media/external/images/media/120")
+        val enhancedFile = File.createTempFile("enhanced_", ".jpg").apply {
+            writeText("enhanced-data")
+        }
+        val sourceFile = File.createTempFile("source_", ".jpg").apply {
+            writeText("source-data")
+        }
+        val resolver = TestContentResolver(
+            queryHandler = { uri, _ ->
+                if (uri == fileUri) {
+                    createMediaStoreCursor(
+                        displayName = "media.jpg",
+                        size = 8192L,
+                        dateModifiedSeconds = 20L,
+                        dateTaken = 123_456L,
+                        relativePath = "Kotopogoda/"
+                    )
+                } else {
+                    null
+                }
+            },
+            inputStreamHandler = { uri ->
+                when (uri) {
+                    fileUri -> ByteArrayInputStream("original-data".toByteArray())
+                    enhancedFile.toUri() -> ByteArrayInputStream("enhanced-data".toByteArray())
+                    else -> null
+                }
+            }
+        )
+        val context = TestContext(resolver)
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        val idempotencySlot = slot<String>()
+        val contentShaSlot = slot<String>()
+        val displayNameSlot = slot<String>()
+        val optionsSlot = slot<UploadEnqueueOptions>()
+        mockkObject(Hashing)
+        try {
+            every { Hashing.sha256(any(), eq(enhancedFile.toUri())) } returns "enhanced-digest"
+            every { Hashing.sha256(any(), eq(fileUri)) } returns "original-digest"
+            coEvery {
+                environment.uploadEnqueuer.enqueue(
+                    any(),
+                    capture(idempotencySlot),
+                    capture(displayNameSlot),
+                    capture(contentShaSlot),
+                    capture(optionsSlot),
+                )
+            } just Runs
+
+            val photo = PhotoItem(id = "5", uri = fileUri, takenAt = Instant.ofEpochMilli(5_000))
+            environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
+
+            val metrics = EnhanceEngine.Metrics(
+                lMean = 0.45,
+                pDark = 0.12,
+                bSharpness = 0.82,
+                nNoise = 0.08,
+            )
+            val enhancementResult = EnhancementResult(
+                sourceFile = sourceFile,
+                file = enhancedFile,
+                uri = enhancedFile.toUri(),
+                metrics = metrics,
+                profile = EnhanceEngine.Profile(1f, 0f, 1f, 0f, 1f, 1f),
+                delegate = EnhancementDelegateType.PRIMARY,
+            )
+            val stateField = ViewerViewModel::class.java.getDeclaredField("_enhancementState")
+            stateField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val stateFlow = stateField.get(environment.viewModel) as kotlinx.coroutines.flow.MutableStateFlow<ViewerViewModel.EnhancementState>
+            stateFlow.value = ViewerViewModel.EnhancementState(
+                strength = 0.8f,
+                inProgress = false,
+                isResultReady = true,
+                result = enhancementResult,
+                resultUri = enhancementResult.uri,
+                resultPhotoId = photo.id,
+                isResultForCurrentPhoto = true,
+            )
+
+            environment.viewModel.onEnqueueUpload(photo)
+            advanceUntilIdle()
+
+            val expectedKey = idempotencyKeyFromContentSha256("enhanced-digest")
+            assertEquals(expectedKey, idempotencySlot.captured)
+            assertEquals("enhanced-digest", contentShaSlot.captured)
+            assertEquals("media.jpg", displayNameSlot.captured)
+            val capturedOptions = optionsSlot.captured
+            assertEquals(photo.id, capturedOptions.photoId)
+            assertTrue(capturedOptions.enhancement != null)
+            assertEquals(0.8f, capturedOptions.enhancement?.strength)
+            assertEquals("primary", capturedOptions.enhancement?.delegate)
+            val metricsCaptured = capturedOptions.enhancement?.metrics
+            assertEquals(0.45f, metricsCaptured?.lMean)
+            assertEquals(0.12f, metricsCaptured?.pDark)
+            assertEquals(0.82f, metricsCaptured?.bSharpness)
+            assertEquals(0.08f, metricsCaptured?.nNoise)
+            assertEquals(enhancedFile.length(), capturedOptions.enhancement?.fileSize)
+
+            assertTrue(environment.viewModel.enhancementState.value.result == null)
+        } finally {
+            unmockkObject(Hashing)
+        }
     }
 
     @Test

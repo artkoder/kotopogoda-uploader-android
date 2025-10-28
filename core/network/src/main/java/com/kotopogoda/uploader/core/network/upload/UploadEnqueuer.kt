@@ -7,6 +7,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.kotopogoda.uploader.core.data.upload.UploadLog
+import com.kotopogoda.uploader.core.data.upload.UploadEnqueueOptions
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository as UploadItemsRepository
 import com.kotopogoda.uploader.core.data.upload.contentSha256FromIdempotencyKey
 import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
@@ -27,8 +28,14 @@ class UploadEnqueuer @Inject constructor(
     private val constraintsProvider: UploadConstraintsProvider,
 ) {
 
-    suspend fun enqueue(uri: Uri, idempotencyKey: String, displayName: String, contentSha256: String) {
-        uploadItemsRepository.enqueue(uri, idempotencyKey, contentSha256)
+    suspend fun enqueue(
+        uri: Uri,
+        idempotencyKey: String,
+        displayName: String,
+        contentSha256: String,
+        options: UploadEnqueueOptions = UploadEnqueueOptions(),
+    ) {
+        uploadItemsRepository.enqueue(uri, idempotencyKey, contentSha256, options)
         summaryStarter.ensureRunning()
         scheduleDrain()
     }

@@ -26,6 +26,20 @@ data class UploadItemEntity(
     val displayName: String = "photo.jpg",
     @ColumnInfo(name = "size", defaultValue = "0")
     val size: Long = 0,
+    @ColumnInfo(name = "enhanced", defaultValue = "0")
+    val enhanced: Boolean = false,
+    @ColumnInfo(name = "enhance_strength")
+    val enhanceStrength: Float? = null,
+    @ColumnInfo(name = "enhance_delegate")
+    val enhanceDelegate: String? = null,
+    @ColumnInfo(name = "enhance_metrics_l_mean")
+    val enhanceMetricsLMean: Float? = null,
+    @ColumnInfo(name = "enhance_metrics_p_dark")
+    val enhanceMetricsPDark: Float? = null,
+    @ColumnInfo(name = "enhance_metrics_b_sharpness")
+    val enhanceMetricsBSharpness: Float? = null,
+    @ColumnInfo(name = "enhance_metrics_n_noise")
+    val enhanceMetricsNNoise: Float? = null,
     @ColumnInfo(name = "state")
     val state: String,
     @ColumnInfo(name = "created_at")

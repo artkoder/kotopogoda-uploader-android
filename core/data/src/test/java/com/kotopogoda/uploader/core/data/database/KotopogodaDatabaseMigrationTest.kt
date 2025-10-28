@@ -143,6 +143,78 @@ class KotopogodaDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrate9To10_addsEnhancementColumns() {
+        helper.createDatabase(TEST_DB, 9).apply {
+            execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `upload_items` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `photo_id` TEXT NOT NULL,
+                    `idempotency_key` TEXT NOT NULL DEFAULT '',
+                    `uri` TEXT NOT NULL DEFAULT '',
+                    `display_name` TEXT NOT NULL DEFAULT 'photo.jpg',
+                    `size` INTEGER NOT NULL DEFAULT 0,
+                    `state` TEXT NOT NULL,
+                    `created_at` INTEGER NOT NULL,
+                    `updated_at` INTEGER,
+                    `last_error_kind` TEXT,
+                    `http_code` INTEGER,
+                    `last_error_message` TEXT
+                )
+                """.trimIndent()
+            )
+            execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_state` ON `upload_items` (`state`)")
+            execSQL("CREATE INDEX IF NOT EXISTS `index_upload_items_created_at` ON `upload_items` (`created_at`)")
+            execSQL(
+                """
+                INSERT INTO `upload_items` (
+                    `id`, `photo_id`, `idempotency_key`, `uri`, `display_name`, `size`, `state`,
+                    `created_at`, `updated_at`, `last_error_kind`, `http_code`, `last_error_message`
+                ) VALUES (
+                    3, 'photo-3', 'photo-3', 'content://photos/3', 'photo-3.jpg', 4096, 'queued',
+                    3000, 3001, NULL, NULL, NULL
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            10,
+            true,
+            KotopogodaDatabase.MIGRATION_9_10,
+        ).apply {
+            query("PRAGMA table_info(`upload_items`)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                val expected = setOf(
+                    "enhanced",
+                    "enhance_strength",
+                    "enhance_delegate",
+                    "enhance_metrics_l_mean",
+                    "enhance_metrics_p_dark",
+                    "enhance_metrics_b_sharpness",
+                    "enhance_metrics_n_noise",
+                )
+                val found = mutableSetOf<String>()
+                while (cursor.moveToNext()) {
+                    val name = cursor.getString(nameIndex)
+                    if (name in expected) {
+                        found.add(name)
+                    }
+                }
+                assertEquals(expected, found)
+            }
+            query("SELECT enhanced, enhance_strength FROM upload_items WHERE id = 3").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+                assertTrue(cursor.isNull(1))
+            }
+            close()
+        }
+    }
+
     private companion object {
         const val TEST_DB = "kotopogoda-migration-test.db"
     }
