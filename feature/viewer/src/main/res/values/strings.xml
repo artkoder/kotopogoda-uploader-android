@@ -3,7 +3,10 @@
     <string name="viewer_empty_body">Сначала просканируйте выбранную папку, чтобы увидеть снимки.</string>
     <string name="viewer_action_skip">Пропустить</string>
     <string name="viewer_action_processing">На обработку</string>
+    <string name="viewer_action_processing_busy">Улучшается…</string>
     <string name="viewer_action_publish">К публикации</string>
+    <string name="viewer_action_processing_state_busy">Улучшение выполняется</string>
+    <string name="viewer_action_publish_state_disabled_processing">Недоступно, пока идёт улучшение</string>
     <string name="viewer_action_undo">Отменить</string>
     <string name="viewer_action_undo_with_count">Отменить (%1$d)</string>
     <string name="viewer_action_undo_tooltip">Отменить выбор</string>
@@ -25,6 +28,12 @@
     <string name="viewer_selection_count">Выбрано: %1$d</string>
     <string name="viewer_selection_cancel">Снять выбор</string>
     <string name="viewer_badge_enqueued">В очереди</string>
+    <string name="viewer_improve_label">Улучшить</string>
+    <string name="viewer_improve_value">%1$d%%</string>
+    <string name="viewer_improve_state_running">Улучшаем…</string>
+    <string name="viewer_improve_state_ready">Улучшение готово</string>
+    <string name="viewer_improve_state_pending">Результат будет обновлён после применения</string>
+    <string name="viewer_improve_progress">%1$d%% готово</string>
     <string name="viewer_error_title">Не удалось загрузить фотографии</string>
     <string name="viewer_error_body">Попробуйте обновить экран или проверить доступ к медиа.</string>
     <string name="viewer_error_select_again">Выбрать папку снова</string>

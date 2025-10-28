@@ -50,6 +50,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -67,6 +68,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDatePickerState
@@ -110,6 +112,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @Composable
 fun ViewerRoute(
@@ -130,6 +133,7 @@ fun ViewerRoute(
     val selection by viewModel.selection.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val currentFolderUri by viewModel.currentFolderTreeUri.collectAsState()
+    val enhancementState by viewModel.enhancementState.collectAsState()
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -225,7 +229,13 @@ fun ViewerRoute(
         onToggleSelection = viewModel::onToggleSelection,
         onSelectFolder = {
             launchFolderPicker(currentFolderUri?.let(Uri::parse))
-        }
+        },
+        enhancementStrength = enhancementState.strength,
+        enhancementInProgress = enhancementState.inProgress,
+        enhancementReady = enhancementState.isResultReady,
+        enhancementProgress = enhancementState.progressByTile,
+        onEnhancementStrengthChange = viewModel::onEnhancementStrengthChange,
+        onEnhancementStrengthChangeFinished = viewModel::onEnhancementStrengthChangeFinished
     )
 }
 
@@ -270,7 +280,13 @@ internal fun ViewerScreen(
     onPhotoLongPress: (PhotoItem) -> Unit,
     onToggleSelection: (PhotoItem) -> Unit,
     onCancelSelection: () -> Unit,
-    onSelectFolder: () -> Unit
+    onSelectFolder: () -> Unit,
+    enhancementStrength: Float,
+    enhancementInProgress: Boolean,
+    enhancementReady: Boolean,
+    enhancementProgress: Map<Int, Float>,
+    onEnhancementStrengthChange: (Float) -> Unit,
+    onEnhancementStrengthChangeFinished: () -> Unit,
 ) {
     BackHandler {
         if (isSelectionMode) {
@@ -443,27 +459,44 @@ internal fun ViewerScreen(
             )
         },
         bottomBar = {
-            ViewerActionBar(
-                isSelectionMode = isSelectionMode,
-                selectionCount = selection.size,
-                onCancelSelection = onCancelSelection,
-                onMoveSelection = onMoveSelection,
-                onDeleteSelection = onDeleteSelection,
-                skipEnabled = !isBusy && currentIndex < itemCount - 1 && !isSelectionMode,
-                processingEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
-                publishEnabled = !isBusy && currentPhoto != null && !isCurrentQueued && !isSelectionMode,
-                deleteEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
-                processingBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing,
-                publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
-                deleteBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Delete,
-                canUndo = canUndo && !isBusy && !isSelectionMode,
-                undoCount = undoCount,
-                onSkip = { onSkip(currentPhoto) },
-                onMoveToProcessing = { onMoveToProcessing(currentPhoto) },
-                onEnqueueUpload = { onEnqueueUpload(currentPhoto) },
-                onUndo = onUndo,
-                onDelete = { onDelete(currentPhoto) }
-            )
+            Column {
+                if (!isSelectionMode) {
+                    ViewerEnhancementSlider(
+                        value = enhancementStrength,
+                        inProgress = enhancementInProgress,
+                        isReady = enhancementReady,
+                        progressByTile = enhancementProgress,
+                        onValueChange = onEnhancementStrengthChange,
+                        onValueChangeFinished = onEnhancementStrengthChangeFinished
+                    )
+                }
+                val processingBusy = enhancementInProgress ||
+                    actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing
+                val publishBaseEnabled = !isBusy && currentPhoto != null && !isCurrentQueued && !isSelectionMode
+                val publishBlockedByEnhancement = publishBaseEnabled && !enhancementReady
+                ViewerActionBar(
+                    isSelectionMode = isSelectionMode,
+                    selectionCount = selection.size,
+                    onCancelSelection = onCancelSelection,
+                    onMoveSelection = onMoveSelection,
+                    onDeleteSelection = onDeleteSelection,
+                    skipEnabled = !isBusy && currentIndex < itemCount - 1 && !isSelectionMode,
+                    processingEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !enhancementInProgress,
+                    publishEnabled = publishBaseEnabled && enhancementReady,
+                    deleteEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
+                    processingBusy = processingBusy,
+                    publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
+                    deleteBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Delete,
+                    canUndo = canUndo && !isBusy && !isSelectionMode,
+                    undoCount = undoCount,
+                    onSkip = { onSkip(currentPhoto) },
+                    onMoveToProcessing = { onMoveToProcessing(currentPhoto) },
+                    onEnqueueUpload = { onEnqueueUpload(currentPhoto) },
+                    onUndo = onUndo,
+                    onDelete = { onDelete(currentPhoto) },
+                    publishBlockedByProcessing = publishBlockedByEnhancement
+                )
+            }
         }
     ) { paddingValues ->
         Box(
@@ -818,7 +851,8 @@ private fun ViewerActionBar(
     onMoveToProcessing: () -> Unit,
     onEnqueueUpload: () -> Unit,
     onUndo: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    publishBlockedByProcessing: Boolean,
 ) {
     Surface(
         tonalElevation = 3.dp
@@ -853,6 +887,27 @@ private fun ViewerActionBar(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
+            val processingText = if (processingBusy) {
+                stringResource(id = R.string.viewer_action_processing_busy)
+            } else {
+                stringResource(id = R.string.viewer_action_processing)
+            }
+            val processingStateDescription = if (processingBusy) {
+                stringResource(id = R.string.viewer_action_processing_state_busy)
+            } else {
+                null
+            }
+            val publishStateDescription = if (publishBlockedByProcessing) {
+                stringResource(id = R.string.viewer_action_publish_state_disabled_processing)
+            } else {
+                null
+            }
+            val processingSemanticsModifier = processingStateDescription?.let { description ->
+                Modifier.semantics { stateDescription = description }
+            } ?: Modifier
+            val publishSemanticsModifier = publishStateDescription?.let { description ->
+                Modifier.semantics { stateDescription = description }
+            } ?: Modifier
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -860,18 +915,18 @@ private fun ViewerActionBar(
                 FilledTonalButton(
                     onClick = onMoveToProcessing,
                     enabled = processingEnabled,
-                    modifier = primaryModifier,
+                    modifier = primaryModifier.then(processingSemanticsModifier),
                     colors = processingColors
                 ) {
                     ActionButtonContent(
-                        text = stringResource(id = R.string.viewer_action_processing),
+                        text = processingText,
                         busy = processingBusy
                     )
                 }
                 Button(
                     onClick = onEnqueueUpload,
                     enabled = publishEnabled,
-                    modifier = primaryModifier,
+                    modifier = primaryModifier.then(publishSemanticsModifier),
                     colors = publishColors
                 ) {
                     ActionButtonContent(
@@ -966,6 +1021,11 @@ private fun SelectionActionContent(
             containerColor = MaterialTheme.colorScheme.errorContainer,
             contentColor = MaterialTheme.colorScheme.onErrorContainer
         )
+        val processingText = if (processingBusy) {
+            stringResource(id = R.string.viewer_action_processing_busy)
+        } else {
+            stringResource(id = R.string.viewer_action_processing)
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -979,7 +1039,7 @@ private fun SelectionActionContent(
                 colors = processingColors
             ) {
                 ActionButtonContent(
-                    text = stringResource(id = R.string.viewer_action_processing),
+                    text = processingText,
                     busy = processingBusy
                 )
             }
@@ -1122,8 +1182,90 @@ private fun ViewerActionBarPreview() {
             onMoveToProcessing = {},
             onEnqueueUpload = {},
             onUndo = {},
-            onDelete = {}
+            onDelete = {},
+            publishBlockedByProcessing = true
         )
+    }
+}
+
+@Composable
+private fun ViewerEnhancementSlider(
+    value: Float,
+    inProgress: Boolean,
+    isReady: Boolean,
+    progressByTile: Map<Int, Float>,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+) {
+    val averageProgress = remember(progressByTile) {
+        if (progressByTile.isEmpty()) {
+            0f
+        } else {
+            (progressByTile.values.sum() / progressByTile.size).coerceIn(0f, 1f)
+        }
+    }
+    val percent = (value * 100).roundToInt().coerceIn(0, 100)
+    val progressPercent = (averageProgress * 100).roundToInt().coerceIn(0, 100)
+    val sliderLabel = stringResource(id = R.string.viewer_improve_label)
+    val sliderValueDescription = stringResource(id = R.string.viewer_improve_value, percent)
+    Surface(tonalElevation = 3.dp) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = sliderLabel,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = sliderValueDescription,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = 0f..1f,
+                onValueChangeFinished = onValueChangeFinished,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics {
+                        contentDescription = sliderLabel
+                        stateDescription = sliderValueDescription
+                    }
+            )
+            val statusText = when {
+                inProgress -> stringResource(id = R.string.viewer_improve_state_running)
+                isReady -> stringResource(id = R.string.viewer_improve_state_ready)
+                progressByTile.isEmpty() -> stringResource(id = R.string.viewer_improve_state_pending)
+                progressPercent >= 100 -> stringResource(id = R.string.viewer_improve_state_ready)
+                else -> stringResource(id = R.string.viewer_improve_state_pending)
+            }
+            if (inProgress || (!isReady && progressByTile.isNotEmpty())) {
+                LinearProgressIndicator(
+                    progress = averageProgress,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = stringResource(id = R.string.viewer_improve_progress, progressPercent),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
