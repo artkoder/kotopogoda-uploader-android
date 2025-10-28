@@ -1,9 +1,17 @@
 package com.kotopogoda.uploader.feature.viewer.enhance
 
+import android.graphics.Color
+import java.io.File
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class EnhanceEngineTest {
 
     @Test
@@ -17,95 +25,136 @@ class EnhanceEngineTest {
     }
 
     @Test
-    fun `metrics for white image`() {
-        val buffer = EnhanceEngine.ImageBuffer(4, 4, IntArray(16) { argb(255, 255, 255) })
+    fun `metrics detect edges and noise`() {
+        val pixels = intArrayOf(
+            argb(0, 0, 0), argb(255, 255, 255),
+            argb(255, 0, 0), argb(0, 255, 0),
+        )
+        val buffer = EnhanceEngine.ImageBuffer(2, 2, pixels)
         val metrics = EnhanceEngine.MetricsCalculator.calculate(buffer)
-        assertEquals(1.0, metrics.lMean, 1e-6)
-        assertEquals(0.0, metrics.pDark, 1e-6)
-        assertEquals(0.0, metrics.bSharpness, 1e-6)
-        assertEquals(0.0, metrics.nNoise, 1e-6)
+        assertTrue(metrics.lMean in 0.4..0.7)
+        assertTrue(metrics.pDark in 0.25..0.75)
+        assertTrue("sharpness must be positive", metrics.bSharpness > 0.1)
+        assertTrue("noise must be positive", metrics.nNoise > 0.05)
     }
 
     @Test
-    fun `profile curves for 0-100 percent`() {
+    fun `profile reacts to strength`() {
         val metrics = EnhanceEngine.Metrics(
-            lMean = 0.4,
-            pDark = 0.2,
-            bSharpness = 0.3,
+            lMean = 0.3,
+            pDark = 0.4,
+            bSharpness = 0.2,
             nNoise = 0.5,
         )
-        val expected = listOf(
-            StrengthExpectation(
-                strength = 0f,
-                luminance = 1.0f,
-                dark = 0.06f,
-                contrast = 1.0f,
-                restormer = 0.0f,
-                sharpen = 1.0f,
-                saturation = 1.0f,
-            ),
-            StrengthExpectation(
-                strength = 0.25f,
-                luminance = 1.0234375f,
-                dark = 0.081875f,
-                contrast = 1.025f,
-                restormer = 0.078125f,
-                sharpen = 1.0576172f,
-                saturation = 1.0046875f,
-            ),
-            StrengthExpectation(
-                strength = 0.5f,
-                luminance = 1.075f,
-                dark = 0.13f,
-                contrast = 1.08f,
-                restormer = 0.25f,
-                sharpen = 1.15f,
-                saturation = 1.015f,
-            ),
-            StrengthExpectation(
-                strength = 0.75f,
-                luminance = 1.1265625f,
-                dark = 0.178125f,
-                contrast = 1.135f,
-                restormer = 0.421875f,
-                sharpen = 1.1951172f,
-                saturation = 1.0253125f,
-            ),
-            StrengthExpectation(
-                strength = 1.0f,
-                luminance = 1.15f,
-                dark = 0.2f,
-                contrast = 1.16f,
-                restormer = 0.5f,
-                sharpen = 1.2f,
-                saturation = 1.03f,
+        val zero = EnhanceEngine.ProfileCalculator.calculate(metrics, 0f)
+        assertEquals(0f, zero.kDce, 1e-6f)
+        assertEquals(0f, zero.restormerMix, 1e-6f)
+        assertEquals(1f, zero.alphaDetail, 1e-6f)
+        val full = EnhanceEngine.ProfileCalculator.calculate(metrics, 1f)
+        assertClose(0.4333f, full.kDce, 1e-3f)
+        assertClose(0.5f, full.restormerMix, 1e-3f)
+        assertClose(1.1575f, full.alphaDetail, 1e-3f)
+        assertClose(0.425f, full.postSharpen, 1e-3f)
+        assertClose(0.29f, full.vibranceGain, 1e-3f)
+        assertClose(1.15f, full.saturationGain, 1e-3f)
+    }
+
+    @Test
+    fun `zero-dce triggers only on low light`() = runTest {
+        val darkPixels = IntArray(16) { argb(15, 15, 15) }
+        val brightPixels = IntArray(16) { argb(240, 240, 240) }
+        val decoder = QueueDecoder(
+            listOf(
+                EnhanceEngine.ImageBuffer(4, 4, darkPixels),
+                EnhanceEngine.ImageBuffer(4, 4, brightPixels),
             ),
         )
+        val encoder = RecordingEncoder()
+        val zeroDce = TrackingZeroDce()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = zeroDce,
+            restormer = null,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
 
-        expected.forEachIndexed { index, data ->
-            val profile = EnhanceEngine.ProfileCalculator.calculate(metrics, data.strength)
-            assertClose("luminance[$index]", data.luminance, profile.luminanceGain)
-            assertClose("dark[$index]", data.dark, profile.darkBoost)
-            assertClose("contrast[$index]", data.contrast, profile.contrastGain)
-            assertClose("restormer[$index]", data.restormer, profile.restormerMix)
-            assertClose("sharpen[$index]", data.sharpen, profile.sharpenGain)
-            assertClose("saturation[$index]", data.saturation, profile.saturationGain)
-        }
+        engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                delegate = EnhanceEngine.Delegate.GPU,
+            ),
+        )
+        assertEquals(1, zeroDce.calls.size)
+        assertEquals(EnhanceEngine.Delegate.GPU, zeroDce.calls.single().delegate)
+        val firstBuffer = encoder.lastBuffer
+        assertNotNull(firstBuffer)
+        val luma = firstBuffer.pixels.map { pixel ->
+            luminance(
+                Color.red(pixel) / 255f,
+                Color.green(pixel) / 255f,
+                Color.blue(pixel) / 255f,
+            )
+        }.average()
+        assertTrue("zero-dce should brighten", luma > 0.1)
+
+        engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+            ),
+        )
+        assertEquals(1, zeroDce.calls.size)
     }
 
-    private fun assertClose(message: String, expected: Float, actual: Float, epsilon: Float = 1e-4f) {
-        assertTrue("$message expected=$expected actual=$actual", kotlin.math.abs(expected - actual) <= epsilon)
-    }
+    @Test
+    fun `restormer invoked only when mix positive`() = runTest {
+        val noisyPixels = IntArray(16) { index -> if (index % 2 == 0) argb(255, 0, 0) else argb(0, 0, 255) }
+        val cleanPixels = IntArray(16) { argb(220, 220, 220) }
+        val decoder = QueueDecoder(
+            listOf(
+                EnhanceEngine.ImageBuffer(4, 4, noisyPixels),
+                EnhanceEngine.ImageBuffer(4, 4, cleanPixels),
+            ),
+        )
+        val encoder = RecordingEncoder()
+        val restormer = TrackingRestormer()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = null,
+            restormer = restormer,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
 
-    private data class StrengthExpectation(
-        val strength: Float,
-        val luminance: Float,
-        val dark: Float,
-        val contrast: Float,
-        val restormer: Float,
-        val sharpen: Float,
-        val saturation: Float,
-    )
+        engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                tileSize = 2,
+                overlap = 1,
+            ),
+        )
+        assertTrue("restormer should be used for noisy image", restormer.calls > 0)
+
+        val callsAfterNoisy = restormer.calls
+        engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+            ),
+        )
+        assertEquals("restormer should not run on clean image", callsAfterNoisy, restormer.calls)
+    }
 
     private fun argb(r: Int, g: Int, b: Int): Int {
         val rr = (r and 0xFF)
@@ -113,4 +162,55 @@ class EnhanceEngineTest {
         val bb = (b and 0xFF)
         return (0xFF shl 24) or (rr shl 16) or (gg shl 8) or bb
     }
+
+    private fun assertClose(expected: Float, actual: Float, epsilon: Float) {
+        assertTrue(
+            abs(expected - actual) <= epsilon,
+            "expected=$expected actual=$actual",
+        )
+    }
+
+    private class QueueDecoder(private val buffers: MutableList<EnhanceEngine.ImageBuffer>) : EnhanceEngine.ImageDecoder {
+        constructor(buffers: List<EnhanceEngine.ImageBuffer>) : this(buffers.toMutableList())
+        override fun decode(file: File): EnhanceEngine.ImageBuffer {
+            if (buffers.isEmpty()) error("no buffers left")
+            return buffers.removeAt(0).copy()
+        }
+    }
+
+    private class RecordingEncoder : EnhanceEngine.ImageEncoder {
+        var lastBuffer: EnhanceEngine.ImageBuffer? = null
+        override fun encode(buffer: EnhanceEngine.ImageBuffer, target: File) {
+            lastBuffer = buffer.copy()
+            target.writeBytes(ByteArray(0))
+        }
+    }
+
+    private class TrackingZeroDce : EnhanceEngine.ZeroDceModel {
+        data class Call(val delegate: EnhanceEngine.Delegate, val iterations: Int)
+        val calls = mutableListOf<Call>()
+        override suspend fun enhance(
+            buffer: EnhanceEngine.ImageBuffer,
+            delegate: EnhanceEngine.Delegate,
+            iterations: Int,
+        ): EnhanceEngine.ImageBuffer {
+            calls += Call(delegate, iterations)
+            val pixels = IntArray(buffer.pixels.size) { argb(200, 200, 200) }
+            return EnhanceEngine.ImageBuffer(buffer.width, buffer.height, pixels)
+        }
+    }
+
+    private class TrackingRestormer : EnhanceEngine.RestormerModel {
+        var calls: Int = 0
+        override suspend fun denoise(
+            tile: EnhanceEngine.ImageBuffer,
+            delegate: EnhanceEngine.Delegate,
+        ): EnhanceEngine.ImageBuffer {
+            calls++
+            val pixels = IntArray(tile.pixels.size) { argb(64, 64, 192) }
+            return EnhanceEngine.ImageBuffer(tile.width, tile.height, pixels)
+        }
+    }
 }
+
+private fun luminance(r: Float, g: Float, b: Float): Float = 0.2126f * r + 0.7152f * g + 0.0722f * b
