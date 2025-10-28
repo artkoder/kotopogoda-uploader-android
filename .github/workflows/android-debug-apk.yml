@@ -95,3 +95,156 @@ jobs:
           name: generated-openapi
           path: core/network/build/generated/openapi
 
+  tests:
+    name: Android tests (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 34]
+
+    env:
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
+      CONTRACT_TAG:     v1.4.1
+      AVD_NAME:         ci-api-${{ matrix.api-level }}
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Guard contract tag (must be ${{ env.CONTRACT_TAG }})
+        run: |
+          set -euo pipefail
+          git -C api/contract fetch --tags --force
+          TAG_ACTUAL="$(git -C api/contract describe --tags --exact-match HEAD 2>/dev/null || true)"
+          echo "Contract tag (actual): ${TAG_ACTUAL:-<none>}"
+          if [ "$TAG_ACTUAL" != "${{ env.CONTRACT_TAG }}" ]; then
+            echo "::error::Contract tag mismatch. Expected ${{ env.CONTRACT_TAG }} but found ${TAG_ACTUAL:-<none>}"
+            exit 1
+          fi
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle (use system Gradle, no wrapper)
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.9'
+          cache-read-only: false
+
+      - name: Install Android SDK (API ${{ matrix.api-level }})
+        shell: bash
+        run: |
+          set -eux
+          SDK="$ANDROID_SDK_ROOT"
+          mkdir -p "$SDK/cmdline-tools"
+          cd /tmp
+          curl -L -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q cmdtools.zip
+          mv cmdline-tools "$SDK/cmdline-tools/latest"
+
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --update || true
+
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platform-tools" || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "emulator" || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "build-tools;35.0.1" || \
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "build-tools;35.0.0" || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platforms;android-35" || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platforms;android-${{ matrix.api-level }}" || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "system-images;android-${{ matrix.api-level }};google_apis;x86_64" || true
+
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses > /dev/null || true
+
+          echo "sdk.dir=$SDK" > local.properties
+
+      - name: Export Android SDK tools to PATH
+        run: |
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/emulator" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Generate OpenAPI client
+        run: gradle --no-daemon :core:network:openApiGenerate
+
+      - name: Run unit tests
+        run: gradle --no-daemon testDebugUnitTest
+
+      - name: Create AVD (API ${{ matrix.api-level }})
+        run: |
+          set -eux
+          echo "no" | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager" create avd \
+            --force \
+            --name "$AVD_NAME" \
+            --package "system-images;android-${{ matrix.api-level }};google_apis;x86_64" \
+            --device "pixel_4"
+
+      - name: Start emulator (API ${{ matrix.api-level }})
+        timeout-minutes: 15
+        run: |
+          set -euxo pipefail
+          adb start-server
+          "$ANDROID_SDK_ROOT/emulator/emulator" \
+            -avd "$AVD_NAME" \
+            -no-window \
+            -no-audio \
+            -no-boot-anim \
+            -gpu swiftshader_indirect \
+            -no-snapshot \
+            -camera-back none \
+            -camera-front none \
+            -netfast \
+            -no-accel \
+            >/dev/null 2>&1 &
+
+          adb wait-for-device
+          timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -m 1 "1"; do sleep 5; done'
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+
+      - name: Run instrumentation tests
+        run: gradle --no-daemon connectedDebugAndroidTest
+
+      - name: Stop emulator
+        if: always()
+        run: |
+          adb emu kill || true
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports-api-${{ matrix.api-level }}
+          path: |
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: warn
+
+      - name: Upload instrumentation test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports-api-${{ matrix.api-level }}
+          path: |
+            app/build/outputs/androidTest-results/connected
+            app/build/reports/androidTests/connected
+          if-no-files-found: warn
+
+      - name: Upload app/http logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-api-${{ matrix.api-level }}
+          path: |
+            app/build/outputs/logs/**/app.log
+            app/build/outputs/logs/**/http.log
+          if-no-files-found: warn
+
