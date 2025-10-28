@@ -379,7 +379,7 @@ class HmacInterceptorTest {
         val hexSecret = buildString(secretBytes.size * 2) {
             secretBytes.forEach { append("%02x".format(it)) }
         }
-        val deviceCreds = DeviceCreds(deviceId = "device-789", hmacKey = "hex:$hexSecret")
+        val deviceCreds = DeviceCreds(deviceId = "device-789", hmacKey = hexSecret)
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
             httpFileLogger = mockk(relaxed = true),
@@ -432,7 +432,7 @@ class HmacInterceptorTest {
         val nonce = "fixed-nonce"
         val secretBytes = ByteArray(32) { index -> (255 - index).toByte() }
         val base64Secret = Base64.getEncoder().encodeToString(secretBytes)
-        val deviceCreds = DeviceCreds(deviceId = "device-789", hmacKey = "base64:$base64Secret")
+        val deviceCreds = DeviceCreds(deviceId = "device-789", hmacKey = base64Secret)
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
             httpFileLogger = mockk(relaxed = true),
