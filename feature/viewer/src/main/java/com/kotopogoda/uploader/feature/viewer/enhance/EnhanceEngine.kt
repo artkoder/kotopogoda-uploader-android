@@ -20,9 +20,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -248,9 +248,16 @@ class EnhanceEngine(
         val accWeight = FloatArray(width * height)
         val semaphore = Semaphore(safeParallelism)
         val delegateRef = AtomicReference(delegate)
-        val processedTiles = coroutineScope {
+        val channel = Channel<TileResult>(capacity = safeParallelism)
+        var minWeight = Float.POSITIVE_INFINITY
+        var maxWeight = 0f
+        var weightSum = 0.0
+        var weightSqSum = 0.0
+        var weightCount = 0
+        var seamCount = 0
+        coroutineScope {
             val jobs = tileSpecs.map { spec ->
-                async {
+                launch {
                     semaphore.withPermit {
                         onTileProgress(spec.index, totalTiles, 0f)
                         val currentDelegate = delegateRef.get()
@@ -260,52 +267,48 @@ class EnhanceEngine(
                             delegateRef.set(processed.delegate)
                         }
                         onTileProgress(spec.index, totalTiles, 1f)
-                        TileResult(spec, processed)
+                        channel.send(TileResult(spec, processed))
                     }
                 }
             }
-            jobs.awaitAll()
-        }
-        var minWeight = Float.POSITIVE_INFINITY
-        var maxWeight = 0f
-        var weightSum = 0.0
-        var weightSqSum = 0.0
-        var weightCount = 0
-        var seamCount = 0
-        for (tileResult in processedTiles.sortedBy { it.spec.index }) {
-            val spec = tileResult.spec
-            val processed = tileResult.result.buffer
-            val tilePixels = processed.pixels
-            val tileWidth = processed.width
-            val tileHeight = processed.height
-            for (py in 0 until tileHeight) {
-                val globalY = spec.y + py
-                if (globalY >= height) continue
-                val weightY = featherWeight(py, tileHeight, safeOverlap)
-                val base = globalY * width
-                val tileBase = py * tileWidth
-                for (px in 0 until tileWidth) {
-                    val globalX = spec.x + px
-                    if (globalX >= width) continue
-                    val weightX = featherWeight(px, tileWidth, safeOverlap)
-                    val weight = weightX * weightY
-                    if (weight <= 0f) continue
-                    val color = tilePixels[tileBase + px]
-                    val idx = base + globalX
-                    accR[idx] += Color.red(color) * weight
-                    accG[idx] += Color.green(color) * weight
-                    accB[idx] += Color.blue(color) * weight
-                    accWeight[idx] += weight
-                    minWeight = min(minWeight, weight)
-                    maxWeight = max(maxWeight, weight)
-                    weightSum += weight
-                    weightSqSum += weight * weight
-                    weightCount++
-                    if (weight < SEAM_THRESHOLD) {
-                        seamCount++
+            repeat(totalTiles) {
+                val tileResult = channel.receive()
+                val spec = tileResult.spec
+                val processedBuffer = tileResult.result.buffer
+                val tilePixels = processedBuffer.pixels
+                val tileWidth = processedBuffer.width
+                val tileHeight = processedBuffer.height
+                for (py in 0 until tileHeight) {
+                    val globalY = spec.y + py
+                    if (globalY >= height) continue
+                    val weightY = featherWeight(py, tileHeight, safeOverlap)
+                    val base = globalY * width
+                    val tileBase = py * tileWidth
+                    for (px in 0 until tileWidth) {
+                        val globalX = spec.x + px
+                        if (globalX >= width) continue
+                        val weightX = featherWeight(px, tileWidth, safeOverlap)
+                        val weight = weightX * weightY
+                        if (weight <= 0f) continue
+                        val color = tilePixels[tileBase + px]
+                        val idx = base + globalX
+                        accR[idx] += Color.red(color) * weight
+                        accG[idx] += Color.green(color) * weight
+                        accB[idx] += Color.blue(color) * weight
+                        accWeight[idx] += weight
+                        minWeight = min(minWeight, weight)
+                        maxWeight = max(maxWeight, weight)
+                        weightSum += weight
+                        weightSqSum += weight * weight
+                        weightCount++
+                        if (weight < SEAM_THRESHOLD) {
+                            seamCount++
+                        }
                     }
                 }
             }
+            channel.close()
+            jobs.forEach { it.join() }
         }
         val seamMetrics = if (weightCount > 0) {
             val mean = (weightSum / weightCount).toFloat()

@@ -2211,7 +2211,7 @@ class ViewerViewModel @Inject constructor(
         val profile: EnhanceEngine.Profile,
         val delegate: EnhancementDelegateType,
         val engineDelegate: EnhanceEngine.Delegate?,
-        val tiling: EnhanceEngine.RestormerTiling?,
+        val tiling: EnhanceEngine.RestormerTiling? = null,
     )
 
     enum class EnhancementDelegateType { PRIMARY, FALLBACK }
