@@ -22,4 +22,6 @@ class HttpLoggingController @Inject constructor(
             }
         }
     }
+
+    fun isEnabled(): Boolean = enabled.get()
 }
