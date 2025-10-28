@@ -295,6 +295,7 @@ internal fun queueItemErrorMessage(resources: Resources, item: QueueItemUiModel)
                         resources.getString(R.string.queue_error_http)
                     }
                 }
+                UploadErrorKind.AUTH -> resources.getString(R.string.queue_error_auth)
                 UploadErrorKind.NETWORK -> resources.getString(R.string.queue_error_network)
                 UploadErrorKind.IO -> resources.getString(R.string.queue_error_io)
                 UploadErrorKind.REMOTE_FAILURE -> resources.getString(R.string.queue_error_remote_failure)

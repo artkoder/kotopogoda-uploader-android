@@ -49,4 +49,41 @@ class QueueScreenTest {
         assertEquals("Последняя ошибка: X-Timestamp must be an integer", message)
         verify { resources.getString(R.string.queue_last_error, "X-Timestamp must be an integer") }
     }
+
+    @Test
+    fun queueItemErrorMessageShowsAuthFallback() {
+        val entity = UploadItemEntity(
+            id = 2L,
+            photoId = "photo-2",
+            uri = "content://photos/2",
+            displayName = "photo2.jpg",
+            size = 2_048L,
+            state = UploadItemState.FAILED.rawValue,
+            createdAt = 0L,
+            updatedAt = 0L,
+            lastErrorKind = UploadErrorKind.AUTH.rawValue,
+            httpCode = 401,
+            lastErrorMessage = null,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = null,
+            state = UploadItemState.FAILED,
+            lastErrorKind = UploadErrorKind.AUTH,
+            lastErrorHttpCode = 401,
+            lastErrorMessage = null,
+        )
+        val uiModel = entry.toQueueItemUiModel(workInfo = null)
+
+        every { resources.getString(R.string.queue_error_auth) } returns "Требуется повторная авторизация"
+        every {
+            resources.getString(R.string.queue_last_error, "Требуется повторная авторизация")
+        } returns "Последняя ошибка: Требуется повторная авторизация"
+
+        val message = queueItemErrorMessage(resources, uiModel)
+
+        assertEquals("Последняя ошибка: Требуется повторная авторизация", message)
+        verify { resources.getString(R.string.queue_error_auth) }
+        verify { resources.getString(R.string.queue_last_error, "Требуется повторная авторизация") }
+    }
 }

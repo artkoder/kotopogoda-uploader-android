@@ -197,7 +197,8 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
     }
     val canCancel = state == UploadItemState.QUEUED || state == UploadItemState.PROCESSING
     val canRetry = state == UploadItemState.FAILED
-    val highlightWarning = state == UploadItemState.FAILED && lastErrorKind == UploadErrorKind.REMOTE_FAILURE
+    val highlightWarning = state == UploadItemState.FAILED &&
+        (lastErrorKind == UploadErrorKind.REMOTE_FAILURE || lastErrorKind == UploadErrorKind.AUTH)
 
     val resolvedWorkInfo = workInfo?.forState(state)
     val mergedProgressPercent = resolvedWorkInfo?.progressPercent ?: baseProgressPercent

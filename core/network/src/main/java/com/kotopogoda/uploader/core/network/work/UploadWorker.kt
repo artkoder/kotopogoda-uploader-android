@@ -308,6 +308,14 @@ class UploadWorker @AssistedInject constructor(
                         Result.success(resultData)
                     }
                 }
+                401, 403 -> failureResult(
+                    itemId = itemId,
+                    displayName = displayName,
+                    uriString = uriString,
+                    errorKind = UploadErrorKind.AUTH,
+                    httpCode = responseCode,
+                    errorMessage = errorMessage,
+                )
                 413, 415 -> failureResult(
                     itemId = itemId,
                     displayName = displayName,
