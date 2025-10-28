@@ -172,6 +172,7 @@ data class QueueItemUiModel(
     val lastErrorMessage: String?,
     val waitingReasons: List<QueueItemWaitingReason>,
     val isActiveTransfer: Boolean,
+    val completedAt: Long?,
 ) {
     val isIndeterminate: Boolean get() = progressPercent == null
 }
@@ -221,6 +222,11 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
         else -> canCancel
     }
 
+    val completedAt = when (state) {
+        UploadItemState.SUCCEEDED -> (entity.updatedAt ?: entity.createdAt).takeIf { it > 0 }
+        else -> null
+    }
+
     return QueueItemUiModel(
         id = entity.id,
         title = normalizedTitle,
@@ -238,6 +244,7 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
         lastErrorMessage = entity.lastErrorMessage,
         waitingReasons = mergedWaitingReasons,
         isActiveTransfer = mergedIsActive,
+        completedAt = completedAt,
     )
 }
 

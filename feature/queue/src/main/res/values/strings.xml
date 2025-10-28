@@ -5,6 +5,7 @@
     <string name="queue_status_running">В работе</string>
     <string name="queue_status_succeeded">Готово</string>
     <string name="queue_status_failed">Ошибка</string>
+    <string name="queue_status_with_time">%1$s · %2$s</string>
     <string name="queue_status_cancelled">Отменена</string>
     <string name="queue_status_blocked">Заблокирована</string>
     <string name="queue_status_poll_waiting">Ожидаем обработку…</string>
