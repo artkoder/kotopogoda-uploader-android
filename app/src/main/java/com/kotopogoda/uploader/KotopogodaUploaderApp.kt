@@ -30,7 +30,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -107,7 +106,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         appLogger.setEnabled(true)
-        runBlocking(Dispatchers.IO) {
+        scope.launch(Dispatchers.IO) {
             ModelChecksumVerifier.verify(this@KotopogodaUploaderApp)
         }
         installCrashHandlers()
