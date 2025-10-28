@@ -17,6 +17,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 /**
  * Центральный класс, отвечающий за вычисление метрик изображения и применение цепочки улучшений.
@@ -52,6 +53,12 @@ class EnhanceEngine(
         val file: File,
         val metrics: Metrics,
         val profile: Profile,
+        val delegate: Delegate,
+    )
+
+    data class ModelResult(
+        val buffer: ImageBuffer,
+        val delegate: Delegate,
     )
 
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
@@ -60,19 +67,21 @@ class EnhanceEngine(
         val metrics = MetricsCalculator.calculate(buffer)
         val profile = ProfileCalculator.calculate(metrics, strength)
 
-        val zeroDceApplied = applyZeroDce(buffer.copy(), profile, request.delegate, request.zeroDceIterations)
-        val restormed = runRestormer(
-            buffer = zeroDceApplied,
+        val zeroResult = applyZeroDce(buffer.copy(), profile, request.delegate, request.zeroDceIterations)
+        var actualDelegate = zeroResult.delegate
+        val restResult = runRestormer(
+            buffer = zeroResult.buffer,
             mix = profile.restormerMix,
             tileSize = request.tileSize,
             overlap = request.overlap,
-            delegate = request.delegate,
+            delegate = zeroResult.delegate,
             onTileProgress = request.onTileProgress,
         )
-        val denoised = if (restormed != null && profile.alphaDetail > 1e-3f) {
-            blendBuffers(zeroDceApplied, restormed, profile.alphaDetail)
+        val denoised = if (restResult != null && profile.alphaDetail > 1e-3f) {
+            actualDelegate = restResult.delegate
+            blendBuffers(zeroResult.buffer, restResult.buffer, profile.alphaDetail)
         } else {
-            zeroDceApplied
+            zeroResult.buffer
         }
         val sharpened = applyEdgeAwareUnsharp(
             denoised,
@@ -86,10 +95,17 @@ class EnhanceEngine(
         encoder.encode(saturated, output)
         tryCopyExif(request.exif, request.source, output)
 
+        if (actualDelegate != request.delegate) {
+            Timber.tag(LOG_TAG).i("Enhance delegate fallback: requested=%s actual=%s", request.delegate, actualDelegate)
+        } else {
+            Timber.tag(LOG_TAG).i("Enhance delegate: %s", actualDelegate)
+        }
+
         Result(
             file = output,
             metrics = metrics,
             profile = profile,
+            delegate = actualDelegate,
         )
     }
 
@@ -98,15 +114,16 @@ class EnhanceEngine(
         profile: Profile,
         delegate: Delegate,
         iterations: Int,
-    ): ImageBuffer {
+    ): ModelResult {
         val mix = profile.kDce
         if (!profile.isLowLight || mix <= 1e-3f) {
-            return source
+            return ModelResult(source, delegate)
         }
         val safeIterations = max(1, iterations)
         val processed = zeroDce?.enhance(source.copy(), delegate, safeIterations)
-            ?: fallbackZeroDce(source.copy(), safeIterations)
-        return blendBuffers(source, processed, mix)
+            ?: ModelResult(fallbackZeroDce(source.copy(), safeIterations), Delegate.CPU)
+        val blended = blendBuffers(source, processed.buffer, mix)
+        return ModelResult(blended, processed.delegate)
     }
 
     private suspend fun runRestormer(
@@ -116,7 +133,7 @@ class EnhanceEngine(
         overlap: Int,
         delegate: Delegate,
         onTileProgress: (tileIndex: Int, total: Int, progress: Float) -> Unit,
-    ): ImageBuffer? {
+    ): ModelResult? {
         val model = restormer
         if (mix <= 1e-3f || model == null) {
             val totalTiles = computeTileCount(buffer.width, buffer.height, tileSize)
@@ -135,6 +152,7 @@ class EnhanceEngine(
         val accB = FloatArray(width * height)
         val accWeight = FloatArray(width * height)
         var index = 0
+        var currentDelegate = delegate
         for (ty in 0 until tilesY) {
             val innerY = ty * step
             val innerHeight = min(safeTile, height - innerY)
@@ -145,10 +163,11 @@ class EnhanceEngine(
                 if (innerWidth <= 0) continue
                 onTileProgress(index, totalTiles, 0f)
                 val tile = buffer.subRegion(innerX, innerY, innerWidth, innerHeight)
-                val processed = model.denoise(tile, delegate)
-                val tilePixels = processed.pixels
-                val tileWidth = processed.width
-                val tileHeight = processed.height
+                val processed = model.denoise(tile, currentDelegate)
+                currentDelegate = processed.delegate
+                val tilePixels = processed.buffer.pixels
+                val tileWidth = processed.buffer.width
+                val tileHeight = processed.buffer.height
                 for (py in 0 until tileHeight) {
                     val globalY = innerY + py
                     if (globalY >= height) continue
@@ -182,7 +201,7 @@ class EnhanceEngine(
             val processedB = if (weight > 0f) accB[i] / weight / 255f else Color.blue(baseColor) / 255f
             resultPixels[i] = composeColor(Color.alpha(baseColor), processedR, processedG, processedB)
         }
-        return ImageBuffer(buffer.width, buffer.height, resultPixels)
+        return ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate)
     }
 
     private fun applyEdgeAwareUnsharp(
@@ -398,11 +417,11 @@ class EnhanceEngine(
     }
 
     interface ZeroDceModel {
-        suspend fun enhance(buffer: ImageBuffer, delegate: Delegate, iterations: Int): ImageBuffer
+        suspend fun enhance(buffer: ImageBuffer, delegate: Delegate, iterations: Int): ModelResult
     }
 
     interface RestormerModel {
-        suspend fun denoise(tile: ImageBuffer, delegate: Delegate): ImageBuffer
+        suspend fun denoise(tile: ImageBuffer, delegate: Delegate): ModelResult
     }
 
     data class ImageBuffer(
@@ -580,6 +599,7 @@ class EnhanceEngine(
     }
 
     companion object {
+        private const val LOG_TAG = "Enhance/Engine"
         private const val DEFAULT_TILE_SIZE = 384
         private const val DEFAULT_TILE_OVERLAP = 32
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
