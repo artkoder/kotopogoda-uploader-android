@@ -601,6 +601,20 @@ class UploadWorkerTest {
     }
 
     @Test
+    fun retryAfterDelayIsCappedBelowWorkManagerLimit() = runBlocking {
+        val file = createTempFileWithContent("retry-cap")
+        val inputData = inputDataFor(file)
+
+        val worker = createWorker(inputData)
+        val delayMillis = worker.parseRetryAfterMillis(TimeUnit.HOURS.toSeconds(1).toString())
+
+        assertEquals(
+            TimeUnit.MINUTES.toMillis(9) + TimeUnit.SECONDS.toMillis(30),
+            delayMillis,
+        )
+    }
+
+    @Test
     fun networkFailureRetriesWithNetworkErrorKind() = runBlocking {
         val previousFactory = workerFactory
         val failingApi = object : UploadApi {

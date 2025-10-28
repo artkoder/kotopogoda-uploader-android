@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.network.work
 import android.app.RecoverableSecurityException
 import android.content.Context
 import android.net.Uri
+import androidx.annotation.VisibleForTesting
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -38,6 +39,7 @@ import java.net.UnknownHostException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.CancellationException
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -645,14 +647,15 @@ class UploadWorker @AssistedInject constructor(
         }
     }
 
-    private fun parseRetryAfterMillis(raw: String): Long? {
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun parseRetryAfterMillis(raw: String): Long? {
         raw.trim().toLongOrNull()?.let { seconds ->
-            return seconds.coerceAtLeast(0).times(1000)
+            return seconds.coerceAtLeast(0).times(1000).coerceAtMost(MAX_RETRY_AFTER_DELAY_MILLIS)
         }
         return runCatching {
             val targetInstant = Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(raw))
             val diff = targetInstant.toEpochMilli() - System.currentTimeMillis()
-            diff.coerceAtLeast(0)
+            diff.coerceAtLeast(0).coerceAtMost(MAX_RETRY_AFTER_DELAY_MILLIS)
         }.getOrNull()
     }
 
@@ -865,6 +868,8 @@ class UploadWorker @AssistedInject constructor(
         private const val CATEGORY_WORK_SCHEDULE = "WORK/SCHEDULE"
         private const val CATEGORY_UPLOAD_GUARD = "UPLOAD/GUARD"
         private const val RETRY_AFTER_HEADER = "Retry-After"
+        private val MAX_RETRY_AFTER_DELAY_MILLIS =
+            TimeUnit.MINUTES.toMillis(9) + TimeUnit.SECONDS.toMillis(30)
     }
 
     private data class ProgressSnapshot(
