@@ -591,10 +591,10 @@ class ViewerViewModel @Inject constructor(
                     val delegateName = enhancementResult.delegate.name.lowercase()
                     val metrics = enhancementResult.metrics
                     val metricsPayload = UploadEnhancementMetrics(
-                        lMean = metrics.lMean,
-                        pDark = metrics.pDark,
-                        bSharpness = metrics.bSharpness,
-                        nNoise = metrics.nNoise,
+                        lMean = metrics.lMean.toFloat(),
+                        pDark = metrics.pDark.toFloat(),
+                        bSharpness = metrics.bSharpness.toFloat(),
+                        nNoise = metrics.nNoise.toFloat(),
                     )
                     val fileSize = enhancementResult.file.length().takeIf { it > 0 }
                     enqueueUri = enhancementResult.uri
@@ -2134,10 +2134,13 @@ class ViewerViewModel @Inject constructor(
         private const val ENHANCE_CATEGORY = "ENHANCE"
         private const val DEFAULT_ENHANCE_TILE_SIZE = 256
         private val FALLBACK_PROFILE = EnhanceEngine.Profile(
+            isLowLight = false,
             kDce = 0f,
             restormerMix = 0f,
-            alphaDetail = 1f,
-            postSharpen = 0f,
+            alphaDetail = 0f,
+            sharpenAmount = 0f,
+            sharpenRadius = 1f,
+            sharpenThreshold = 0.02f,
             vibranceGain = 0f,
             saturationGain = 1f,
         )

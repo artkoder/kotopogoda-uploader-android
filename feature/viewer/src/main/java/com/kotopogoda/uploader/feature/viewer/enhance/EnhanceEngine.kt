@@ -9,6 +9,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -60,7 +61,7 @@ class EnhanceEngine(
         val profile = ProfileCalculator.calculate(metrics, strength)
 
         val zeroDceApplied = applyZeroDce(buffer.copy(), profile, request.delegate, request.zeroDceIterations)
-        val restormed = applyRestormer(
+        val restormed = runRestormer(
             buffer = zeroDceApplied,
             mix = profile.restormerMix,
             tileSize = request.tileSize,
@@ -68,8 +69,17 @@ class EnhanceEngine(
             delegate = request.delegate,
             onTileProgress = request.onTileProgress,
         )
-        val detailed = applyDetailBoost(restormed, profile.alphaDetail)
-        val sharpened = applyPostSharpen(detailed, profile.postSharpen)
+        val denoised = if (restormed != null && profile.alphaDetail > 1e-3f) {
+            blendBuffers(zeroDceApplied, restormed, profile.alphaDetail)
+        } else {
+            zeroDceApplied
+        }
+        val sharpened = applyEdgeAwareUnsharp(
+            denoised,
+            profile.sharpenAmount,
+            profile.sharpenRadius,
+            profile.sharpenThreshold,
+        )
         val saturated = applyVibranceAndSaturation(sharpened, profile.vibranceGain, profile.saturationGain)
 
         val output = request.outputFile ?: buildOutputFile(request.source)
@@ -90,7 +100,7 @@ class EnhanceEngine(
         iterations: Int,
     ): ImageBuffer {
         val mix = profile.kDce
-        if (mix <= 1e-3f) {
+        if (!profile.isLowLight || mix <= 1e-3f) {
             return source
         }
         val safeIterations = max(1, iterations)
@@ -99,19 +109,19 @@ class EnhanceEngine(
         return blendBuffers(source, processed, mix)
     }
 
-    private suspend fun applyRestormer(
+    private suspend fun runRestormer(
         buffer: ImageBuffer,
         mix: Float,
         tileSize: Int,
         overlap: Int,
         delegate: Delegate,
         onTileProgress: (tileIndex: Int, total: Int, progress: Float) -> Unit,
-    ): ImageBuffer {
+    ): ImageBuffer? {
         val model = restormer
         if (mix <= 1e-3f || model == null) {
             val totalTiles = computeTileCount(buffer.width, buffer.height, tileSize)
             repeat(totalTiles) { onTileProgress(it, totalTiles, 1f) }
-            return buffer
+            return null
         }
         val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
         val step = max(1, safeTile - overlap * 2)
@@ -163,69 +173,147 @@ class EnhanceEngine(
                 index++
             }
         }
-        val resultPixels = buffer.pixels.copyOf()
+        val resultPixels = IntArray(buffer.pixels.size)
         for (i in resultPixels.indices) {
             val baseColor = buffer.pixels[i]
             val weight = accWeight[i]
             val processedR = if (weight > 0f) accR[i] / weight / 255f else Color.red(baseColor) / 255f
             val processedG = if (weight > 0f) accG[i] / weight / 255f else Color.green(baseColor) / 255f
             val processedB = if (weight > 0f) accB[i] / weight / 255f else Color.blue(baseColor) / 255f
-            val originalR = Color.red(baseColor) / 255f
-            val originalG = Color.green(baseColor) / 255f
-            val originalB = Color.blue(baseColor) / 255f
-            val newR = clamp01(originalR * (1f - mix) + processedR * mix)
-            val newG = clamp01(originalG * (1f - mix) + processedG * mix)
-            val newB = clamp01(originalB * (1f - mix) + processedB * mix)
-            resultPixels[i] = composeColor(Color.alpha(baseColor), newR, newG, newB)
+            resultPixels[i] = composeColor(Color.alpha(baseColor), processedR, processedG, processedB)
         }
         return ImageBuffer(buffer.width, buffer.height, resultPixels)
     }
 
-    private fun applyDetailBoost(buffer: ImageBuffer, alphaDetail: Float): ImageBuffer {
-        if (alphaDetail <= 1f + 1e-3f) {
+    private fun applyEdgeAwareUnsharp(
+        buffer: ImageBuffer,
+        amount: Float,
+        radius: Float,
+        threshold: Float,
+    ): ImageBuffer {
+        if (amount <= 1e-3f || radius <= 0.1f) {
             return buffer
         }
         val width = buffer.width
         val height = buffer.height
-        val source = buffer.pixels
-        val result = source.copyOf()
-        for (y in 0 until height) {
-            val base = y * width
-            for (x in 0 until width) {
-                val index = base + x
-                val (blurR, blurG, blurB) = boxBlurPixel(source, width, height, x, y)
-                val original = source[index]
-                val boost = alphaDetail - 1f
-                val newR = clamp01(Color.red(original) / 255f + (Color.red(original) - blurR) / 255f * boost)
-                val newG = clamp01(Color.green(original) / 255f + (Color.green(original) - blurG) / 255f * boost)
-                val newB = clamp01(Color.blue(original) / 255f + (Color.blue(original) - blurB) / 255f * boost)
-                result[index] = composeColor(Color.alpha(original), newR, newG, newB)
-            }
+        val total = width * height
+        if (total == 0) return buffer
+
+        val srcR = FloatArray(total)
+        val srcG = FloatArray(total)
+        val srcB = FloatArray(total)
+        val pixels = buffer.pixels
+        for (i in 0 until total) {
+            val color = pixels[i]
+            srcR[i] = Color.red(color) / 255f
+            srcG[i] = Color.green(color) / 255f
+            srcB[i] = Color.blue(color) / 255f
         }
-        return ImageBuffer(width, height, result)
+
+        val rad = radius.coerceIn(0.5f, 12f).roundToInt().coerceAtLeast(1)
+        val (blurR, blurG, blurB) = gaussianBlur(srcR, srcG, srcB, width, height, rad)
+        val sharpened = IntArray(total)
+        val limit = amount.coerceIn(0f, 1.5f)
+        val thr = threshold.coerceIn(0f, 1f)
+        for (i in 0 until total) {
+            val oR = srcR[i]
+            val oG = srcG[i]
+            val oB = srcB[i]
+            val bR = blurR[i]
+            val bG = blurG[i]
+            val bB = blurB[i]
+            val diffLum = abs(luminance(oR, oG, oB) - luminance(bR, bG, bB))
+            val mask = if (diffLum <= thr) {
+                0f
+            } else {
+                clamp01((diffLum - thr) / (1f - thr + 1e-5f))
+            }
+            val gain = limit * mask
+            val newR = clamp01(oR + (oR - bR) * gain)
+            val newG = clamp01(oG + (oG - bG) * gain)
+            val newB = clamp01(oB + (oB - bB) * gain)
+            val alpha = Color.alpha(pixels[i])
+            sharpened[i] = composeColor(alpha, newR, newG, newB)
+        }
+        return ImageBuffer(width, height, sharpened)
     }
 
-    private fun applyPostSharpen(buffer: ImageBuffer, amount: Float): ImageBuffer {
-        if (amount <= 1e-3f) {
-            return buffer
-        }
-        val width = buffer.width
-        val height = buffer.height
-        val pixels = buffer.pixels
-        val result = pixels.copyOf()
+    private fun gaussianBlur(
+        srcR: FloatArray,
+        srcG: FloatArray,
+        srcB: FloatArray,
+        width: Int,
+        height: Int,
+        radius: Int,
+    ): Triple<FloatArray, FloatArray, FloatArray> {
+        val kernel = gaussianKernel(radius)
+        val tempR = FloatArray(width * height)
+        val tempG = FloatArray(width * height)
+        val tempB = FloatArray(width * height)
+        val size = kernel.size
         for (y in 0 until height) {
             val base = y * width
             for (x in 0 until width) {
+                var rAcc = 0f
+                var gAcc = 0f
+                var bAcc = 0f
+                for (k in 0 until size) {
+                    val offsetX = (x + k - radius).coerceIn(0, width - 1)
+                    val idx = base + offsetX
+                    val weight = kernel[k]
+                    rAcc += srcR[idx] * weight
+                    gAcc += srcG[idx] * weight
+                    bAcc += srcB[idx] * weight
+                }
                 val index = base + x
-                val original = pixels[index]
-                val laplace = laplacianPixel(pixels, width, height, x, y)
-                val r = clamp01(Color.red(original) / 255f + laplace.first * amount)
-                val g = clamp01(Color.green(original) / 255f + laplace.second * amount)
-                val b = clamp01(Color.blue(original) / 255f + laplace.third * amount)
-                result[index] = composeColor(Color.alpha(original), r, g, b)
+                tempR[index] = rAcc
+                tempG[index] = gAcc
+                tempB[index] = bAcc
             }
         }
-        return ImageBuffer(width, height, result)
+
+        val outR = FloatArray(width * height)
+        val outG = FloatArray(width * height)
+        val outB = FloatArray(width * height)
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                var rAcc = 0f
+                var gAcc = 0f
+                var bAcc = 0f
+                for (k in 0 until size) {
+                    val offsetY = (y + k - radius).coerceIn(0, height - 1)
+                    val idx = offsetY * width + x
+                    val weight = kernel[k]
+                    rAcc += tempR[idx] * weight
+                    gAcc += tempG[idx] * weight
+                    bAcc += tempB[idx] * weight
+                }
+                val index = y * width + x
+                outR[index] = rAcc
+                outG[index] = gAcc
+                outB[index] = bAcc
+            }
+        }
+        return Triple(outR, outG, outB)
+    }
+
+    private fun gaussianKernel(radius: Int): FloatArray {
+        val size = radius * 2 + 1
+        val sigma = max(radius / 2f, 1f)
+        val kernel = FloatArray(size)
+        var sum = 0f
+        for (i in 0 until size) {
+            val x = (i - radius).toFloat()
+            val value = exp(-(x * x) / (2f * sigma * sigma))
+            kernel[i] = value
+            sum += value
+        }
+        if (sum > 0f) {
+            for (i in 0 until size) {
+                kernel[i] /= sum
+            }
+        }
+        return kernel
     }
 
     private fun applyVibranceAndSaturation(
@@ -355,10 +443,13 @@ class EnhanceEngine(
     )
 
     data class Profile(
+        val isLowLight: Boolean,
         val kDce: Float,
         val restormerMix: Float,
         val alphaDetail: Float,
-        val postSharpen: Float,
+        val sharpenAmount: Float,
+        val sharpenRadius: Float,
+        val sharpenThreshold: Float,
         val vibranceGain: Float,
         val saturationGain: Float,
     )
@@ -411,31 +502,46 @@ class EnhanceEngine(
 
     internal object ProfileCalculator {
         fun calculate(metrics: Metrics, strength: Float): Profile {
-            val eased = easeInOut(strength.coerceIn(0f, 1f))
-            val lowLight = ((LOW_LIGHT_TARGET - metrics.lMean).coerceAtLeast(0.0) / LOW_LIGHT_TARGET) * 0.7 +
-                (metrics.pDark / DARK_PORTION_TARGET).coerceAtMost(1.0) * 0.3
-            val kDce = (lowLight * eased).toFloat().coerceIn(0f, 1f)
+            val t = strength.coerceIn(0f, 1f)
+            val eased = easeInOut(t)
 
-            val restormerMix = (metrics.nNoise * eased).toFloat().coerceIn(0f, 1f)
+            val lMean = metrics.lMean.toFloat()
+            val darkness = metrics.pDark.toFloat()
+            val sharpness = metrics.bSharpness.toFloat()
+            val noise = metrics.nNoise.toFloat()
 
-            val detailDeficit = (DETAIL_TARGET - metrics.bSharpness).coerceAtLeast(0.0)
-            val alphaDetail = (1f + detailDeficit.toFloat() * (1f - metrics.nNoise.toFloat()) * eased * 0.9f)
-                .coerceIn(1f, 1.8f)
+            val lowLightByLuma = mapLow(lMean, 0.48f, 0.25f)
+            val lowLightByDark = mapLow(darkness, 0.62f, 0.28f)
+            val lowLightScore = clamp01(lowLightByLuma * 0.65f + lowLightByDark * 0.35f)
+            val isLowLight = lowLightScore > 0.1f
+            val kDce = clamp(lowLightScore * eased, 0f, 1f)
 
-            val postSharpen = ((0.15f + 0.55f * (1f - metrics.nNoise.toFloat())) * eased)
-                .coerceIn(0f, 0.7f)
+            val restormerMix = clamp(noise * eased, 0f, 1f)
 
-            val vibranceGain = ((0.2f + 0.6f * (LOW_LIGHT_TARGET - metrics.lMean).toFloat().coerceAtLeast(0f)) * eased)
-                .coerceIn(0f, 0.8f)
+            val detailDeficit = mapLow(sharpness, 0.58f, 0.33f)
+            val alphaDetail = clamp(restormerMix * detailDeficit * clamp(1f - noise, 0f, 1f), 0f, 1f)
 
-            val saturationGain = (1f + ((0.55f - metrics.lMean.toFloat()) * eased * 0.6f))
-                .coerceIn(0.85f, 1.4f)
+            var sharpenAmount = clamp(0.18f + 0.52f * detailDeficit - 0.32f * noise, 0f, 0.7f) * eased
+            val sharpenRadius = clamp(1.15f + 1.8f * mapLow(sharpness, 0.44f, 0.22f), 0.8f, 3.2f)
+            val sharpenThreshold = clamp(0.018f + 0.16f * mapLow(noise, 0.3f, 0.3f), 0.012f, 0.1f)
+            if (noise > 0.6f && t < 0.4f) {
+                sharpenAmount = 0f
+            }
+
+            val vibranceBase = mapLow(lMean, 0.52f, 0.27f)
+            val vibranceGain = clamp(vibranceBase * (1f - 0.6f * noise) * eased * 0.65f, 0f, 1f)
+
+            val saturationBase = mapLow(lMean, 0.6f, 0.35f)
+            val saturationGain = clamp(1f + (0.22f + 0.35f * saturationBase) * eased - 0.18f * noise, 0.85f, 1.5f)
 
             return Profile(
+                isLowLight = isLowLight,
                 kDce = kDce,
                 restormerMix = restormerMix,
                 alphaDetail = alphaDetail,
-                postSharpen = postSharpen,
+                sharpenAmount = sharpenAmount,
+                sharpenRadius = sharpenRadius,
+                sharpenThreshold = sharpenThreshold,
                 vibranceGain = vibranceGain,
                 saturationGain = saturationGain,
             )
@@ -479,9 +585,6 @@ class EnhanceEngine(
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
         private const val OUTPUT_JPEG_QUALITY = 92
         private const val DARK_LUMINANCE_THRESHOLD = 0.22
-        private const val LOW_LIGHT_TARGET = 0.45
-        private const val DARK_PORTION_TARGET = 0.6
-        private const val DETAIL_TARGET = 0.55
         private const val SOBEL_NORMALIZATION = 4.5
         private const val NOISE_NORMALIZATION = 0.12
 
@@ -515,49 +618,27 @@ private fun clamp01(value: Float): Float = when {
     else -> value
 }
 
+private fun clamp(value: Float, min: Float, max: Float): Float {
+    return when {
+        value < min -> min
+        value > max -> max
+        else -> value
+    }
+}
+
+private fun mapLow(value: Float, pivot: Float, softness: Float): Float {
+    if (softness <= 1e-6f) {
+        return if (value < pivot) 1f else 0f
+    }
+    val normalized = (pivot - value) / softness
+    return clamp01(normalized)
+}
+
 private fun composeColor(alpha: Int, r: Float, g: Float, b: Float): Int {
     val rr = (r * 255f).roundToInt().coerceIn(0, 255)
     val gg = (g * 255f).roundToInt().coerceIn(0, 255)
     val bb = (b * 255f).roundToInt().coerceIn(0, 255)
     return Color.argb(alpha, rr, gg, bb)
-}
-
-private fun boxBlurPixel(pixels: IntArray, width: Int, height: Int, x: Int, y: Int): Triple<Int, Int, Int> {
-    var r = 0
-    var g = 0
-    var b = 0
-    var count = 0
-    for (ky in -1..1) {
-        val cy = clamp(y + ky, 0, height - 1)
-        val base = cy * width
-        for (kx in -1..1) {
-            val cx = clamp(x + kx, 0, width - 1)
-            val color = pixels[base + cx]
-            r += Color.red(color)
-            g += Color.green(color)
-            b += Color.blue(color)
-            count++
-        }
-    }
-    return Triple(r / count, g / count, b / count)
-}
-
-private fun laplacianPixel(pixels: IntArray, width: Int, height: Int, x: Int, y: Int): Triple<Float, Float, Float> {
-    val center = pixels[y * width + x]
-    var r = -4 * Color.red(center)
-    var g = -4 * Color.green(center)
-    var b = -4 * Color.blue(center)
-    val offsets = arrayOf(0 to -1, -1 to 0, 1 to 0, 0 to 1)
-    for ((ox, oy) in offsets) {
-        val cx = clamp(x + ox, 0, width - 1)
-        val cy = clamp(y + oy, 0, height - 1)
-        val color = pixels[cy * width + cx]
-        r += Color.red(color)
-        g += Color.green(color)
-        b += Color.blue(color)
-    }
-    val scale = 1f / 255f
-    return Triple(r * scale, g * scale, b * scale)
 }
 
 private fun clamp(value: Int, minValue: Int, maxValue: Int): Int = when {
