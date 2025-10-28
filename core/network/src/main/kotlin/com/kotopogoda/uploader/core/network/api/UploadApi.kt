@@ -4,11 +4,11 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import okhttp3.RequestBody
 import retrofit2.Response
+import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
-import retrofit2.http.Body
 
 @JsonClass(generateAdapter = true)
 data class UploadAcceptedDto(
@@ -23,6 +23,12 @@ data class UploadStatusDto(
     @Json(name = "error") val error: String? = null,
 )
 
+@JsonClass(generateAdapter = true)
+data class UploadLookupDto(
+    @Json(name = "upload_id") val uploadId: String?,
+    @Json(name = "status") val status: String? = null,
+)
+
 interface UploadApi {
     @POST("/v1/uploads")
     suspend fun upload(
@@ -35,4 +41,9 @@ interface UploadApi {
     suspend fun getStatus(
         @Path("id") uploadId: String,
     ): Response<UploadStatusDto>
+
+    @GET("/v1/uploads/by-key/{idempotencyKey}")
+    suspend fun getByIdempotencyKey(
+        @Path("idempotencyKey") idempotencyKey: String,
+    ): Response<UploadLookupDto>
 }

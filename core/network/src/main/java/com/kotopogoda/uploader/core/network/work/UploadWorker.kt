@@ -16,6 +16,7 @@ import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.api.UploadAcceptedDto
+import com.kotopogoda.uploader.core.network.api.UploadLookupDto
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -266,47 +267,84 @@ class UploadWorker @AssistedInject constructor(
 
             val result = when (responseCode) {
                 202, 409 -> {
-                    val uploadId = response.body()?.uploadId
-                    if (uploadId.isNullOrBlank()) {
-                        recordError(displayName, UploadErrorKind.UNEXPECTED)
-                        Result.retry()
-                    } else {
-                        updateProgress(
-                            displayName = displayName,
-                            progress = 100,
-                            bytesSent = lastBytesSent ?: payload.fileSize,
-                            totalBytes = payload.fileSize.takeIf { it > 0 }
-                        )
-                        val resultData = buildResultData(
-                            displayName = displayName,
-                            uriString = uriString,
-                            uploadId = uploadId,
-                            bytesSent = lastProgressSnapshot.bytesSent,
-                            totalBytes = lastProgressSnapshot.totalBytes
-                        )
-                        Timber.tag("WorkManager").i(
-                            UploadLog.message(
-                                category = CATEGORY_UPLOAD_SUCCESS,
-                                action = "upload_worker_success",
-                                uri = uri,
-                                details = buildList {
-                                    add("queue_item_id" to itemId)
-                                    add("display_name" to displayName)
-                                    add("upload_id" to uploadId)
-                                    add("bytes_sent" to (lastProgressSnapshot.bytesSent ?: payload.fileSize))
-                                }.toTypedArray(),
-                            )
-                        )
-                        enqueuePollWork(
+                    val resolution = try {
+                        resolveUploadAcceptance(
                             itemId = itemId,
-                            uploadId = uploadId,
-                            uriString = uriString,
                             displayName = displayName,
+                            uri = uri,
                             idempotencyKey = idempotencyKey,
-                            uri = uri
+                            initial = response.body(),
                         )
-                        Result.success(resultData)
+                    } catch (timeout: SocketTimeoutException) {
+                        logUploadError(displayName, UploadErrorKind.NETWORK, uri, timeout)
+                        return retryResult(
+                            displayName = displayName,
+                            errorKind = UploadErrorKind.NETWORK,
+                            uri = uri,
+                            throwable = timeout,
+                        )
+                    } catch (io: UnknownHostException) {
+                        logUploadError(displayName, UploadErrorKind.NETWORK, uri, io)
+                        return retryResult(
+                            displayName = displayName,
+                            errorKind = UploadErrorKind.NETWORK,
+                            uri = uri,
+                            throwable = io,
+                        )
+                    } catch (io: IOException) {
+                        logUploadError(displayName, UploadErrorKind.NETWORK, uri, io)
+                        return retryResult(
+                            displayName = displayName,
+                            errorKind = UploadErrorKind.NETWORK,
+                            uri = uri,
+                            throwable = io,
+                        )
                     }
+
+                    if (resolution == null) {
+                        return retryResult(
+                            displayName = displayName,
+                            errorKind = UploadErrorKind.UNEXPECTED,
+                            uri = uri,
+                        )
+                    }
+
+                    updateProgress(
+                        displayName = displayName,
+                        progress = 100,
+                        bytesSent = lastBytesSent ?: payload.fileSize,
+                        totalBytes = payload.fileSize.takeIf { it > 0 }
+                    )
+                    val resultData = buildResultData(
+                        displayName = displayName,
+                        uriString = uriString,
+                        uploadId = resolution.uploadId,
+                        bytesSent = lastProgressSnapshot.bytesSent,
+                        totalBytes = lastProgressSnapshot.totalBytes
+                    )
+                    Timber.tag("WorkManager").i(
+                        UploadLog.message(
+                            category = CATEGORY_UPLOAD_SUCCESS,
+                            action = "upload_worker_success",
+                            uri = uri,
+                            details = buildList {
+                                add("queue_item_id" to itemId)
+                                add("display_name" to displayName)
+                                add("upload_id" to resolution.uploadId)
+                                resolution.status?.let { add("status" to it) }
+                                add("bytes_sent" to (lastProgressSnapshot.bytesSent ?: payload.fileSize))
+                            }.toTypedArray(),
+                        )
+                    )
+                    enqueuePollWork(
+                        itemId = itemId,
+                        uploadId = resolution.uploadId,
+                        uriString = uriString,
+                        displayName = displayName,
+                        idempotencyKey = idempotencyKey,
+                        uri = uri
+                    )
+                    Result.success(resultData)
                 }
                 401, 403 -> failureResult(
                     itemId = itemId,
@@ -488,6 +526,64 @@ class UploadWorker @AssistedInject constructor(
                 details = details.toTypedArray(),
             ),
         )
+    }
+
+    private suspend fun resolveUploadAcceptance(
+        itemId: Long,
+        displayName: String,
+        uri: Uri,
+        idempotencyKey: String,
+        initial: UploadAcceptedDto?,
+    ): UploadResolution? {
+        val initialUploadId = initial?.uploadId
+        if (!initialUploadId.isNullOrBlank()) {
+            return UploadResolution(initialUploadId, initial.status)
+        }
+
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = CATEGORY_HTTP_REQUEST,
+                action = "upload_reconcile_request",
+                uri = uri,
+                details = arrayOf(
+                    "queue_item_id" to itemId,
+                    "display_name" to displayName,
+                    "idempotency_key" to idempotencyKey,
+                ),
+            ),
+        )
+
+        val response = executeLookupByIdempotencyKey(idempotencyKey)
+        val responseCode = response.code()
+        val lookup = response.body()
+        val errorMessage = if (responseCode in 400..499) {
+            response.extractErrorMessage()
+        } else {
+            null
+        }
+
+        Timber.tag("WorkManager").i(
+            UploadLog.message(
+                category = CATEGORY_HTTP_RESPONSE,
+                action = "upload_reconcile_response",
+                uri = uri,
+                details = buildList {
+                    add("queue_item_id" to itemId)
+                    add("display_name" to displayName)
+                    add("http_code" to responseCode)
+                    lookup?.uploadId?.takeIf { it.isNotBlank() }?.let { add("upload_id" to it) }
+                    lookup?.status?.takeIf { it.isNotBlank() }?.let { add("status" to it) }
+                    errorMessage?.let { add("error_message" to it) }
+                }.toTypedArray(),
+            ),
+        )
+
+        val resolvedUploadId = lookup?.uploadId
+        if (resolvedUploadId.isNullOrBlank()) {
+            return null
+        }
+
+        return UploadResolution(resolvedUploadId, lookup.status)
     }
 
     private suspend fun recordError(
@@ -748,6 +844,11 @@ class UploadWorker @AssistedInject constructor(
         val totalBytes: Long? = null,
     )
 
+    private data class UploadResolution(
+        val uploadId: String,
+        val status: String?,
+    )
+
     private fun guardDetails(
         displayName: String? = null,
         progress: Int? = null,
@@ -803,5 +904,11 @@ class UploadWorker @AssistedInject constructor(
             contentSha256Header = payload.requestSha256Hex,
             body = requestBody,
         )
+    }
+
+    private suspend fun executeLookupByIdempotencyKey(
+        idempotencyKey: String,
+    ): Response<UploadLookupDto> = withContext(Dispatchers.IO) {
+        uploadApi.getByIdempotencyKey(idempotencyKey)
     }
 }
