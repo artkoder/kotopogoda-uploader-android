@@ -106,10 +106,10 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         appLogger.setEnabled(true)
+        installCrashHandlers()
         scope.launch(Dispatchers.IO) {
             ModelChecksumVerifier.verify(this@KotopogodaUploaderApp)
         }
-        installCrashHandlers()
 
         Timber.tag("WorkManager").i(
             UploadLog.message(
