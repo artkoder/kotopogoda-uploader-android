@@ -202,11 +202,33 @@ class HmacInterceptor @Inject constructor(
 
     private fun decodeSecret(secret: String): ByteArray {
         val trimmed = secret.trim()
-        return when {
-            trimmed.startsWith(PREFIX_HEX, ignoreCase = true) -> hexToBytes(trimmed.substring(PREFIX_HEX.length))
-            trimmed.startsWith(PREFIX_BASE64, ignoreCase = true) -> Base64.getDecoder().decode(trimmed.substring(PREFIX_BASE64.length))
-            else -> trimmed.toByteArray(StandardCharsets.UTF_8)
+        if (trimmed.startsWith(PREFIX_HEX, ignoreCase = true)) {
+            return hexToBytes(trimmed.substring(PREFIX_HEX.length))
         }
+        if (trimmed.startsWith(PREFIX_BASE64, ignoreCase = true)) {
+            return decodeBase64(trimmed.substring(PREFIX_BASE64.length))
+        }
+
+        if (isPureHex(trimmed)) {
+            return hexToBytes(trimmed)
+        }
+
+        decodeBase64OrNull(trimmed)?.let { return it }
+
+        return trimmed.toByteArray(StandardCharsets.UTF_8)
+    }
+
+    private fun decodeBase64(value: String): ByteArray = Base64.getDecoder().decode(value.trim())
+
+    private fun decodeBase64OrNull(value: String): ByteArray? = try {
+        decodeBase64(value)
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+
+    private fun isPureHex(value: String): Boolean {
+        if (value.isEmpty() || value.length % 2 != 0) return false
+        return value.all { char -> char in '0'..'9' || char in 'a'..'f' || char in 'A'..'F' }
     }
 
     private fun hexToBytes(value: String): ByteArray {
