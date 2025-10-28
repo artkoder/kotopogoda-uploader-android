@@ -6,6 +6,7 @@ import androidx.work.Data
 import androidx.work.NetworkType
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.kotopogoda.uploader.core.data.upload.UploadItemDao
 import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
@@ -21,17 +22,18 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
-import java.time.Clock
-import java.time.Instant
-import java.time.ZoneOffset
-import java.util.UUID
-import kotlin.test.assertEquals
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
+import java.util.UUID
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import com.kotopogoda.uploader.core.work.WorkManagerProvider
@@ -286,4 +288,141 @@ class QueueViewModelTest {
 
         job.cancel()
     }
+
+    @Test
+    fun succeededItemsOlderThanRetentionAreNotShown() = runTest(dispatcherRule.dispatcher) {
+        val daoFlow = MutableSharedFlow<List<UploadItemEntity>>(replay = 1)
+        val dao = FlowOnlyUploadItemDao(daoFlow)
+        val repositoryClock = Clock.fixed(Instant.ofEpochMilli(200_000_000L), ZoneOffset.UTC)
+        val realRepository = UploadQueueRepository(
+            uploadItemDao = dao,
+            photoDao = mockk(relaxed = true),
+            metadataReader = mockk(relaxed = true),
+            contentResolver = mockk(relaxed = true),
+            clock = repositoryClock,
+        )
+
+        val viewModel = QueueViewModel(
+            uploadQueueRepository = realRepository,
+            uploadEnqueuer = enqueuer,
+            summaryStarter = summaryStarter,
+            workManagerProvider = workManagerProvider,
+            workInfoMapper = workInfoMapper,
+        )
+
+        val states = mutableListOf<QueueUiState>()
+        val job = launch { viewModel.uiState.collect { states += it } }
+
+        val cutoff = repositoryClock.millis() - UploadQueueRepository.SUCCEEDED_RETENTION_MS
+        val stale = UploadItemEntity(
+            id = 77L,
+            photoId = "stale",
+            uri = "file:///tmp/stale.jpg",
+            displayName = "stale.jpg",
+            size = 1_024L,
+            state = UploadItemState.SUCCEEDED.rawValue,
+            createdAt = cutoff - 1,
+            updatedAt = cutoff - 1,
+        )
+        val fresh = UploadItemEntity(
+            id = 78L,
+            photoId = "fresh",
+            uri = "file:///tmp/fresh.jpg",
+            displayName = "fresh.jpg",
+            size = 2_048L,
+            state = UploadItemState.SUCCEEDED.rawValue,
+            createdAt = cutoff + 1,
+            updatedAt = cutoff + 1,
+        )
+
+        daoFlow.emit(listOf(stale, fresh))
+        advanceUntilIdle()
+
+        val latest = states.last { it.items.isNotEmpty() }
+        assertTrue(latest.items.none { it.id == stale.id })
+        assertTrue(latest.items.any { it.id == fresh.id })
+
+        job.cancel()
+    }
+}
+
+private class FlowOnlyUploadItemDao(
+    private val flow: MutableSharedFlow<List<UploadItemEntity>>,
+) : UploadItemDao {
+    override fun observeAll() = flow
+
+    override suspend fun getByPhotoId(photoId: String): UploadItemEntity? = error("Not needed")
+
+    override suspend fun getByUri(uri: String): UploadItemEntity? = error("Not needed")
+
+    override suspend fun insert(entity: UploadItemEntity): Long = error("Not needed")
+
+    override suspend fun getByState(state: String, limit: Int): List<UploadItemEntity> = error("Not needed")
+
+    override fun observeQueuedOrProcessingByPhotoId(
+        photoId: String,
+        queuedState: String,
+        processingState: String,
+    ) = error("Not needed")
+
+    override fun observeQueuedOrProcessingByUri(
+        uri: String,
+        queuedState: String,
+        processingState: String,
+    ) = error("Not needed")
+
+    override suspend fun getById(id: Long): UploadItemEntity? = error("Not needed")
+
+    override suspend fun updateStateWithMetadata(
+        id: Long,
+        state: String,
+        uri: String,
+        displayName: String,
+        size: Long,
+        idempotencyKey: String,
+        updatedAt: Long,
+    ) = error("Not needed")
+
+    override suspend fun updateState(id: Long, state: String, updatedAt: Long) = error("Not needed")
+
+    override suspend fun touchProcessing(
+        id: Long,
+        processingState: String,
+        updatedAt: Long,
+    ): Int = error("Not needed")
+
+    override suspend fun updateStateIfCurrent(
+        id: Long,
+        expectedState: String,
+        newState: String,
+        updatedAt: Long,
+    ): Int = error("Not needed")
+
+    override suspend fun updateStateWithError(
+        id: Long,
+        state: String,
+        lastErrorKind: String?,
+        httpCode: Int?,
+        lastErrorMessage: String?,
+        updatedAt: Long,
+    ) = error("Not needed")
+
+    override suspend fun countByState(state: String): Int = error("Not needed")
+
+    override suspend fun countByStateUpdatedAfter(state: String, updatedAfter: Long): Int = error("Not needed")
+
+    override suspend fun updateStatesClearingError(states: List<String>, state: String, updatedAt: Long) = error("Not needed")
+
+    override suspend fun requeueProcessingToQueued(
+        processingState: String,
+        queuedState: String,
+        updatedAt: Long,
+        updatedBefore: Long,
+    ): Int = error("Not needed")
+
+    override suspend fun requeueAllProcessingToQueued(
+        processingState: String,
+        queuedState: String,
+        updatedAt: Long,
+    ): Int = error("Not needed")
 }

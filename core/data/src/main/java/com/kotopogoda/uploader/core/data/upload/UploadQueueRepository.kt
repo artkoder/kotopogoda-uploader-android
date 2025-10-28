@@ -32,17 +32,21 @@ class UploadQueueRepository @Inject constructor(
     fun observeQueue(): Flow<List<UploadQueueEntry>> {
         return uploadItemDao.observeAll()
             .map { entities ->
-                entities.mapNotNull { entity ->
+                val succeededCutoff = currentTimeMillis() - SUCCEEDED_RETENTION_MS
+                entities.asSequence()
+                    .filterNot { entity -> entity.isExpiredSucceeded(succeededCutoff) }
+                    .mapNotNull { entity ->
                     val state = UploadItemState.fromRawValue(entity.state) ?: return@mapNotNull null
-                    UploadQueueEntry(
-                        entity = entity,
-                        uri = entity.uri.toUriOrNull(),
-                        state = state,
-                        lastErrorKind = UploadErrorKind.fromRawValue(entity.lastErrorKind),
-                        lastErrorHttpCode = entity.httpCode,
-                        lastErrorMessage = entity.lastErrorMessage,
-                    )
-                }
+                        UploadQueueEntry(
+                            entity = entity,
+                            uri = entity.uri.toUriOrNull(),
+                            state = state,
+                            lastErrorKind = UploadErrorKind.fromRawValue(entity.lastErrorKind),
+                            lastErrorHttpCode = entity.httpCode,
+                            lastErrorMessage = entity.lastErrorMessage,
+                        )
+                    }
+                    .toList()
             }
     }
 
@@ -469,10 +473,14 @@ class UploadQueueRepository @Inject constructor(
     }
 
     suspend fun getQueueStats(): UploadQueueStats = withContext(Dispatchers.IO) {
+        val succeededCutoff = currentTimeMillis() - SUCCEEDED_RETENTION_MS
         UploadQueueStats(
             queued = uploadItemDao.countByState(UploadItemState.QUEUED.rawValue),
             processing = uploadItemDao.countByState(UploadItemState.PROCESSING.rawValue),
-            succeeded = uploadItemDao.countByState(UploadItemState.SUCCEEDED.rawValue),
+            succeeded = uploadItemDao.countByStateUpdatedAfter(
+                state = UploadItemState.SUCCEEDED.rawValue,
+                updatedAfter = succeededCutoff,
+            ),
             failed = uploadItemDao.countByState(UploadItemState.FAILED.rawValue),
         )
     }
@@ -620,6 +628,7 @@ class UploadQueueRepository @Inject constructor(
         private const val CATEGORY_HEARTBEAT = "QUEUE/HEARTBEAT"
         private const val CATEGORY_REQUEUE = "QUEUE/REQUEUE"
         private const val CATEGORY_RECOVER = "QUEUE/RECOVER"
+        const val SUCCEEDED_RETENTION_MS: Long = 24 * 60 * 60 * 1_000L
     }
 }
 
@@ -631,6 +640,12 @@ data class UploadQueueEntry(
     val lastErrorHttpCode: Int?,
     val lastErrorMessage: String? = null,
 )
+
+private fun UploadItemEntity.isExpiredSucceeded(cutoff: Long): Boolean {
+    if (state != UploadItemState.SUCCEEDED.rawValue) return false
+    val effectiveUpdatedAt = updatedAt ?: createdAt
+    return effectiveUpdatedAt < cutoff
+}
 
 data class UploadQueueStats(
     val queued: Int,

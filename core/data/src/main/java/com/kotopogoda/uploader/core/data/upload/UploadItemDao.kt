@@ -103,6 +103,9 @@ interface UploadItemDao {
     @Query("SELECT COUNT(*) FROM upload_items WHERE state = :state")
     suspend fun countByState(state: String): Int
 
+    @Query("SELECT COUNT(*) FROM upload_items WHERE state = :state AND COALESCE(updated_at, created_at) >= :updatedAfter")
+    suspend fun countByStateUpdatedAfter(state: String, updatedAfter: Long): Int
+
     @Query(
         "UPDATE upload_items SET state = :state, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE state IN (:states)"
     )

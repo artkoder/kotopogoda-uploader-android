@@ -12,11 +12,14 @@ import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kotlinx.coroutines.test.runTest
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -30,7 +33,7 @@ class UploadQueueRepositoryTest {
     private val metadataReader = mockk<MediaStorePhotoMetadataReader>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>()
     private lateinit var repository: UploadQueueRepository
-    private val clock = Clock.fixed(Instant.ofEpochMilli(1_000_000L), ZoneOffset.UTC)
+    private val clock = Clock.fixed(Instant.ofEpochMilli(100_000_000L), ZoneOffset.UTC)
 
     @Before
     fun setUp() {
@@ -236,6 +239,63 @@ class UploadQueueRepositoryTest {
         assertEquals(1, items.size)
         val item = items.first()
         assertEquals("stored-key", item.idempotencyKey)
+    }
+
+    @Test
+    fun `observeQueue filters succeeded older than retention`() = runTest {
+        val flow = MutableSharedFlow<List<UploadItemEntity>>(replay = 1)
+        every { uploadItemDao.observeAll() } returns flow
+
+        val cutoff = clock.instant().toEpochMilli() - UploadQueueRepository.SUCCEEDED_RETENTION_MS
+        val recent = UploadItemEntity(
+            id = 2L,
+            photoId = "recent",
+            uri = "file:///recent.jpg",
+            displayName = "recent.jpg",
+            size = 42L,
+            state = UploadItemState.SUCCEEDED.rawValue,
+            createdAt = cutoff + 10,
+            updatedAt = cutoff + 10,
+        )
+        val old = UploadItemEntity(
+            id = 3L,
+            photoId = "old",
+            uri = "file:///old.jpg",
+            displayName = "old.jpg",
+            size = 42L,
+            state = UploadItemState.SUCCEEDED.rawValue,
+            createdAt = cutoff - 20,
+            updatedAt = cutoff - 20,
+        )
+
+        val emitted = async { repository.observeQueue().first() }
+        flow.emit(listOf(recent, old))
+
+        val entries = emitted.await()
+        assertEquals(1, entries.size)
+        assertEquals(recent.id, entries.single().entity.id)
+    }
+
+    @Test
+    fun `getQueueStats uses succeeded retention cutoff`() = runTest {
+        coEvery { uploadItemDao.countByState(any()) } returns 0
+        coEvery {
+            uploadItemDao.countByStateUpdatedAfter(
+                state = UploadItemState.SUCCEEDED.rawValue,
+                updatedAfter = any(),
+            )
+        } returns 2
+
+        val stats = repository.getQueueStats()
+
+        assertEquals(2, stats.succeeded)
+        val expectedCutoff = clock.instant().toEpochMilli() - UploadQueueRepository.SUCCEEDED_RETENTION_MS
+        coVerify {
+            uploadItemDao.countByStateUpdatedAfter(
+                state = UploadItemState.SUCCEEDED.rawValue,
+                updatedAfter = expectedCutoff,
+            )
+        }
     }
 
     @Test
