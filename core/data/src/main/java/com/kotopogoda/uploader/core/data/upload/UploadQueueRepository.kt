@@ -373,6 +373,25 @@ class UploadQueueRepository @Inject constructor(
         success
     }
 
+    suspend fun markAccepted(id: Long, uploadId: String?) = withContext(Dispatchers.IO) {
+        uploadItemDao.updateState(
+            id = id,
+            state = UploadItemState.SUCCEEDED.rawValue,
+            updatedAt = currentTimeMillis(),
+        )
+        Timber.tag("Queue").i(
+            UploadLog.message(
+                category = CATEGORY_STATE,
+                action = "mark_accepted",
+                state = UploadItemState.SUCCEEDED,
+                details = buildList {
+                    add("queue_item_id" to id)
+                    uploadId?.takeIf { it.isNotBlank() }?.let { add("upload_id" to it) }
+                }.toTypedArray(),
+            ),
+        )
+    }
+
     suspend fun markSucceeded(id: Long) = withContext(Dispatchers.IO) {
         uploadItemDao.updateState(
             id = id,

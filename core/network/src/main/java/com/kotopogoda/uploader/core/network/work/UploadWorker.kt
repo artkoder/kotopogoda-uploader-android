@@ -271,60 +271,63 @@ class UploadWorker @AssistedInject constructor(
 
             val result = when (responseCode) {
                 202, 409 -> {
-                    val resolution = try {
-                        resolveUploadAcceptance(
+                    val initialAcceptance = response.body()
+                    var resolution: UploadResolution? = null
+                    var acceptanceSkipReason: AcceptanceSkipReason? = null
+                    var acceptanceError: Throwable? = null
+                    try {
+                        resolution = resolveUploadAcceptance(
                             itemId = itemId,
                             displayName = displayName,
                             uri = uri,
                             idempotencyKey = idempotencyKey,
-                            initial = response.body(),
+                            initial = initialAcceptance,
                         )
                     } catch (timeout: SocketTimeoutException) {
                         logUploadError(displayName, UploadErrorKind.NETWORK, uri, timeout)
-                        return retryResult(
-                            displayName = displayName,
-                            errorKind = UploadErrorKind.NETWORK,
-                            uri = uri,
-                            throwable = timeout,
-                        )
+                        acceptanceSkipReason = AcceptanceSkipReason.NETWORK
+                        acceptanceError = timeout
                     } catch (io: UnknownHostException) {
                         logUploadError(displayName, UploadErrorKind.NETWORK, uri, io)
-                        return retryResult(
-                            displayName = displayName,
-                            errorKind = UploadErrorKind.NETWORK,
-                            uri = uri,
-                            throwable = io,
-                        )
+                        acceptanceSkipReason = AcceptanceSkipReason.NETWORK
+                        acceptanceError = io
                     } catch (io: IOException) {
                         logUploadError(displayName, UploadErrorKind.NETWORK, uri, io)
-                        return retryResult(
+                        acceptanceSkipReason = AcceptanceSkipReason.NETWORK
+                        acceptanceError = io
+                    }
+
+                    if (resolution == null && acceptanceSkipReason == null) {
+                        acceptanceSkipReason = AcceptanceSkipReason.MISSING_UPLOAD_ID
+                    }
+                    acceptanceSkipReason?.let { reason ->
+                        logPostNotRetried(
+                            itemId = itemId,
                             displayName = displayName,
-                            errorKind = UploadErrorKind.NETWORK,
                             uri = uri,
-                            throwable = io,
+                            idempotencyKey = idempotencyKey,
+                            reason = reason,
+                            throwable = acceptanceError,
                         )
                     }
 
-                    if (resolution == null) {
-                        return retryResult(
-                            displayName = displayName,
-                            errorKind = UploadErrorKind.UNEXPECTED,
-                            uri = uri,
-                        )
-                    }
+                    val uploadId = resolution?.uploadId
+                    val acceptanceStatus = resolution?.status ?: initialAcceptance?.status
 
                     updateProgress(
                         displayName = displayName,
                         progress = 100,
                         bytesSent = lastBytesSent ?: payload.fileSize,
-                        totalBytes = payload.fileSize.takeIf { it > 0 }
+                        totalBytes = payload.fileSize.takeIf { it > 0 },
+                        completionState = UploadEnqueuer.STATE_UPLOAD_COMPLETED_UNKNOWN,
                     )
                     val resultData = buildResultData(
                         displayName = displayName,
                         uriString = uriString,
-                        uploadId = resolution.uploadId,
+                        uploadId = uploadId,
                         bytesSent = lastProgressSnapshot.bytesSent,
-                        totalBytes = lastProgressSnapshot.totalBytes
+                        totalBytes = lastProgressSnapshot.totalBytes,
+                        completionState = UploadEnqueuer.STATE_UPLOAD_COMPLETED_UNKNOWN,
                     )
                     Timber.tag("WorkManager").i(
                         UploadLog.message(
@@ -334,15 +337,21 @@ class UploadWorker @AssistedInject constructor(
                             details = buildList {
                                 add("queue_item_id" to itemId)
                                 add("display_name" to displayName)
-                                add("upload_id" to resolution.uploadId)
-                                resolution.status?.let { add("status" to it) }
+                                uploadId?.let { add("upload_id" to it) }
+                                acceptanceStatus?.let { add("status" to it) }
                                 add("bytes_sent" to (lastProgressSnapshot.bytesSent ?: payload.fileSize))
                             }.toTypedArray(),
                         )
                     )
+                    recordAcceptance(
+                        itemId = itemId,
+                        displayName = displayName,
+                        uri = uri,
+                        uploadId = uploadId,
+                    )
                     enqueuePollWork(
                         itemId = itemId,
-                        uploadId = resolution.uploadId,
+                        uploadId = uploadId,
                         uriString = uriString,
                         displayName = displayName,
                         idempotencyKey = idempotencyKey,
@@ -438,6 +447,7 @@ class UploadWorker @AssistedInject constructor(
         totalBytes: Long? = lastProgressSnapshot.totalBytes,
         errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
+        completionState: String? = null,
     ) {
         currentItemId?.let {
             try {
@@ -481,7 +491,10 @@ class UploadWorker @AssistedInject constructor(
         resolvedTotalBytes?.let { builder.putLong(UploadEnqueuer.KEY_TOTAL_BYTES, it) }
         errorKind?.let { builder.putString(UploadEnqueuer.KEY_ERROR_KIND, it.rawValue) }
         httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
+        completionState?.let { builder.putString(UploadEnqueuer.KEY_COMPLETION_STATE, it) }
         val progressData = builder.build()
+        val additionalDetails = mutableListOf<Pair<String, Any?>>()
+        completionState?.let { additionalDetails += "completion_state" to it }
         val details = guardDetails(
             displayName = displayName,
             progress = resolvedProgress,
@@ -489,6 +502,7 @@ class UploadWorker @AssistedInject constructor(
             totalBytes = resolvedTotalBytes,
             errorKind = errorKind,
             httpCode = httpCode,
+            additional = additionalDetails,
         )
         try {
             setProgress(progressData)
@@ -637,6 +651,34 @@ class UploadWorker @AssistedInject constructor(
         return Result.retry()
     }
 
+    private suspend fun recordAcceptance(
+        itemId: Long,
+        displayName: String,
+        uri: Uri,
+        uploadId: String?,
+    ) {
+        try {
+            uploadQueueRepository.markAccepted(
+                id = itemId,
+                uploadId = uploadId,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            logGuardError(
+                action = "mark_accepted_failed",
+                uri = uri,
+                details = guardDetails(
+                    displayName = displayName,
+                    additional = buildList {
+                        uploadId?.let { add("upload_id" to it) }
+                    },
+                ),
+                throwable = error,
+            )
+        }
+    }
+
     private suspend fun maybeDelayForRetryAfter(headers: Headers?) {
         val value = headers?.get(RETRY_AFTER_HEADER) ?: return
         val delayMillis = parseRetryAfterMillis(value) ?: return
@@ -676,6 +718,33 @@ class UploadWorker @AssistedInject constructor(
                     httpCode?.let { add("http_code" to it) }
                     throwable.message?.takeIf { it.isNotBlank() }?.let { add("message" to it) }
                 }.toTypedArray(),
+            ),
+        )
+    }
+
+    private fun logPostNotRetried(
+        itemId: Long,
+        displayName: String,
+        uri: Uri,
+        idempotencyKey: String,
+        reason: AcceptanceSkipReason,
+        throwable: Throwable?,
+    ) {
+        val details = buildList {
+            add("queue_item_id" to itemId)
+            add("display_name" to displayName)
+            add("idempotency_key" to idempotencyKey)
+            add("decision" to "post_not_retried")
+            add("reason" to reason.rawValue)
+            throwable?.message?.takeIf { it.isNotBlank() }?.let { add("message" to it) }
+        }
+        Timber.tag("WorkManager").i(
+            throwable,
+            UploadLog.message(
+                category = CATEGORY_UPLOAD_SUCCESS,
+                action = "upload_post_not_retried",
+                uri = uri,
+                details = details.toTypedArray(),
             ),
         )
     }
@@ -752,6 +821,7 @@ class UploadWorker @AssistedInject constructor(
         errorKind: UploadErrorKind? = null,
         httpCode: Int? = null,
         errorMessage: String? = null,
+        completionState: String? = null,
     ): Data {
         val builder = Data.Builder()
             .putString(UploadEnqueuer.KEY_URI, uriString)
@@ -762,6 +832,7 @@ class UploadWorker @AssistedInject constructor(
         errorKind?.let { builder.putString(UploadEnqueuer.KEY_ERROR_KIND, it.rawValue) }
         httpCode?.let { builder.putInt(UploadEnqueuer.KEY_HTTP_CODE, it) }
         errorMessage?.let { builder.putString(UploadEnqueuer.KEY_ERROR_MESSAGE, it) }
+        completionState?.let { builder.putString(UploadEnqueuer.KEY_COMPLETION_STATE, it) }
         return builder.build()
     }
 
@@ -797,12 +868,27 @@ class UploadWorker @AssistedInject constructor(
 
     private suspend fun enqueuePollWork(
         itemId: Long,
-        uploadId: String,
+        uploadId: String?,
         uriString: String,
         displayName: String,
         idempotencyKey: String,
         uri: Uri,
     ) {
+        if (uploadId.isNullOrBlank()) {
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    category = CATEGORY_WORK_SCHEDULE,
+                    action = "upload_poll_skipped",
+                    uri = uri,
+                    details = arrayOf(
+                        "queue_item_id" to itemId,
+                        "display_name" to displayName,
+                        "reason" to "missing_upload_id",
+                    ),
+                ),
+            )
+            return
+        }
         val constraints = constraintsProvider.awaitConstraints()
         val uniqueName = UploadEnqueuer.uniqueNameForUri(uri)
         val pollRequestBuilder = OneTimeWorkRequestBuilder<PollStatusWorker>()
@@ -877,6 +963,11 @@ class UploadWorker @AssistedInject constructor(
         val uploadId: String,
         val status: String?,
     )
+
+    private enum class AcceptanceSkipReason(val rawValue: String) {
+        NETWORK("lookup_failure"),
+        MISSING_UPLOAD_ID("missing_upload_id"),
+    }
 
     private fun guardDetails(
         displayName: String? = null,

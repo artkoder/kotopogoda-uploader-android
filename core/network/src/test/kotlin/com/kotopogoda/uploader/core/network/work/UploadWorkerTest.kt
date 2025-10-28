@@ -97,6 +97,7 @@ class UploadWorkerTest {
         TestForegroundDelegate.ensureChannel(context)
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
+        coEvery { uploadQueueRepository.markAccepted(any(), any()) } just Runs
         workManager = mockk(relaxed = true)
         workManagerProvider = WorkManagerProvider { workManager }
         constraintsProvider = mockk(relaxed = true)
@@ -177,6 +178,13 @@ class UploadWorkerTest {
         assertEquals("abc", result.outputData.getString(UploadEnqueuer.KEY_UPLOAD_ID))
         assertEquals(file.length(), result.outputData.getLong(UploadEnqueuer.KEY_BYTES_SENT, -1))
         assertEquals(file.length(), result.outputData.getLong(UploadEnqueuer.KEY_TOTAL_BYTES, -1))
+        assertEquals(
+            UploadEnqueuer.STATE_UPLOAD_COMPLETED_UNKNOWN,
+            result.outputData.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
+        )
+        coVerify(exactly = 1) {
+            uploadQueueRepository.markAccepted(1L, "abc")
+        }
 
         val request = mockWebServer.takeRequest()
         assertEquals("/v1/uploads", request.path)
@@ -426,6 +434,52 @@ class UploadWorkerTest {
         }
         val pollRequest = requestSlot.captured
         assertEquals("reconciled", pollRequest.workSpec.input.getString(UploadEnqueuer.KEY_UPLOAD_ID))
+        coVerify(exactly = 1) {
+            uploadQueueRepository.markAccepted(1L, "reconciled")
+        }
+    }
+
+    @Test
+    fun uploadAcceptedWithMissingUploadIdStoresSuccessWithoutRetryingPost() = runBlocking {
+        val file = createTempFileWithContent("lookup missing")
+        val inputData = inputDataFor(file, idempotencyKey = "missing-key")
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(202)
+                .setHeader("Content-Type", "application/json")
+                .setBody("{}")
+        )
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(404)
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        assertEquals(
+            UploadEnqueuer.STATE_UPLOAD_COMPLETED_UNKNOWN,
+            result.outputData.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
+        )
+        assertEquals(null, result.outputData.getString(UploadEnqueuer.KEY_UPLOAD_ID))
+
+        val uploadRequest = mockWebServer.takeRequest()
+        assertEquals("/v1/uploads", uploadRequest.path)
+        assertEquals("POST", uploadRequest.method)
+
+        val lookupRequest = mockWebServer.takeRequest()
+        assertEquals("/v1/uploads/by-key/missing-key", lookupRequest.path)
+        assertEquals("GET", lookupRequest.method)
+        assertEquals(2, mockWebServer.requestCount)
+
+        coVerify(exactly = 1) {
+            uploadQueueRepository.markAccepted(1L, null)
+        }
+        verify(exactly = 0) {
+            workManager.enqueueUniqueWork(any(), any(), any())
+        }
     }
 
     @Test
