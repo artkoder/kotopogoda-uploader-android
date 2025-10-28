@@ -380,6 +380,13 @@ private class FlowOnlyUploadItemDao(
         displayName: String,
         size: Long,
         idempotencyKey: String,
+        enhanced: Boolean,
+        enhanceStrength: Float?,
+        enhanceDelegate: String?,
+        enhanceMetricsLMean: Float?,
+        enhanceMetricsPDark: Float?,
+        enhanceMetricsBSharpness: Float?,
+        enhanceMetricsNNoise: Float?,
         updatedAt: Long,
     ) = error("Not needed")
 

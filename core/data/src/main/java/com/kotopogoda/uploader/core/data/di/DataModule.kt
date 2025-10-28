@@ -40,6 +40,7 @@ object DataModule {
         KotopogodaDatabase.MIGRATION_6_7,
         KotopogodaDatabase.MIGRATION_7_8,
         KotopogodaDatabase.MIGRATION_8_9,
+        KotopogodaDatabase.MIGRATION_9_10,
     ).build()
 
     @Provides

@@ -66,12 +66,23 @@ class UploadQueueRepository @Inject constructor(
         ).distinctUntilChanged()
     }
 
-    suspend fun enqueue(uri: Uri, idempotencyKey: String, contentSha256: String?) = withContext(Dispatchers.IO) {
+    suspend fun enqueue(
+        uri: Uri,
+        idempotencyKey: String,
+        contentSha256: String?,
+        options: UploadEnqueueOptions = UploadEnqueueOptions(),
+    ) = withContext(Dispatchers.IO) {
         val uriString = uri.toString()
-        val initialPhoto = photoDao.getByUri(uriString)
-            ?: createFallbackPhoto(uri, uriString, contentSha256)
-        val photo = if (!contentSha256.isNullOrBlank() && initialPhoto.sha256 != contentSha256) {
-            val updated = initialPhoto.copy(sha256 = contentSha256)
+        val initialPhoto = when (val photoId = options.photoId) {
+            null -> photoDao.getByUri(uriString)
+                ?: createFallbackPhoto(uri, uriString, contentSha256)
+            else -> photoDao.getById(photoId)
+                ?: photoDao.getByUri(uriString)
+                ?: createFallbackPhoto(uri, uriString, contentSha256)
+        }
+        val shouldUpdateDigest = !contentSha256.isNullOrBlank() && options.enhancement == null
+        val photo = if (shouldUpdateDigest && initialPhoto.sha256 != contentSha256) {
+            val updated = initialPhoto.copy(sha256 = requireNotNull(contentSha256))
             runCatching { photoDao.upsert(updated) }.onFailure { error ->
                 Timber.tag("Queue").w(error, "Failed to update photo hash for %s", uri)
             }
@@ -81,7 +92,10 @@ class UploadQueueRepository @Inject constructor(
         }
         val now = currentTimeMillis()
         val existing = uploadItemDao.getByPhotoId(photo.id)
-        val displayName = buildDisplayName(photo.relPath, uri)
+        val displayName = options.overrideDisplayName
+            ?: buildDisplayName(photo.relPath, uri)
+        val resolvedSize = options.overrideSize ?: photo.size
+        val enhancement = options.enhancement
         val effectiveIdempotencyKey = idempotencyKey.takeIf { it.isNotBlank() }
             ?: existing?.entityIdempotencyKey()
             ?: buildIdempotencyKey(photo)
@@ -94,6 +108,7 @@ class UploadQueueRepository @Inject constructor(
                 details = arrayOf(
                     "existing" to (existing != null),
                     "idempotency_key" to effectiveIdempotencyKey,
+                    "enhanced" to (enhancement != null),
                 ),
             ),
         )
@@ -102,9 +117,16 @@ class UploadQueueRepository @Inject constructor(
                 UploadItemEntity(
                     photoId = photo.id,
                     idempotencyKey = effectiveIdempotencyKey,
-                    uri = photo.uri,
+                    uri = uriString,
                     displayName = displayName,
-                    size = photo.size,
+                    size = resolvedSize,
+                    enhanced = enhancement != null,
+                    enhanceStrength = enhancement?.strength,
+                    enhanceDelegate = enhancement?.delegate,
+                    enhanceMetricsLMean = enhancement?.metrics?.lMean,
+                    enhanceMetricsPDark = enhancement?.metrics?.pDark,
+                    enhanceMetricsBSharpness = enhancement?.metrics?.bSharpness,
+                    enhanceMetricsNNoise = enhancement?.metrics?.nNoise,
                     state = UploadItemState.QUEUED.rawValue,
                     createdAt = now,
                     updatedAt = now,
@@ -119,7 +141,7 @@ class UploadQueueRepository @Inject constructor(
                     state = UploadItemState.QUEUED,
                     details = arrayOf(
                         "queue_item_id" to id,
-                        "size" to photo.size,
+                        "size" to resolvedSize,
                         "display_name" to displayName,
                         "existing" to false,
                     ),
@@ -129,10 +151,17 @@ class UploadQueueRepository @Inject constructor(
             uploadItemDao.updateStateWithMetadata(
                 id = existing.id,
                 state = UploadItemState.QUEUED.rawValue,
-                uri = photo.uri,
+                uri = uriString,
                 displayName = displayName,
-                size = photo.size,
+                size = resolvedSize,
                 idempotencyKey = effectiveIdempotencyKey,
+                enhanced = enhancement != null,
+                enhanceStrength = enhancement?.strength,
+                enhanceDelegate = enhancement?.delegate,
+                enhanceMetricsLMean = enhancement?.metrics?.lMean,
+                enhanceMetricsPDark = enhancement?.metrics?.pDark,
+                enhanceMetricsBSharpness = enhancement?.metrics?.bSharpness,
+                enhanceMetricsNNoise = enhancement?.metrics?.nNoise,
                 updatedAt = now,
             )
             Timber.tag("Queue").i(
@@ -144,7 +173,7 @@ class UploadQueueRepository @Inject constructor(
                     state = UploadItemState.QUEUED,
                     details = arrayOf(
                         "queue_item_id" to existing.id,
-                        "size" to photo.size,
+                        "size" to resolvedSize,
                         "display_name" to displayName,
                         "existing" to true,
                     ),

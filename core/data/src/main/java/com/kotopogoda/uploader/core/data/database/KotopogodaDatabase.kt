@@ -14,7 +14,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -205,6 +205,33 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                 val columns = getTableColumns(db, "upload_items")
                 if ("last_error_message" !in columns) {
                     db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `last_error_message` TEXT")
+                }
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = getTableColumns(db, "upload_items")
+                if ("enhanced" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhanced` INTEGER NOT NULL DEFAULT 0")
+                }
+                if ("enhance_strength" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhance_strength` REAL")
+                }
+                if ("enhance_delegate" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhance_delegate` TEXT")
+                }
+                if ("enhance_metrics_l_mean" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhance_metrics_l_mean` REAL")
+                }
+                if ("enhance_metrics_p_dark" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhance_metrics_p_dark` REAL")
+                }
+                if ("enhance_metrics_b_sharpness" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhance_metrics_b_sharpness` REAL")
+                }
+                if ("enhance_metrics_n_noise" !in columns) {
+                    db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhance_metrics_n_noise` REAL")
                 }
             }
         }

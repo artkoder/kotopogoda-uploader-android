@@ -6,6 +6,7 @@ import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoEntity
+import io.mockk.any
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
@@ -135,6 +136,13 @@ class UploadQueueRepositoryTest {
                 displayName = "IMG_0003.jpg",
                 size = photo.size,
                 idempotencyKey = "new-key",
+                enhanced = false,
+                enhanceStrength = null,
+                enhanceDelegate = null,
+                enhanceMetricsLMean = null,
+                enhanceMetricsPDark = null,
+                enhanceMetricsBSharpness = null,
+                enhanceMetricsNNoise = null,
                 updatedAt = expectedNow,
             )
         }
@@ -176,9 +184,74 @@ class UploadQueueRepositoryTest {
                 displayName = "IMG_0030.jpg",
                 size = photo.size,
                 idempotencyKey = "existing-key",
+                enhanced = false,
+                enhanceStrength = null,
+                enhanceDelegate = null,
+                enhanceMetricsLMean = null,
+                enhanceMetricsPDark = null,
+                enhanceMetricsBSharpness = null,
+                enhanceMetricsNNoise = null,
                 updatedAt = expectedNow,
             )
         }
+    }
+
+    @Test
+    fun `enqueue stores enhancement metadata when provided`() = runTest {
+        val originalUri = Uri.parse("content://media/external/images/media/40")
+        val enhancedUri = Uri.parse("file:///data/user/0/app/cache/enhanced.jpg")
+        val photo = PhotoEntity(
+            id = "photo-40",
+            uri = originalUri.toString(),
+            relPath = "DCIM/Camera/IMG_0040.jpg",
+            sha256 = "original-digest",
+            takenAt = null,
+            size = 512L,
+        )
+        coEvery { photoDao.getById(photo.id) } returns photo
+        coEvery { photoDao.getByUri(enhancedUri.toString()) } returns null
+        coEvery { uploadItemDao.getByPhotoId(photo.id) } returns null
+        coEvery { uploadItemDao.insert(any()) } returns 41L
+
+        repository.enqueue(
+            uri = enhancedUri,
+            idempotencyKey = "enhanced-key",
+            contentSha256 = "enhanced-digest",
+            options = UploadEnqueueOptions(
+                photoId = photo.id,
+                overrideDisplayName = "IMG_0040.jpg",
+                overrideSize = 1024L,
+                enhancement = UploadEnhancementInfo(
+                    strength = 0.75f,
+                    delegate = "primary",
+                    metrics = UploadEnhancementMetrics(
+                        lMean = 0.5f,
+                        pDark = 0.1f,
+                        bSharpness = 0.8f,
+                        nNoise = 0.05f,
+                    ),
+                    fileSize = 1024L,
+                ),
+            ),
+        )
+
+        coVerify {
+            uploadItemDao.insert(withArg { entity ->
+                assertEquals(photo.id, entity.photoId)
+                assertEquals(enhancedUri.toString(), entity.uri)
+                assertEquals("IMG_0040.jpg", entity.displayName)
+                assertEquals(1024L, entity.size)
+                assertEquals("enhanced-key", entity.idempotencyKey)
+                assertTrue(entity.enhanced)
+                assertEquals(0.75f, entity.enhanceStrength)
+                assertEquals("primary", entity.enhanceDelegate)
+                assertEquals(0.5f, entity.enhanceMetricsLMean)
+                assertEquals(0.1f, entity.enhanceMetricsPDark)
+                assertEquals(0.8f, entity.enhanceMetricsBSharpness)
+                assertEquals(0.05f, entity.enhanceMetricsNNoise)
+            })
+        }
+        coVerify(exactly = 0) { photoDao.upsert(any()) }
     }
 
     @Test

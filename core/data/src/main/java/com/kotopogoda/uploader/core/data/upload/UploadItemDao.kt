@@ -50,7 +50,10 @@ interface UploadItemDao {
 
     @Query(
         "UPDATE upload_items SET state = :state, uri = :uri, display_name = :displayName, size = :size, " +
-            "idempotency_key = :idempotencyKey, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE id = :id"
+            "idempotency_key = :idempotencyKey, enhanced = :enhanced, enhance_strength = :enhanceStrength, " +
+            "enhance_delegate = :enhanceDelegate, enhance_metrics_l_mean = :enhanceMetricsLMean, " +
+            "enhance_metrics_p_dark = :enhanceMetricsPDark, enhance_metrics_b_sharpness = :enhanceMetricsBSharpness, " +
+            "enhance_metrics_n_noise = :enhanceMetricsNNoise, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateStateWithMetadata(
         id: Long,
@@ -59,6 +62,13 @@ interface UploadItemDao {
         displayName: String,
         size: Long,
         idempotencyKey: String,
+        enhanced: Boolean,
+        enhanceStrength: Float?,
+        enhanceDelegate: String?,
+        enhanceMetricsLMean: Float?,
+        enhanceMetricsPDark: Float?,
+        enhanceMetricsBSharpness: Float?,
+        enhanceMetricsNNoise: Float?,
         updatedAt: Long,
     )
 
