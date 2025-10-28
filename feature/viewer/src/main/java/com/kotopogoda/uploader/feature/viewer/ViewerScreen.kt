@@ -233,6 +233,8 @@ fun ViewerRoute(
         enhancementStrength = enhancementState.strength,
         enhancementInProgress = enhancementState.inProgress,
         enhancementReady = enhancementState.isResultReady,
+        enhancementResultUri = enhancementState.resultUri,
+        isEnhancementResultForCurrentPhoto = enhancementState.isResultForCurrentPhoto,
         enhancementProgress = enhancementState.progressByTile,
         onEnhancementStrengthChange = viewModel::onEnhancementStrengthChange,
         onEnhancementStrengthChangeFinished = viewModel::onEnhancementStrengthChangeFinished
@@ -284,6 +286,8 @@ internal fun ViewerScreen(
     enhancementStrength: Float,
     enhancementInProgress: Boolean,
     enhancementReady: Boolean,
+    enhancementResultUri: Uri?,
+    isEnhancementResultForCurrentPhoto: Boolean,
     enhancementProgress: Map<Int, Float>,
     onEnhancementStrengthChange: (Float) -> Unit,
     onEnhancementStrengthChangeFinished: () -> Unit,
@@ -532,8 +536,19 @@ internal fun ViewerScreen(
                             }
                     ) {
                         if (item != null) {
+                            val displayedUri =
+                                if (
+                                    page == currentIndex &&
+                                    enhancementReady &&
+                                    isEnhancementResultForCurrentPhoto &&
+                                    enhancementResultUri != null
+                                ) {
+                                    enhancementResultUri
+                                } else {
+                                    item.uri
+                                }
                             ZoomableImage(
-                                uri = item.uri,
+                                uri = displayedUri,
                                 modifier = Modifier.fillMaxSize(),
                                 onZoomChanged = onZoomStateChanged
                             )
