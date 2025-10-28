@@ -5,9 +5,11 @@ import android.content.Context
 import android.content.IntentSender
 import android.net.Uri
 import android.os.Build
+import android.media.ExifInterface
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.annotation.StringRes
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -30,9 +32,11 @@ import com.kotopogoda.uploader.core.data.util.Hashing
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.io.IOException
 import java.io.Serializable
 import java.time.Instant
 import java.time.ZoneId
@@ -137,6 +141,7 @@ class ViewerViewModel @Inject constructor(
     private val _enhancementState = MutableStateFlow(EnhancementState())
     val enhancementState: StateFlow<EnhancementState> = _enhancementState.asStateFlow()
     private var enhancementJob: Job? = null
+    private val enhanceEngine = EnhanceEngine()
 
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
@@ -448,6 +453,7 @@ class ViewerViewModel @Inject constructor(
 
     fun onEnhancementStrengthChange(value: Float) {
         cancelEnhancementJob()
+        disposeEnhancementResult(_enhancementState.value.result)
         val clamped = value.coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
         _enhancementState.update { state ->
             if (state.strength == clamped && !state.isResultReady) {
@@ -456,7 +462,8 @@ class ViewerViewModel @Inject constructor(
                 state.copy(
                     strength = clamped,
                     isResultReady = false,
-                    progressByTile = emptyMap()
+                    progressByTile = emptyMap(),
+                    result = null,
                 )
             }
         }
@@ -1530,29 +1537,139 @@ class ViewerViewModel @Inject constructor(
 
     private fun startEnhancementJob(photo: PhotoItem, strength: Float) {
         cancelEnhancementJob()
+        disposeEnhancementResult(_enhancementState.value.result)
         val job = viewModelScope.launch {
-            val tileCount = computeTileCount(strength)
-            val initialProgress = (0 until tileCount).associateWith { 0f }
+            val normalized = strength.coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
             _enhancementState.update {
                 it.copy(
                     inProgress = true,
                     isResultReady = false,
-                    progressByTile = initialProgress
+                    progressByTile = emptyMap(),
+                    result = null,
                 )
             }
+            val workspace = try {
+                createEnhancementWorkspace(photo)
+            } catch (error: Exception) {
+                Timber.tag(UI_TAG).e(error, "Failed to prepare enhancement workspace for %s", photo.uri)
+                _enhancementState.update { state ->
+                    state.copy(
+                        inProgress = false,
+                        isResultReady = false,
+                        progressByTile = emptyMap(),
+                        result = null,
+                    )
+                }
+                return@launch
+            }
+            var producedResult: EnhancementResult? = null
             try {
-                for (tileIndex in 0 until tileCount) {
-                    delay(ENHANCEMENT_STEP_DELAY_MS)
+                val analysis = try {
+                    analyzeWorkspace(workspace)
+                } catch (error: Exception) {
+                    Timber.tag(UI_TAG).w(error, "Failed to analyze enhancement workspace for %s", photo.uri)
+                    WorkspaceAnalysis(
+                        metrics = EnhanceEngine.Metrics(0.0, 0.0, 0.0, 0.0),
+                        width = 0,
+                        height = 0,
+                    )
+                }
+                val metrics = analysis.metrics
+                val tileSize = DEFAULT_ENHANCE_TILE_SIZE
+                val totalTiles = computeTileCount(analysis.width, analysis.height, tileSize)
+                if (totalTiles > 0) {
                     _enhancementState.update { state ->
-                        val updated = state.progressByTile.toMutableMap()
-                        updated[tileIndex] = 1f
-                        state.copy(progressByTile = updated)
+                        state.copy(progressByTile = (0 until totalTiles).associateWith { 0f })
                     }
                 }
-                _enhancementState.update { it.copy(inProgress = false, isResultReady = true) }
-            } catch (error: CancellationException) {
-                _enhancementState.update { it.copy(inProgress = false) }
-                throw error
+                val delegateChoice = selectEnhancementDelegate(metrics, normalized)
+                logEnhancement(
+                    action = "enhance_start",
+                    photo = photo,
+                    "strength" to "%.2f".format(normalized),
+                    "delegate" to delegateChoice.name.lowercase(),
+                    "tiles" to totalTiles,
+                )
+                val progressCallback: (Int, Int, Float) -> Unit = { index, _, progress ->
+                    viewModelScope.launch {
+                        _enhancementState.update { state ->
+                            val updated = state.progressByTile.toMutableMap()
+                            updated[index] = progress
+                            state.copy(progressByTile = updated)
+                        }
+                    }
+                }
+                val startTime = System.currentTimeMillis()
+                val result = try {
+                    if (delegateChoice == EnhancementDelegateType.PRIMARY) {
+                        val engineResult = enhanceEngine.enhance(
+                            EnhanceEngine.Request(
+                                source = workspace.source,
+                                strength = normalized,
+                                tileSize = tileSize,
+                                exif = workspace.exif,
+                                outputFile = workspace.output,
+                                onTileProgress = progressCallback,
+                            )
+                        )
+                        EnhancementResult(
+                            sourceFile = workspace.source,
+                            file = engineResult.file,
+                            uri = engineResult.file.toUri(),
+                            metrics = engineResult.metrics,
+                            profile = engineResult.profile,
+                            delegate = EnhancementDelegateType.PRIMARY,
+                        )
+                    } else {
+                        logEnhancement(
+                            action = "delegate_fallback",
+                            photo = photo,
+                            "reason" to "precondition",
+                            "delegate" to delegateChoice.name.lowercase(),
+                        )
+                        runFallbackEnhancement(workspace, metrics)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.tag(UI_TAG).e(error, "Enhancement failed for %s", photo.uri)
+                    logEnhancement(
+                        action = "delegate_fallback",
+                        photo = photo,
+                        "reason" to (error.message ?: error::class.java.simpleName),
+                        "delegate" to EnhancementDelegateType.PRIMARY.name.lowercase(),
+                    )
+                    runFallbackEnhancement(workspace, metrics)
+                }
+                producedResult = result
+                _enhancementState.update { state ->
+                    state.copy(
+                        inProgress = false,
+                        isResultReady = true,
+                        progressByTile = emptyMap(),
+                        result = result,
+                    )
+                }
+                logEnhancement(
+                    action = "enhance_metrics",
+                    photo = photo,
+                    "l_mean" to "%.3f".format(result.metrics.lMean),
+                    "p_dark" to "%.3f".format(result.metrics.pDark),
+                    "b_sharpness" to "%.3f".format(result.metrics.bSharpness),
+                    "n_noise" to "%.3f".format(result.metrics.nNoise),
+                    "delegate" to result.delegate.name.lowercase(),
+                )
+                logEnhancement(
+                    action = "enhance_result",
+                    photo = photo,
+                    "delegate" to result.delegate.name.lowercase(),
+                    "duration_ms" to (System.currentTimeMillis() - startTime),
+                    "file_size" to result.file.length(),
+                )
+            } finally {
+                if (producedResult == null) {
+                    workspace.cleanup()
+                }
             }
         }
         enhancementJob = job
@@ -1561,18 +1678,7 @@ class ViewerViewModel @Inject constructor(
                 return@invokeOnCompletion
             }
             if (throwable != null) {
-                Timber.tag(UI_TAG).e(
-                    throwable,
-                    "Enhancement failed for %s",
-                    photo.uri
-                )
-                _enhancementState.update {
-                    it.copy(
-                        inProgress = false,
-                        isResultReady = false,
-                        progressByTile = emptyMap()
-                    )
-                }
+                Timber.tag(UI_TAG).e(throwable, "Enhancement failed for %s", photo.uri)
             }
             if (enhancementJob === job) {
                 enhancementJob = null
@@ -1586,18 +1692,101 @@ class ViewerViewModel @Inject constructor(
             job.cancel()
             enhancementJob = null
         }
+        if (resetToReady) {
+            disposeEnhancementResult(_enhancementState.value.result)
+        }
         _enhancementState.update { state ->
             state.copy(
                 inProgress = false,
                 isResultReady = if (resetToReady) true else state.isResultReady,
-                progressByTile = emptyMap()
+                progressByTile = emptyMap(),
+                result = if (resetToReady) null else state.result,
             )
         }
     }
 
-    private fun computeTileCount(strength: Float): Int {
-        val scaled = (strength * TILE_PROGRESS_SCALE).roundToInt()
-        return max(1, scaled)
+    private fun disposeEnhancementResult(result: EnhancementResult?) {
+        result?.let {
+            runCatching { if (it.file.exists()) it.file.delete() }
+            runCatching { if (it.sourceFile.exists()) it.sourceFile.delete() }
+        }
+    }
+
+    private suspend fun createEnhancementWorkspace(photo: PhotoItem): EnhancementWorkspace =
+        withContext(Dispatchers.IO) {
+            val directory = File(context.cacheDir, "enhance")
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw IOException("Unable to create enhancement cache directory at ${directory.absolutePath}")
+            }
+            val source = File.createTempFile("src_", ".jpg", directory)
+            context.contentResolver.openInputStream(photo.uri)?.use { input ->
+                source.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw IOException("Unable to open input stream for ${photo.uri}")
+            val exif = runCatching { ExifInterface(source) }.getOrNull()
+            val output = File(directory, "${source.nameWithoutExtension}_out.jpg")
+            EnhancementWorkspace(source = source, output = output, exif = exif)
+        }
+
+    private suspend fun analyzeWorkspace(workspace: EnhancementWorkspace): WorkspaceAnalysis =
+        withContext(Dispatchers.IO) {
+            val buffer = EnhanceEngine.BitmapImageDecoder().decode(workspace.source)
+            val metrics = EnhanceEngine.MetricsCalculator.calculate(buffer)
+            WorkspaceAnalysis(metrics = metrics, width = buffer.width, height = buffer.height)
+        }
+
+    private fun selectEnhancementDelegate(
+        metrics: EnhanceEngine.Metrics,
+        strength: Float,
+    ): EnhancementDelegateType {
+        return if (strength < 0.15f && metrics.nNoise < 0.2) {
+            EnhancementDelegateType.FALLBACK
+        } else {
+            EnhancementDelegateType.PRIMARY
+        }
+    }
+
+    private suspend fun runFallbackEnhancement(
+        workspace: EnhancementWorkspace,
+        metrics: EnhanceEngine.Metrics,
+    ): EnhancementResult = withContext(Dispatchers.IO) {
+        if (workspace.output.exists()) {
+            runCatching { workspace.output.delete() }
+        }
+        workspace.source.copyTo(workspace.output, overwrite = true)
+        EnhancementResult(
+            sourceFile = workspace.source,
+            file = workspace.output,
+            uri = workspace.output.toUri(),
+            metrics = metrics,
+            profile = FALLBACK_PROFILE,
+            delegate = EnhancementDelegateType.FALLBACK,
+        )
+    }
+
+    private fun computeTileCount(width: Int, height: Int, tileSize: Int): Int {
+        if (tileSize <= 0 || width <= 0 || height <= 0) {
+            return 0
+        }
+        val xTiles = (width + tileSize - 1) / tileSize
+        val yTiles = (height + tileSize - 1) / tileSize
+        return xTiles * yTiles
+    }
+
+    private fun EnhancementWorkspace.cleanup() {
+        runCatching { if (source.exists()) source.delete() }
+        runCatching { if (output.exists()) output.delete() }
+    }
+
+    private fun logEnhancement(action: String, photo: PhotoItem, vararg details: Pair<String, Any?>) {
+        Timber.tag(ENHANCE_TAG).i(
+            UploadLog.message(
+                category = ENHANCE_CATEGORY,
+                action = action,
+                photoId = photo.id,
+                uri = photo.uri,
+                details = details,
+            )
+        )
     }
 
     private fun restoreUndoStack() {
@@ -1824,8 +2013,17 @@ class ViewerViewModel @Inject constructor(
         private const val PERMISSION_TAG = "Permissions"
         private const val MIN_ENHANCEMENT_STRENGTH = 0f
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
-        private const val TILE_PROGRESS_SCALE = 8
-        private const val ENHANCEMENT_STEP_DELAY_MS = 50L
+        private const val ENHANCE_TAG = "Enhance"
+        private const val ENHANCE_CATEGORY = "ENHANCE"
+        private const val DEFAULT_ENHANCE_TILE_SIZE = 256
+        private val FALLBACK_PROFILE = EnhanceEngine.Profile(
+            luminanceGain = 1f,
+            darkBoost = 0f,
+            contrastGain = 1f,
+            restormerMix = 0f,
+            sharpenGain = 1f,
+            saturationGain = 1f,
+        )
 
         internal var buildVersionOverride: Int? = null
     }
@@ -1835,5 +2033,29 @@ class ViewerViewModel @Inject constructor(
         val progressByTile: Map<Int, Float> = emptyMap(),
         val inProgress: Boolean = false,
         val isResultReady: Boolean = true,
+        val result: EnhancementResult? = null,
+    )
+
+    data class EnhancementResult(
+        val sourceFile: File,
+        val file: File,
+        val uri: Uri,
+        val metrics: EnhanceEngine.Metrics,
+        val profile: EnhanceEngine.Profile,
+        val delegate: EnhancementDelegateType,
+    )
+
+    enum class EnhancementDelegateType { PRIMARY, FALLBACK }
+
+    private data class EnhancementWorkspace(
+        val source: File,
+        val output: File,
+        val exif: ExifInterface?,
+    )
+
+    private data class WorkspaceAnalysis(
+        val metrics: EnhanceEngine.Metrics,
+        val width: Int,
+        val height: Int,
     )
 }
