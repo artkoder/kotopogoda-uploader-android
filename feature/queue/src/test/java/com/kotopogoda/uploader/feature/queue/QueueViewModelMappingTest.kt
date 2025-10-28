@@ -42,6 +42,7 @@ class QueueViewModelMappingTest {
         assertTrue(uiModel.waitingReasons.isEmpty())
         assertFalse(uiModel.isActiveTransfer)
         assertNull(uiModel.lastErrorMessage)
+        assertNull(uiModel.completedAt)
     }
 
     @Test
@@ -77,6 +78,7 @@ class QueueViewModelMappingTest {
         assertEquals(R.string.queue_status_failed, uiModel.statusResId)
         assertTrue(uiModel.waitingReasons.isEmpty())
         assertFalse(uiModel.isActiveTransfer)
+        assertNull(uiModel.completedAt)
     }
 
     @Test
@@ -106,5 +108,31 @@ class QueueViewModelMappingTest {
 
         assertTrue(uiModel.highlightWarning)
         assertTrue(uiModel.canRetry)
+        assertNull(uiModel.completedAt)
+    }
+
+    @Test
+    fun succeededItemExposesCompletionTimestamp() {
+        val entity = UploadItemEntity(
+            id = 101,
+            photoId = "photo-id",
+            uri = "file:///tmp/success.jpg",
+            displayName = "success.jpg",
+            size = 1_024L,
+            state = UploadItemState.SUCCEEDED.rawValue,
+            createdAt = 10L,
+            updatedAt = 20L,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = null,
+            state = UploadItemState.SUCCEEDED,
+            lastErrorKind = null,
+            lastErrorHttpCode = null,
+        )
+
+        val uiModel = entry.toQueueItemUiModel(workInfo = null)
+
+        assertEquals(20L, uiModel.completedAt)
     }
 }

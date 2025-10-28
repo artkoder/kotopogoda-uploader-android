@@ -2,6 +2,8 @@ package com.kotopogoda.uploader.feature.queue
 
 import android.content.res.Resources
 import android.text.format.Formatter
+import android.text.format.DateUtils
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -237,8 +239,19 @@ private fun QueueItemCard(
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
+            val statusLabel = queueItemStatusLabel(
+                resources = context.resources,
+                statusResId = item.statusResId,
+                completedAt = item.completedAt,
+            ) { completedAt ->
+                DateUtils.formatDateTime(
+                    context,
+                    completedAt,
+                    DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME
+                )
+            }
             Text(
-                text = stringResource(id = item.statusResId),
+                text = statusLabel,
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (item.highlightWarning) {
                     MaterialTheme.colorScheme.error
@@ -303,6 +316,18 @@ internal fun queueItemErrorMessage(resources: Resources, item: QueueItemUiModel)
             }
         }
     return message?.let { resources.getString(R.string.queue_last_error, it) }
+}
+
+internal fun queueItemStatusLabel(
+    resources: Resources,
+    @StringRes statusResId: Int,
+    completedAt: Long?,
+    formatDateTime: (Long) -> String,
+): String {
+    val statusText = resources.getString(statusResId)
+    val completed = completedAt ?: return statusText
+    val formatted = formatDateTime(completed)
+    return resources.getString(R.string.queue_status_with_time, statusText, formatted)
 }
 
 @Composable

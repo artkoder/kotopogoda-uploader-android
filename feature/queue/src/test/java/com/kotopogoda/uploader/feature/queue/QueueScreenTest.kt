@@ -86,4 +86,33 @@ class QueueScreenTest {
         verify { resources.getString(R.string.queue_error_auth) }
         verify { resources.getString(R.string.queue_last_error, "Требуется повторная авторизация") }
     }
+
+    @Test
+    fun queueItemStatusLabelFormatsCompletionTime() {
+        every { resources.getString(R.string.queue_status_succeeded) } returns "Готово"
+        every {
+            resources.getString(R.string.queue_status_with_time, "Готово", "1 янв 12:00")
+        } returns "Готово · 1 янв 12:00"
+
+        val label = queueItemStatusLabel(
+            resources = resources,
+            statusResId = R.string.queue_status_succeeded,
+            completedAt = 42L,
+        ) { "1 янв 12:00" }
+
+        assertEquals("Готово · 1 янв 12:00", label)
+    }
+
+    @Test
+    fun queueItemStatusLabelSkipsTimeWhenMissing() {
+        every { resources.getString(R.string.queue_status_failed) } returns "Ошибка"
+
+        val label = queueItemStatusLabel(
+            resources = resources,
+            statusResId = R.string.queue_status_failed,
+            completedAt = null,
+        ) { throw IllegalStateException("Should not be called") }
+
+        assertEquals("Ошибка", label)
+    }
 }
