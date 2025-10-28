@@ -383,6 +383,51 @@ class UploadWorkerTest {
     }
 
     @Test
+    fun uploadConflictWithoutUploadIdTriggersReconciliation() = runBlocking {
+        val file = createTempFileWithContent("conflict missing id")
+        val inputData = inputDataFor(file, idempotencyKey = "conflict-key")
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(409)
+                .setHeader("Content-Type", "application/json")
+                .setBody("{}")
+        )
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"upload_id":"reconciled","status":"accepted"}""")
+        )
+
+        val requestSlot = slot<OneTimeWorkRequest>()
+        every {
+            workManager.enqueueUniqueWork(any(), any(), capture(requestSlot))
+        } returns mockk(relaxed = true)
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        assertEquals("reconciled", result.outputData.getString(UploadEnqueuer.KEY_UPLOAD_ID))
+
+        val uploadRequest = mockWebServer.takeRequest()
+        assertEquals("/v1/uploads", uploadRequest.path)
+        assertEquals("POST", uploadRequest.method)
+
+        val reconciliationRequest = mockWebServer.takeRequest()
+        assertEquals("/v1/uploads/by-key/conflict-key", reconciliationRequest.path)
+        assertEquals("GET", reconciliationRequest.method)
+
+        val expectedUniqueName = UploadEnqueuer.uniqueNameForUri(Uri.fromFile(file))
+        verify(exactly = 1) {
+            workManager.enqueueUniqueWork("$expectedUniqueName:poll", ExistingWorkPolicy.REPLACE, any())
+        }
+        val pollRequest = requestSlot.captured
+        assertEquals("reconciled", pollRequest.workSpec.input.getString(UploadEnqueuer.KEY_UPLOAD_ID))
+    }
+
+    @Test
     fun payloadTooLargeFails() = runBlocking {
         val file = createTempFileWithContent("toolarge")
         val inputData = inputDataFor(file)
@@ -541,17 +586,14 @@ class UploadWorkerTest {
             override suspend fun upload(
                 idempotencyKey: String,
                 contentSha256Header: String,
-                file: okhttp3.MultipartBody.Part,
-                contentSha256Part: okhttp3.RequestBody,
-                mime: okhttp3.RequestBody,
-                size: okhttp3.RequestBody,
-                exifDate: okhttp3.RequestBody?,
-                originalRelpath: okhttp3.RequestBody?,
+                body: okhttp3.RequestBody,
             ): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadAcceptedDto> {
                 throw UnknownHostException("dns")
             }
 
             override suspend fun getStatus(uploadId: String) = throw UnsupportedOperationException()
+
+            override suspend fun getByIdempotencyKey(idempotencyKey: String) = throw UnsupportedOperationException()
         }
         workerFactory = object : WorkerFactory() {
             override fun createWorker(
@@ -641,17 +683,14 @@ class UploadWorkerTest {
             override suspend fun upload(
                 idempotencyKey: String,
                 contentSha256Header: String,
-                file: okhttp3.MultipartBody.Part,
-                contentSha256Part: okhttp3.RequestBody,
-                mime: okhttp3.RequestBody,
-                size: okhttp3.RequestBody,
-                exifDate: okhttp3.RequestBody?,
-                originalRelpath: okhttp3.RequestBody?,
+                body: okhttp3.RequestBody,
             ): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadAcceptedDto> {
                 throw UnknownHostException("fgs")
             }
 
             override suspend fun getStatus(uploadId: String) = throw UnsupportedOperationException()
+
+            override suspend fun getByIdempotencyKey(idempotencyKey: String) = throw UnsupportedOperationException()
         }
         workerFactory = object : WorkerFactory() {
             override fun createWorker(
