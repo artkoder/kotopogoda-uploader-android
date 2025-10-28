@@ -165,7 +165,7 @@ class HmacInterceptor @Inject constructor(
         return byteArray
     }
 
-    private companion object {
+    internal companion object {
         private val EXCLUDED_PATHS = listOf(
             "/v1/health",
             "/v1/devices/attach",
@@ -182,7 +182,7 @@ class HmacInterceptor @Inject constructor(
         private const val PREFIX_BASE64 = "base64:"
         private val secureRandom = SecureRandom()
 
-        private fun generateNonce(): String {
+        internal fun generateNonce(): String {
             val bytes = ByteArray(16)
             secureRandom.nextBytes(bytes)
             return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }

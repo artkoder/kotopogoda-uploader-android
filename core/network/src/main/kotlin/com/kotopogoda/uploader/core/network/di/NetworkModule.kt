@@ -19,7 +19,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import java.time.Clock
-import java.util.UUID
 import javax.inject.Singleton
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -107,7 +106,7 @@ object NetworkModule {
     fun provideClock(): Clock = Clock.systemUTC()
 
     @Provides
-    fun provideNonceProvider(): () -> String = { UUID.randomUUID().toString() }
+    fun provideNonceProvider(): () -> String = HmacInterceptor.Companion::generateNonce
 
     @Provides
     @Singleton
