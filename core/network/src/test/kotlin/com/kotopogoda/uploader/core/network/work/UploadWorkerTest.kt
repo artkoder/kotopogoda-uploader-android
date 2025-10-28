@@ -415,6 +415,68 @@ class UploadWorkerTest {
     }
 
     @Test
+    fun unauthorizedFailsWithAuthErrorAndMessage() = runBlocking {
+        val file = createTempFileWithContent("unauthorized")
+        val inputData = inputDataFor(file)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(401)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":"unauthorized","message":"Token expired"}""")
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals(UploadErrorKind.AUTH.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        assertEquals(401, outputData.getInt(UploadEnqueuer.KEY_HTTP_CODE, -1))
+        assertEquals("Token expired", outputData.getString(UploadEnqueuer.KEY_ERROR_MESSAGE))
+        coVerify(exactly = 1) {
+            uploadQueueRepository.markFailed(
+                id = 1L,
+                errorKind = UploadErrorKind.AUTH,
+                httpCode = 401,
+                requeue = false,
+                errorMessage = "Token expired",
+            )
+        }
+    }
+
+    @Test
+    fun forbiddenFailsWithAuthErrorAndFallbackMessage() = runBlocking {
+        val file = createTempFileWithContent("forbidden")
+        val inputData = inputDataFor(file)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(403)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":"forbidden"}""")
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals(UploadErrorKind.AUTH.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
+        assertEquals(403, outputData.getInt(UploadEnqueuer.KEY_HTTP_CODE, -1))
+        assertEquals("forbidden", outputData.getString(UploadEnqueuer.KEY_ERROR_MESSAGE))
+        coVerify(exactly = 1) {
+            uploadQueueRepository.markFailed(
+                id = 1L,
+                errorKind = UploadErrorKind.AUTH,
+                httpCode = 403,
+                requeue = false,
+                errorMessage = "forbidden",
+            )
+        }
+    }
+
+    @Test
     fun httpErrorMessageIsPropagated() = runBlocking {
         val file = createTempFileWithContent("server-error")
         val inputData = inputDataFor(file)

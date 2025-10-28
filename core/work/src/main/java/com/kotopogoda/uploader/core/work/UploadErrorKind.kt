@@ -4,6 +4,7 @@ enum class UploadErrorKind(val rawValue: String) {
     NETWORK("network"),
     IO("io"),
     HTTP("http"),
+    AUTH("auth"),
     REMOTE_FAILURE("remoteFailure"),
     UNEXPECTED("unexpected");
 

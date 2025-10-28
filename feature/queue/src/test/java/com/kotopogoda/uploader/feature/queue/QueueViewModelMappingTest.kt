@@ -78,4 +78,33 @@ class QueueViewModelMappingTest {
         assertTrue(uiModel.waitingReasons.isEmpty())
         assertFalse(uiModel.isActiveTransfer)
     }
+
+    @Test
+    fun authFailureHighlightsWarning() {
+        val entity = UploadItemEntity(
+            id = 77,
+            photoId = "photo-id",
+            uri = "file:///tmp/auth.jpg",
+            displayName = "auth.jpg",
+            size = 512L,
+            state = UploadItemState.FAILED.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+            lastErrorKind = UploadErrorKind.AUTH.rawValue,
+            httpCode = 401,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = null,
+            state = UploadItemState.FAILED,
+            lastErrorKind = UploadErrorKind.AUTH,
+            lastErrorHttpCode = 401,
+            lastErrorMessage = null,
+        )
+
+        val uiModel = entry.toQueueItemUiModel(workInfo = null)
+
+        assertTrue(uiModel.highlightWarning)
+        assertTrue(uiModel.canRetry)
+    }
 }
