@@ -35,10 +35,14 @@ import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okhttp3.Headers
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -367,12 +371,14 @@ class UploadWorker @AssistedInject constructor(
                     errorKind = UploadErrorKind.HTTP,
                     httpCode = responseCode,
                     uri = uri,
+                    headers = response.headers(),
                 )
                 in 500..599 -> retryResult(
                     displayName = displayName,
                     errorKind = UploadErrorKind.HTTP,
                     httpCode = responseCode,
                     uri = uri,
+                    headers = response.headers(),
                 )
                 else -> failureResult(
                     itemId = itemId,
@@ -608,6 +614,7 @@ class UploadWorker @AssistedInject constructor(
         httpCode: Int? = null,
         uri: Uri? = null,
         throwable: Throwable? = null,
+        headers: Headers? = null,
     ): Result {
         Timber.tag("WorkManager").w(
             throwable,
@@ -621,11 +628,32 @@ class UploadWorker @AssistedInject constructor(
                     add("error_kind" to errorKind)
                     httpCode?.let { add("http_code" to it) }
                     throwable?.message?.let { add("message" to it) }
+                    headers?.get(RETRY_AFTER_HEADER)?.let { add("retry_after" to it) }
                 }.toTypedArray(),
             )
         )
         recordError(displayName, errorKind, httpCode)
+        maybeDelayForRetryAfter(headers)
         return Result.retry()
+    }
+
+    private suspend fun maybeDelayForRetryAfter(headers: Headers?) {
+        val value = headers?.get(RETRY_AFTER_HEADER) ?: return
+        val delayMillis = parseRetryAfterMillis(value) ?: return
+        if (delayMillis > 0) {
+            delay(delayMillis)
+        }
+    }
+
+    private fun parseRetryAfterMillis(raw: String): Long? {
+        raw.trim().toLongOrNull()?.let { seconds ->
+            return seconds.coerceAtLeast(0).times(1000)
+        }
+        return runCatching {
+            val targetInstant = Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(raw))
+            val diff = targetInstant.toEpochMilli() - System.currentTimeMillis()
+            diff.coerceAtLeast(0)
+        }.getOrNull()
     }
 
     private fun logUploadError(
@@ -836,6 +864,7 @@ class UploadWorker @AssistedInject constructor(
         private const val CATEGORY_HTTP_RESPONSE = "HTTP/RESPONSE"
         private const val CATEGORY_WORK_SCHEDULE = "WORK/SCHEDULE"
         private const val CATEGORY_UPLOAD_GUARD = "UPLOAD/GUARD"
+        private const val RETRY_AFTER_HEADER = "Retry-After"
     }
 
     private data class ProgressSnapshot(

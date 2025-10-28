@@ -7,6 +7,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
 import androidx.lifecycle.Observer
 import androidx.work.Constraints
@@ -558,12 +559,22 @@ class UploadWorkerTest {
         val file = createTempFileWithContent("retry")
         val inputData = inputDataFor(file)
 
-        mockWebServer.enqueue(MockResponse().setResponseCode(429))
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(429)
+                .setHeader("Retry-After", "1")
+        )
 
         val worker = createWorker(inputData)
+        val startedAt = SystemClock.elapsedRealtime()
         val result = worker.doWork()
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
 
         assertTrue(result is Retry)
+        assertTrue(
+            elapsed >= TimeUnit.SECONDS.toMillis(1),
+            "Повтор должен начинаться не ранее чем через 1 секунду"
+        )
     }
 
     @Test
@@ -571,12 +582,22 @@ class UploadWorkerTest {
         val file = createTempFileWithContent("error")
         val inputData = inputDataFor(file)
 
-        mockWebServer.enqueue(MockResponse().setResponseCode(500))
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(500)
+                .setHeader("Retry-After", "1")
+        )
 
         val worker = createWorker(inputData)
+        val startedAt = SystemClock.elapsedRealtime()
         val result = worker.doWork()
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
 
         assertTrue(result is Retry)
+        assertTrue(
+            elapsed >= TimeUnit.SECONDS.toMillis(1),
+            "Повтор должен начинаться не ранее чем через 1 секунду"
+        )
     }
 
     @Test
