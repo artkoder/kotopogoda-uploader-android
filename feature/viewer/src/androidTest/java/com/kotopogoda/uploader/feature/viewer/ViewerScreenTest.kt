@@ -82,7 +82,15 @@ class ViewerScreenTest {
                 onPhotoLongPress = {},
                 onToggleSelection = {},
                 onCancelSelection = {},
-                onSelectFolder = {}
+                onSelectFolder = {},
+                enhancementStrength = 0.5f,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {}
             )
         }
 
@@ -151,7 +159,15 @@ class ViewerScreenTest {
                     }
                 },
                 onCancelSelection = { selection = emptySet() },
-                onSelectFolder = {}
+                onSelectFolder = {},
+                enhancementStrength = 0.5f,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {}
             )
         }
 

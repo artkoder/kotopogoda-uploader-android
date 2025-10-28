@@ -464,6 +464,9 @@ class ViewerViewModel @Inject constructor(
                     isResultReady = false,
                     progressByTile = emptyMap(),
                     result = null,
+                    resultUri = null,
+                    resultPhotoId = null,
+                    isResultForCurrentPhoto = false,
                 )
             }
         }
@@ -1519,6 +1522,13 @@ class ViewerViewModel @Inject constructor(
             cancelEnhancementJob(resetToReady = true)
         }
         currentPhoto.value = photo
+        _enhancementState.update { state ->
+            val matches = state.resultPhotoId != null && state.resultPhotoId == photo?.id
+            state.copy(
+                isResultForCurrentPhoto = matches,
+                resultUri = state.resultUri.takeIf { matches },
+            )
+        }
     }
 
     private fun pushAction(action: UserAction) {
@@ -1546,6 +1556,9 @@ class ViewerViewModel @Inject constructor(
                     isResultReady = false,
                     progressByTile = emptyMap(),
                     result = null,
+                    resultUri = null,
+                    resultPhotoId = null,
+                    isResultForCurrentPhoto = false,
                 )
             }
             val workspace = try {
@@ -1558,6 +1571,9 @@ class ViewerViewModel @Inject constructor(
                         isResultReady = false,
                         progressByTile = emptyMap(),
                         result = null,
+                        resultUri = null,
+                        resultPhotoId = null,
+                        isResultForCurrentPhoto = false,
                     )
                 }
                 return@launch
@@ -1642,12 +1658,16 @@ class ViewerViewModel @Inject constructor(
                     runFallbackEnhancement(workspace, metrics)
                 }
                 producedResult = result
+                val matchesCurrentPhoto = currentPhoto.value?.id == photo.id
                 _enhancementState.update { state ->
                     state.copy(
                         inProgress = false,
                         isResultReady = true,
                         progressByTile = emptyMap(),
                         result = result,
+                        resultUri = result.uri,
+                        resultPhotoId = photo.id,
+                        isResultForCurrentPhoto = matchesCurrentPhoto,
                     )
                 }
                 logEnhancement(
@@ -1698,9 +1718,12 @@ class ViewerViewModel @Inject constructor(
         _enhancementState.update { state ->
             state.copy(
                 inProgress = false,
-                isResultReady = if (resetToReady) true else state.isResultReady,
+                isResultReady = if (resetToReady) true else false,
                 progressByTile = emptyMap(),
                 result = if (resetToReady) null else state.result,
+                resultUri = null,
+                resultPhotoId = null,
+                isResultForCurrentPhoto = false,
             )
         }
     }
@@ -2034,6 +2057,9 @@ class ViewerViewModel @Inject constructor(
         val inProgress: Boolean = false,
         val isResultReady: Boolean = true,
         val result: EnhancementResult? = null,
+        val resultUri: Uri? = null,
+        val resultPhotoId: String? = null,
+        val isResultForCurrentPhoto: Boolean = false,
     )
 
     data class EnhancementResult(
