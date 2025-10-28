@@ -1716,6 +1716,8 @@ class ViewerViewModel @Inject constructor(
                                 source = workspace.source,
                                 strength = normalized,
                                 tileSize = tileSize,
+                                overlap = DEFAULT_ENHANCE_TILE_OVERLAP,
+                                parallelism = DEFAULT_ENHANCE_TILE_PARALLELISM,
                                 delegate = delegatePlan.engineDelegate,
                                 exif = workspace.exif,
                                 outputFile = workspace.output,
@@ -1730,6 +1732,7 @@ class ViewerViewModel @Inject constructor(
                             profile = engineResult.profile,
                             delegate = EnhancementDelegateType.PRIMARY,
                             engineDelegate = engineResult.delegate,
+                            tiling = engineResult.tiling,
                         )
                     } else {
                         logEnhancement(
@@ -1777,6 +1780,8 @@ class ViewerViewModel @Inject constructor(
                     "delegate" to result.delegate.name.lowercase(),
                     "engine_delegate" to (result.engineDelegate?.name?.lowercase() ?: "none"),
                 )
+                val tiling = result.tiling
+                val seam = tiling?.seamMetrics
                 logEnhancement(
                     action = "enhance_result",
                     photo = photo,
@@ -1785,6 +1790,20 @@ class ViewerViewModel @Inject constructor(
                     "duration_ms" to (System.currentTimeMillis() - startTime),
                     "file_size" to result.file.length(),
                     "strength" to "%.2f".format(normalized),
+                    "tile_size" to (tiling?.tileSize ?: 0),
+                    "tile_overlap" to (tiling?.overlap ?: 0),
+                    "tile_step" to (tiling?.step ?: 0),
+                    "tile_parallelism" to (tiling?.parallelism ?: 0),
+                    "tile_count" to (tiling?.totalTiles ?: 0),
+                    "tile_width_min" to (tiling?.minTileWidth ?: 0),
+                    "tile_width_max" to (tiling?.maxTileWidth ?: 0),
+                    "tile_height_min" to (tiling?.minTileHeight ?: 0),
+                    "tile_height_max" to (tiling?.maxTileHeight ?: 0),
+                    "seam_weight_min" to (seam?.minWeight ?: 0f),
+                    "seam_weight_max" to (seam?.maxWeight ?: 0f),
+                    "seam_weight_mean" to (seam?.meanWeight ?: 0f),
+                    "seam_weight_std" to (seam?.stdWeight ?: 0f),
+                    "seam_ratio" to (seam?.seamRatio ?: 0f),
                 )
             } finally {
                 if (producedResult == null) {
@@ -1899,6 +1918,7 @@ class ViewerViewModel @Inject constructor(
             profile = FALLBACK_PROFILE,
             delegate = EnhancementDelegateType.FALLBACK,
             engineDelegate = null,
+            tiling = null,
         )
     }
 
@@ -2154,7 +2174,9 @@ class ViewerViewModel @Inject constructor(
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
         private const val ENHANCE_TAG = "Enhance"
         private const val ENHANCE_CATEGORY = "ENHANCE"
-        private const val DEFAULT_ENHANCE_TILE_SIZE = 256
+        private const val DEFAULT_ENHANCE_TILE_SIZE = 512
+        private const val DEFAULT_ENHANCE_TILE_OVERLAP = 64
+        private const val DEFAULT_ENHANCE_TILE_PARALLELISM = 2
         private val FALLBACK_PROFILE = EnhanceEngine.Profile(
             isLowLight = false,
             kDce = 0f,
@@ -2189,6 +2211,7 @@ class ViewerViewModel @Inject constructor(
         val profile: EnhanceEngine.Profile,
         val delegate: EnhancementDelegateType,
         val engineDelegate: EnhanceEngine.Delegate?,
+        val tiling: EnhanceEngine.RestormerTiling?,
     )
 
     enum class EnhancementDelegateType { PRIMARY, FALLBACK }

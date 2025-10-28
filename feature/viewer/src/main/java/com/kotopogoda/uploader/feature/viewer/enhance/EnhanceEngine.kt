@@ -7,15 +7,24 @@ import android.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
@@ -42,6 +51,7 @@ class EnhanceEngine(
         val strength: Float,
         val tileSize: Int = DEFAULT_TILE_SIZE,
         val overlap: Int = DEFAULT_TILE_OVERLAP,
+        val parallelism: Int = DEFAULT_TILE_PARALLELISM,
         val delegate: Delegate = Delegate.CPU,
         val exif: ExifInterface? = null,
         val outputFile: File? = null,
@@ -54,11 +64,53 @@ class EnhanceEngine(
         val metrics: Metrics,
         val profile: Profile,
         val delegate: Delegate,
+        val tiling: RestormerTiling?,
     )
 
     data class ModelResult(
         val buffer: ImageBuffer,
         val delegate: Delegate,
+    )
+
+    data class RestormerRun(
+        val modelResult: ModelResult?,
+        val tiling: RestormerTiling,
+    )
+
+    data class RestormerTiling(
+        val tileSize: Int,
+        val overlap: Int,
+        val step: Int,
+        val tilesX: Int,
+        val tilesY: Int,
+        val totalTiles: Int,
+        val parallelism: Int,
+        val minTileWidth: Int,
+        val maxTileWidth: Int,
+        val minTileHeight: Int,
+        val maxTileHeight: Int,
+        val seamMetrics: RestormerSeamMetrics?,
+    )
+
+    data class RestormerSeamMetrics(
+        val minWeight: Float,
+        val maxWeight: Float,
+        val meanWeight: Float,
+        val stdWeight: Float,
+        val seamRatio: Float,
+    )
+
+    private data class TileSpec(
+        val index: Int,
+        val x: Int,
+        val y: Int,
+        val width: Int,
+        val height: Int,
+    )
+
+    private data class TileResult(
+        val spec: TileSpec,
+        val result: ModelResult,
     )
 
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
@@ -74,12 +126,14 @@ class EnhanceEngine(
             mix = profile.restormerMix,
             tileSize = request.tileSize,
             overlap = request.overlap,
+            parallelism = request.parallelism,
             delegate = zeroResult.delegate,
             onTileProgress = request.onTileProgress,
         )
-        val denoised = if (restResult != null && profile.alphaDetail > 1e-3f) {
-            actualDelegate = restResult.delegate
-            blendBuffers(zeroResult.buffer, restResult.buffer, profile.alphaDetail)
+        val restormerModel = restResult?.modelResult
+        val denoised = if (restormerModel != null && profile.alphaDetail > 1e-3f) {
+            actualDelegate = restormerModel.delegate
+            blendBuffers(zeroResult.buffer, restormerModel.buffer, profile.alphaDetail)
         } else {
             zeroResult.buffer
         }
@@ -106,6 +160,7 @@ class EnhanceEngine(
             metrics = metrics,
             profile = profile,
             delegate = actualDelegate,
+            tiling = restResult?.tiling,
         )
     }
 
@@ -131,28 +186,24 @@ class EnhanceEngine(
         mix: Float,
         tileSize: Int,
         overlap: Int,
+        parallelism: Int,
         delegate: Delegate,
         onTileProgress: (tileIndex: Int, total: Int, progress: Float) -> Unit,
-    ): ModelResult? {
-        val model = restormer
-        if (mix <= 1e-3f || model == null) {
-            val totalTiles = computeTileCount(buffer.width, buffer.height, tileSize)
-            repeat(totalTiles) { onTileProgress(it, totalTiles, 1f) }
-            return null
-        }
+    ): RestormerRun? {
         val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
-        val step = max(1, safeTile - overlap * 2)
+        val safeOverlap = max(0, overlap)
+        val safeParallelism = parallelism.coerceIn(1, MAX_TILE_PARALLELISM)
+        val step = max(1, safeTile - safeOverlap * 2)
         val width = buffer.width
         val height = buffer.height
         val tilesX = ceil(width / step.toDouble()).toInt()
         val tilesY = ceil(height / step.toDouble()).toInt()
-        val totalTiles = max(1, tilesX * tilesY)
-        val accR = FloatArray(width * height)
-        val accG = FloatArray(width * height)
-        val accB = FloatArray(width * height)
-        val accWeight = FloatArray(width * height)
+        val tileSpecs = ArrayList<TileSpec>(max(0, tilesX * tilesY))
+        var minTileWidth = Int.MAX_VALUE
+        var maxTileWidth = 0
+        var minTileHeight = Int.MAX_VALUE
+        var maxTileHeight = 0
         var index = 0
-        var currentDelegate = delegate
         for (ty in 0 until tilesY) {
             val innerY = ty * step
             val innerHeight = min(safeTile, height - innerY)
@@ -161,36 +212,113 @@ class EnhanceEngine(
                 val innerX = tx * step
                 val innerWidth = min(safeTile, width - innerX)
                 if (innerWidth <= 0) continue
-                onTileProgress(index, totalTiles, 0f)
-                val tile = buffer.subRegion(innerX, innerY, innerWidth, innerHeight)
-                val processed = model.denoise(tile, currentDelegate)
-                currentDelegate = processed.delegate
-                val tilePixels = processed.buffer.pixels
-                val tileWidth = processed.buffer.width
-                val tileHeight = processed.buffer.height
-                for (py in 0 until tileHeight) {
-                    val globalY = innerY + py
-                    if (globalY >= height) continue
-                    val weightY = featherWeight(py, tileHeight, overlap)
-                    val base = globalY * width
-                    val tileBase = py * tileWidth
-                    for (px in 0 until tileWidth) {
-                        val globalX = innerX + px
-                        if (globalX >= width) continue
-                        val weightX = featherWeight(px, tileWidth, overlap)
-                        val weight = weightX * weightY
-                        if (weight <= 0f) continue
-                        val color = tilePixels[tileBase + px]
-                        val idx = base + globalX
-                        accR[idx] += Color.red(color) * weight
-                        accG[idx] += Color.green(color) * weight
-                        accB[idx] += Color.blue(color) * weight
-                        accWeight[idx] += weight
-                    }
-                }
-                onTileProgress(index, totalTiles, 1f)
+                minTileWidth = min(minTileWidth, innerWidth)
+                maxTileWidth = max(maxTileWidth, innerWidth)
+                minTileHeight = min(minTileHeight, innerHeight)
+                maxTileHeight = max(maxTileHeight, innerHeight)
+                tileSpecs.add(TileSpec(index, innerX, innerY, innerWidth, innerHeight))
                 index++
             }
+        }
+        val totalTiles = tileSpecs.size
+        val baseTiling = RestormerTiling(
+            tileSize = safeTile,
+            overlap = safeOverlap,
+            step = step,
+            tilesX = tilesX,
+            tilesY = tilesY,
+            totalTiles = totalTiles,
+            parallelism = safeParallelism,
+            minTileWidth = if (totalTiles == 0) 0 else minTileWidth,
+            maxTileWidth = if (totalTiles == 0) 0 else maxTileWidth,
+            minTileHeight = if (totalTiles == 0) 0 else minTileHeight,
+            maxTileHeight = if (totalTiles == 0) 0 else maxTileHeight,
+            seamMetrics = null,
+        )
+        val model = restormer
+        if (mix <= 1e-3f || model == null || totalTiles == 0) {
+            for (spec in tileSpecs) {
+                onTileProgress(spec.index, max(1, totalTiles), 1f)
+            }
+            return RestormerRun(null, baseTiling)
+        }
+        val accR = FloatArray(width * height)
+        val accG = FloatArray(width * height)
+        val accB = FloatArray(width * height)
+        val accWeight = FloatArray(width * height)
+        val semaphore = Semaphore(safeParallelism)
+        val delegateRef = AtomicReference(delegate)
+        val processedTiles = coroutineScope {
+            val jobs = tileSpecs.map { spec ->
+                async {
+                    semaphore.withPermit {
+                        onTileProgress(spec.index, totalTiles, 0f)
+                        val currentDelegate = delegateRef.get()
+                        val tile = buffer.subRegion(spec.x, spec.y, spec.width, spec.height)
+                        val processed = model.denoise(tile, currentDelegate)
+                        if (processed.delegate != currentDelegate) {
+                            delegateRef.set(processed.delegate)
+                        }
+                        onTileProgress(spec.index, totalTiles, 1f)
+                        TileResult(spec, processed)
+                    }
+                }
+            }
+            jobs.awaitAll()
+        }
+        var minWeight = Float.POSITIVE_INFINITY
+        var maxWeight = 0f
+        var weightSum = 0.0
+        var weightSqSum = 0.0
+        var weightCount = 0
+        var seamCount = 0
+        for (tileResult in processedTiles.sortedBy { it.spec.index }) {
+            val spec = tileResult.spec
+            val processed = tileResult.result.buffer
+            val tilePixels = processed.pixels
+            val tileWidth = processed.width
+            val tileHeight = processed.height
+            for (py in 0 until tileHeight) {
+                val globalY = spec.y + py
+                if (globalY >= height) continue
+                val weightY = featherWeight(py, tileHeight, safeOverlap)
+                val base = globalY * width
+                val tileBase = py * tileWidth
+                for (px in 0 until tileWidth) {
+                    val globalX = spec.x + px
+                    if (globalX >= width) continue
+                    val weightX = featherWeight(px, tileWidth, safeOverlap)
+                    val weight = weightX * weightY
+                    if (weight <= 0f) continue
+                    val color = tilePixels[tileBase + px]
+                    val idx = base + globalX
+                    accR[idx] += Color.red(color) * weight
+                    accG[idx] += Color.green(color) * weight
+                    accB[idx] += Color.blue(color) * weight
+                    accWeight[idx] += weight
+                    minWeight = min(minWeight, weight)
+                    maxWeight = max(maxWeight, weight)
+                    weightSum += weight
+                    weightSqSum += weight * weight
+                    weightCount++
+                    if (weight < SEAM_THRESHOLD) {
+                        seamCount++
+                    }
+                }
+            }
+        }
+        val seamMetrics = if (weightCount > 0) {
+            val mean = (weightSum / weightCount).toFloat()
+            val variance = ((weightSqSum / weightCount) - (mean * mean)).coerceAtLeast(0.0)
+            RestormerSeamMetrics(
+                minWeight = minWeight,
+                maxWeight = maxWeight,
+                meanWeight = mean,
+                stdWeight = sqrt(variance).toFloat(),
+                seamRatio = seamCount.toFloat() / weightCount.toFloat(),
+            )
+        } else {
+            null
         }
         val resultPixels = IntArray(buffer.pixels.size)
         for (i in resultPixels.indices) {
@@ -201,7 +329,12 @@ class EnhanceEngine(
             val processedB = if (weight > 0f) accB[i] / weight / 255f else Color.blue(baseColor) / 255f
             resultPixels[i] = composeColor(Color.alpha(baseColor), processedR, processedG, processedB)
         }
-        return ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate)
+        val finalDelegate = delegateRef.get()
+        val tiling = baseTiling.copy(seamMetrics = seamMetrics)
+        return RestormerRun(
+            modelResult = ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), finalDelegate),
+            tiling = tiling,
+        )
     }
 
     private fun applyEdgeAwareUnsharp(
@@ -600,8 +733,11 @@ class EnhanceEngine(
 
     companion object {
         private const val LOG_TAG = "Enhance/Engine"
-        private const val DEFAULT_TILE_SIZE = 384
-        private const val DEFAULT_TILE_OVERLAP = 32
+        private const val DEFAULT_TILE_SIZE = 512
+        private const val DEFAULT_TILE_OVERLAP = 64
+        private const val DEFAULT_TILE_PARALLELISM = 2
+        private const val MAX_TILE_PARALLELISM = 3
+        private const val SEAM_THRESHOLD = 0.95f
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
         private const val OUTPUT_JPEG_QUALITY = 92
         private const val DARK_LUMINANCE_THRESHOLD = 0.22
@@ -712,8 +848,12 @@ private fun computeTileCount(width: Int, height: Int, tileSize: Int): Int {
 
 private fun featherWeight(position: Int, size: Int, overlap: Int): Float {
     if (overlap <= 0 || size <= 1) return 1f
+    val safeOverlap = max(1, overlap)
     val distanceToEdge = min(position, size - 1 - position).toFloat()
-    return clamp01((distanceToEdge / overlap).coerceIn(0f, 1f))
+    if (distanceToEdge >= safeOverlap) return 1f
+    val ratio = clamp01(distanceToEdge / safeOverlap)
+    val weight = 0.5f * (1f - cos(ratio * PI).toFloat())
+    return clamp01(weight)
 }
 
 private fun sobelAt(luma: DoubleArray, width: Int, height: Int, x: Int, y: Int): Double {
