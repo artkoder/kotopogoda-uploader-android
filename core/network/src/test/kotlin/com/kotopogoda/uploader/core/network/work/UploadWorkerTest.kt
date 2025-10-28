@@ -25,7 +25,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.logging.HttpFileLogger
 import com.kotopogoda.uploader.core.network.api.UploadApi
+import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.network.security.HmacInterceptor
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadConstraintsProvider
@@ -65,9 +67,11 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowContentResolver
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
@@ -103,12 +107,18 @@ class UploadWorkerTest {
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
+        val httpFileLogger = mockk<HttpFileLogger>(relaxed = true)
+        val httpLoggingController = mockk<HttpLoggingController>()
+        every { httpLoggingController.isEnabled() } returns false
+        every { httpLoggingController.setEnabled(any()) } just Runs
         val okHttpClient = OkHttpClient.Builder()
             .addInterceptor(
                 HmacInterceptor(
                     deviceCredsStore = FakeDeviceCredsStore(
                         DeviceCreds(deviceId = "test-device", hmacKey = "secret-key")
-                    )
+                    ),
+                    httpFileLogger = httpFileLogger,
+                    httpLoggingController = httpLoggingController,
                 )
             )
             .build()

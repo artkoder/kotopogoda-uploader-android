@@ -1,5 +1,7 @@
 package com.kotopogoda.uploader.core.network.security
 
+import com.kotopogoda.uploader.core.logging.HttpFileLogger
+import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -12,16 +14,19 @@ import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
+import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.HttpUrl
-import okio.Buffer
 import java.util.Base64
+import okio.Buffer
+import timber.log.Timber
 
 @Singleton
 class HmacInterceptor @Inject constructor(
     private val deviceCredsStore: DeviceCredsStore,
+    private val httpFileLogger: HttpFileLogger,
+    private val httpLoggingController: HttpLoggingController,
     private val clock: Clock = Clock.systemUTC(),
     private val nonceProvider: () -> String = Companion::generateNonce,
 ) : Interceptor {
@@ -53,6 +58,16 @@ class HmacInterceptor @Inject constructor(
         )
         val signature = sign(creds.hmacKey, canonical)
 
+        logSignature(
+            timestamp = timestamp,
+            nonce = nonce,
+            idempotencyKey = idempotencyKey,
+            contentSha = contentSha,
+            path = originalRequest.url.encodedPath,
+            canonical = canonical,
+            signature = signature,
+        )
+
         val signedRequest = originalRequest.newBuilder()
             .addHeader(HEADER_DEVICE_ID, creds.deviceId)
             .addHeader(HEADER_TIMESTAMP, timestamp)
@@ -62,6 +77,46 @@ class HmacInterceptor @Inject constructor(
             .build()
 
         return chain.proceed(signedRequest)
+    }
+
+    private fun logSignature(
+        timestamp: String,
+        nonce: String,
+        idempotencyKey: String?,
+        contentSha: String,
+        path: String,
+        canonical: String,
+        signature: String,
+    ) {
+        if (!httpLoggingController.isEnabled()) {
+            return
+        }
+        val canonicalBase64 = Base64.getEncoder().encodeToString(canonical.toByteArray(StandardCharsets.UTF_8))
+        val message = buildString {
+            append("UPLOAD/HMAC ")
+            append("ts=")
+            append(timestamp)
+            append(' ')
+            append("nonceLen=")
+            append(nonce.length)
+            append(' ')
+            append("idemLen=")
+            append(idempotencyKey?.length ?: 0)
+            append(' ')
+            append("bodySha=")
+            append(contentSha)
+            append(' ')
+            append("path=")
+            append(path)
+            append(' ')
+            append("canonical=")
+            append(canonicalBase64)
+            append(' ')
+            append("sig=")
+            append(signature)
+        }
+        httpFileLogger.log(message)
+        Timber.tag("HTTP").i(message)
     }
 
     private fun shouldBypass(request: Request): Boolean {

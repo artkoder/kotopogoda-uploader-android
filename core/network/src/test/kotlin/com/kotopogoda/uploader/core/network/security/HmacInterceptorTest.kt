@@ -1,5 +1,7 @@
 package com.kotopogoda.uploader.core.network.security
 
+import com.kotopogoda.uploader.core.logging.HttpFileLogger
+import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
 import com.kotopogoda.uploader.core.security.DeviceCreds
 import com.kotopogoda.uploader.core.security.DeviceCredsStore
 import java.nio.charset.StandardCharsets
@@ -11,6 +13,12 @@ import java.util.Base64
 import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import io.mockk.Runs
+import io.mockk.every
+import io.mockk.just
+import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -37,6 +45,8 @@ class HmacInterceptorTest {
         val deviceCreds = DeviceCreds(deviceId = "device-123", hmacKey = "secret-key")
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockHttpLoggingController(enabled = false),
             clock = clock,
             nonceProvider = { nonce },
         )
@@ -98,6 +108,8 @@ class HmacInterceptorTest {
         val deviceCreds = DeviceCreds(deviceId = "device-123", hmacKey = "secret-key")
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockHttpLoggingController(enabled = false),
             clock = clock,
             nonceProvider = { nonce },
         )
@@ -166,6 +178,8 @@ class HmacInterceptorTest {
         val deviceCreds = DeviceCreds(deviceId = "device-456", hmacKey = "secret-key")
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockHttpLoggingController(enabled = false),
             clock = clock,
             nonceProvider = { nonce },
         )
@@ -216,6 +230,8 @@ class HmacInterceptorTest {
         val deviceCreds = DeviceCreds(deviceId = "device-456", hmacKey = "secret-key")
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockHttpLoggingController(enabled = false),
             clock = clock,
             nonceProvider = { nonce },
         )
@@ -262,12 +278,72 @@ class HmacInterceptorTest {
     }
 
     @Test
+    fun `writes signature details to http log for uploads endpoint`() {
+        val fixedInstant = Instant.parse("2024-05-01T12:34:56Z")
+        val clock = Clock.fixed(fixedInstant, ZoneOffset.UTC)
+        val nonce = "0123456789abcdef"
+        val deviceCreds = DeviceCreds(deviceId = "device-456", hmacKey = "secret-key")
+        val httpFileLogger = mockk<HttpFileLogger>()
+        val messageSlot = slot<String>()
+        every { httpFileLogger.log(capture(messageSlot)) } just Runs
+        val interceptor = HmacInterceptor(
+            deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = httpFileLogger,
+            httpLoggingController = mockHttpLoggingController(enabled = true),
+            clock = clock,
+            nonceProvider = { nonce },
+        )
+
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200))
+
+            val client = OkHttpClient.Builder()
+                .addInterceptor(interceptor)
+                .build()
+
+            val bodyText = "payload"
+            val idempotencyKey = "upload-123"
+            val request = Request.Builder()
+                .url(server.url("/v1/uploads"))
+                .post(bodyText.toRequestBody("text/plain".toMediaType()))
+                .header("Idempotency-Key", idempotencyKey)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                assertEquals(200, response.code)
+            }
+        }
+
+        verify(exactly = 1) { httpFileLogger.log(any()) }
+        val message = messageSlot.captured
+        val timestamp = fixedInstant.epochSecond.toString()
+        val contentSha = sha256Hex("payload".toByteArray(StandardCharsets.UTF_8))
+        val canonical = listOf(
+            "POST",
+            "/v1/uploads",
+            "-",
+            timestamp,
+            nonce,
+            deviceCreds.deviceId,
+            contentSha,
+            "upload-123",
+        ).joinToString(separator = "\n")
+        val canonicalBase64 = Base64.getEncoder().encodeToString(canonical.toByteArray(StandardCharsets.UTF_8))
+        val signature = sign(deviceCreds.hmacKey, canonical)
+        val expectedMessage = "UPLOAD/HMAC ts=$timestamp nonceLen=${nonce.length} idemLen=${"upload-123".length} " +
+            "bodySha=$contentSha path=/v1/uploads canonical=$canonicalBase64 sig=$signature"
+        assertEquals(expectedMessage, message)
+    }
+
+    @Test
     fun `default nonce provider produces crypto-strong hex`() {
         val fixedInstant = Instant.parse("2024-05-01T12:34:56Z")
         val clock = Clock.fixed(fixedInstant, ZoneOffset.UTC)
         val deviceCreds = DeviceCreds(deviceId = "device-456", hmacKey = "secret-key")
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockHttpLoggingController(enabled = false),
             clock = clock,
         )
 
@@ -306,6 +382,8 @@ class HmacInterceptorTest {
         val deviceCreds = DeviceCreds(deviceId = "device-789", hmacKey = "hex:$hexSecret")
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockHttpLoggingController(enabled = false),
             clock = clock,
             nonceProvider = { nonce },
         )
@@ -357,6 +435,8 @@ class HmacInterceptorTest {
         val deviceCreds = DeviceCreds(deviceId = "device-789", hmacKey = "base64:$base64Secret")
         val interceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockHttpLoggingController(enabled = false),
             clock = clock,
             nonceProvider = { nonce },
         )
@@ -409,6 +489,12 @@ class HmacInterceptorTest {
 
         override val credsFlow: Flow<DeviceCreds?> = MutableStateFlow(creds)
     }
+
+    private fun mockHttpLoggingController(enabled: Boolean): HttpLoggingController =
+        mockk<HttpLoggingController>().apply {
+            every { isEnabled() } returns enabled
+            every { setEnabled(any()) } just Runs
+        }
 
     private fun sha256Hex(bytes: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
