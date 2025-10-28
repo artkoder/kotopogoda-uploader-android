@@ -16,6 +16,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.LoggingWorkerFactory
+import com.kotopogoda.uploader.ml.ModelChecksumVerifier
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
@@ -29,6 +30,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -105,6 +107,9 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         appLogger.setEnabled(true)
+        runBlocking(Dispatchers.IO) {
+            ModelChecksumVerifier.verify(this@KotopogodaUploaderApp)
+        }
         installCrashHandlers()
 
         Timber.tag("WorkManager").i(
