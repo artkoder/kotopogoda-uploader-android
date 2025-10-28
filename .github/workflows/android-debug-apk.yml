@@ -205,7 +205,7 @@ jobs:
             >/dev/null 2>&1 &
 
           adb wait-for-device
-          timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -m 1 "1"; do sleep 5; done'
+          timeout 900 bash -c 'until adb shell getprop sys.boot_completed | grep -m 1 "1"; do sleep 5; done'
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
