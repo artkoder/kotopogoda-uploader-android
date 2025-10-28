@@ -32,6 +32,8 @@ paging = "3.2.1"
 orgJson = "20231013"
 tensorflowLite = "2.14.0"
 ncnnAndroid = "0.0.7"
+tensorflowLiteSupport = "0.4.4"
+tensorflowLiteMetadata = "0.4.4"
 
 
 [plugins]
@@ -88,6 +90,8 @@ material = "com.google.android.material:material:1.12.0"
 timber = "com.jakewharton.timber:timber:5.0.1"
 tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
 tensorflow-lite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tensorflowLite" }
+tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
+tensorflow-lite-metadata = { group = "org.tensorflow", name = "tensorflow-lite-metadata", version.ref = "tensorflowLiteMetadata" }
 ncnn-android = { group = "io.github.mymonstercat", name = "rapidocr-ncnn-platform", version.ref = "ncnnAndroid" }
 
 androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
