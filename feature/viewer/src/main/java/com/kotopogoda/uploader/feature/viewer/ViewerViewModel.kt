@@ -640,13 +640,20 @@ class ViewerViewModel @Inject constructor(
                         "sha256" to contentSha256,
                         "size" to (enqueueOptions.overrideSize ?: enhancementResult.file.length()),
                     )
-                    val cleanupDuration = measureTimeMillis { disposeEnhancementResult(enhancementResult) }
-                    val cleanupSucceeded = !enhancementResult.file.exists() && !enhancementResult.sourceFile.exists()
+                    val cleanupDuration = measureTimeMillis {
+                        disposeEnhancementResult(
+                            enhancementResult,
+                            deleteResultFile = false,
+                        )
+                    }
+                    val sourceCleanupSucceeded = !enhancementResult.sourceFile.exists()
+                    val resultRetained = enhancementResult.file.exists()
                     logEnhancement(
                         action = "enhance_cleanup",
                         photo = current,
                         "duration_ms" to cleanupDuration,
-                        "success" to cleanupSucceeded,
+                        "success" to sourceCleanupSucceeded,
+                        "result_retained" to resultRetained,
                     )
                     _enhancementState.update { state ->
                         state.copy(
@@ -1828,9 +1835,14 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
-    private fun disposeEnhancementResult(result: EnhancementResult?) {
+    private fun disposeEnhancementResult(
+        result: EnhancementResult?,
+        deleteResultFile: Boolean = true,
+    ) {
         result?.let {
-            runCatching { if (it.file.exists()) it.file.delete() }
+            if (deleteResultFile) {
+                runCatching { if (it.file.exists()) it.file.delete() }
+            }
             runCatching { if (it.sourceFile.exists()) it.sourceFile.delete() }
         }
     }

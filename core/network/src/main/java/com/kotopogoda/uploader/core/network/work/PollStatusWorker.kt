@@ -295,6 +295,38 @@ class PollStatusWorker @AssistedInject constructor(
         displayName: String,
     ): Result {
         val completionState = deleteDocument(uri)
+        when (completionState) {
+            DeleteCompletionState.DELETED -> Timber.tag("WorkManager").i(
+                pollLogMessage(
+                    action = "cleanup_ok",
+                    itemId = itemId,
+                    uploadId = uploadId,
+                    uri = uri,
+                ),
+            )
+            DeleteCompletionState.AWAITING_MANUAL_DELETE -> Timber.tag("WorkManager").i(
+                pollLogMessage(
+                    action = "cleanup_pending",
+                    itemId = itemId,
+                    uploadId = uploadId,
+                    uri = uri,
+                    details = arrayOf(
+                        "reason" to "awaiting_manual_delete",
+                    ),
+                ),
+            )
+            DeleteCompletionState.UNKNOWN -> Timber.tag("WorkManager").w(
+                pollLogMessage(
+                    action = "cleanup_failed",
+                    itemId = itemId,
+                    uploadId = uploadId,
+                    uri = uri,
+                    details = arrayOf(
+                        "reason" to "unknown_state",
+                    ),
+                ),
+            )
+        }
         recordCompletionState(completionState, displayName)
         uploadQueueRepository.markSucceeded(itemId)
         Timber.tag("WorkManager").i(
