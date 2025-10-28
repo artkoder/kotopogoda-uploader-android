@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.network.work
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
@@ -51,6 +52,7 @@ class PollStatusWorkerTest {
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
     private lateinit var uploadQueueRepository: UploadQueueRepository
+    private lateinit var mediaStoreDeleteLauncher: TestMediaStoreDeleteLauncher
 
     @Before
     fun setUp() {
@@ -62,6 +64,7 @@ class PollStatusWorkerTest {
         TestForegroundDelegate.ensureChannel(context)
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
+        mediaStoreDeleteLauncher = TestMediaStoreDeleteLauncher()
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
@@ -84,6 +87,7 @@ class PollStatusWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
+                        mediaStoreDeleteLauncher,
                     )
                 }
                 return null
@@ -178,6 +182,8 @@ class PollStatusWorkerTest {
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, "photo.jpg")
             .build()
 
+        mediaStoreDeleteLauncher.nextResult = MediaStoreDeleteResult.Cancelled
+
         mockWebServer.enqueue(
             MockResponse()
                 .setResponseCode(200)
@@ -202,6 +208,16 @@ class PollStatusWorkerTest {
             UploadEnqueuer.STATE_UPLOADED_AWAITING_DELETE,
             progress.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
         )
+    }
+
+    private class TestMediaStoreDeleteLauncher : MediaStoreDeleteLauncher {
+        var nextResult: MediaStoreDeleteResult = MediaStoreDeleteResult.Success
+        val requestedUris = mutableListOf<Uri>()
+
+        override suspend fun requestDelete(resolver: ContentResolver, uri: Uri): MediaStoreDeleteResult {
+            requestedUris += uri
+            return nextResult
+        }
     }
 
     @Test
@@ -312,6 +328,7 @@ class PollStatusWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
+                        mediaStoreDeleteLauncher,
                     )
                 }
                 return null
