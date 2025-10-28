@@ -83,6 +83,7 @@ class ViewerViewModel @Inject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
+    private val enhanceEngine: EnhanceEngine,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -145,8 +146,6 @@ class ViewerViewModel @Inject constructor(
     private val _enhancementState = MutableStateFlow(EnhancementState())
     val enhancementState: StateFlow<EnhancementState> = _enhancementState.asStateFlow()
     private var enhancementJob: Job? = null
-    private val enhanceEngine = EnhanceEngine()
-
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
     private var pendingBatchMove: PendingBatchMove? = null
@@ -1691,12 +1690,13 @@ class ViewerViewModel @Inject constructor(
                         state.copy(progressByTile = (0 until totalTiles).associateWith { 0f })
                     }
                 }
-                val delegateChoice = selectEnhancementDelegate(metrics, normalized)
+                val delegatePlan = selectEnhancementDelegate(metrics, normalized)
                 logEnhancement(
                     action = "enhance_start",
                     photo = photo,
                     "strength" to "%.2f".format(normalized),
-                    "delegate" to delegateChoice.name.lowercase(),
+                    "delegate" to delegatePlan.delegateType.name.lowercase(),
+                    "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                     "tiles" to totalTiles,
                 )
                 val progressCallback: (Int, Int, Float) -> Unit = { index, _, progress ->
@@ -1710,12 +1710,13 @@ class ViewerViewModel @Inject constructor(
                 }
                 val startTime = System.currentTimeMillis()
                 val result = try {
-                    if (delegateChoice == EnhancementDelegateType.PRIMARY) {
+                    if (delegatePlan.delegateType == EnhancementDelegateType.PRIMARY) {
                         val engineResult = enhanceEngine.enhance(
                             EnhanceEngine.Request(
                                 source = workspace.source,
                                 strength = normalized,
                                 tileSize = tileSize,
+                                delegate = delegatePlan.engineDelegate,
                                 exif = workspace.exif,
                                 outputFile = workspace.output,
                                 onTileProgress = progressCallback,
@@ -1728,13 +1729,15 @@ class ViewerViewModel @Inject constructor(
                             metrics = engineResult.metrics,
                             profile = engineResult.profile,
                             delegate = EnhancementDelegateType.PRIMARY,
+                            engineDelegate = engineResult.delegate,
                         )
                     } else {
                         logEnhancement(
                             action = "delegate_fallback",
                             photo = photo,
                             "reason" to "precondition",
-                            "delegate" to delegateChoice.name.lowercase(),
+                            "delegate" to delegatePlan.delegateType.name.lowercase(),
+                            "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                         )
                         runFallbackEnhancement(workspace, metrics)
                     }
@@ -1747,6 +1750,7 @@ class ViewerViewModel @Inject constructor(
                         photo = photo,
                         "reason" to (error.message ?: error::class.java.simpleName),
                         "delegate" to EnhancementDelegateType.PRIMARY.name.lowercase(),
+                        "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                     )
                     runFallbackEnhancement(workspace, metrics)
                 }
@@ -1771,11 +1775,13 @@ class ViewerViewModel @Inject constructor(
                     "b_sharpness" to "%.3f".format(result.metrics.bSharpness),
                     "n_noise" to "%.3f".format(result.metrics.nNoise),
                     "delegate" to result.delegate.name.lowercase(),
+                    "engine_delegate" to (result.engineDelegate?.name?.lowercase() ?: "none"),
                 )
                 logEnhancement(
                     action = "enhance_result",
                     photo = photo,
                     "delegate" to result.delegate.name.lowercase(),
+                    "engine_delegate" to (result.engineDelegate?.name?.lowercase() ?: "none"),
                     "duration_ms" to (System.currentTimeMillis() - startTime),
                     "file_size" to result.file.length(),
                     "strength" to "%.2f".format(normalized),
@@ -1854,11 +1860,26 @@ class ViewerViewModel @Inject constructor(
     private fun selectEnhancementDelegate(
         metrics: EnhanceEngine.Metrics,
         strength: Float,
-    ): EnhancementDelegateType {
-        return if (strength < 0.15f && metrics.nNoise < 0.2) {
+    ): EnhancementDelegatePlan {
+        val delegateType = if (strength < 0.15f && metrics.nNoise < 0.2) {
             EnhancementDelegateType.FALLBACK
         } else {
             EnhancementDelegateType.PRIMARY
+        }
+        val engineDelegate = if (delegateType == EnhancementDelegateType.PRIMARY) {
+            selectEngineDelegate()
+        } else {
+            EnhanceEngine.Delegate.CPU
+        }
+        return EnhancementDelegatePlan(delegateType, engineDelegate)
+    }
+
+    private fun selectEngineDelegate(): EnhanceEngine.Delegate {
+        val sdk = buildVersionOverride ?: Build.VERSION.SDK_INT
+        return if (sdk >= Build.VERSION_CODES.O) {
+            EnhanceEngine.Delegate.GPU
+        } else {
+            EnhanceEngine.Delegate.CPU
         }
     }
 
@@ -1877,6 +1898,7 @@ class ViewerViewModel @Inject constructor(
             metrics = metrics,
             profile = FALLBACK_PROFILE,
             delegate = EnhancementDelegateType.FALLBACK,
+            engineDelegate = null,
         )
     }
 
@@ -2166,9 +2188,15 @@ class ViewerViewModel @Inject constructor(
         val metrics: EnhanceEngine.Metrics,
         val profile: EnhanceEngine.Profile,
         val delegate: EnhancementDelegateType,
+        val engineDelegate: EnhanceEngine.Delegate?,
     )
 
     enum class EnhancementDelegateType { PRIMARY, FALLBACK }
+
+    private data class EnhancementDelegatePlan(
+        val delegateType: EnhancementDelegateType,
+        val engineDelegate: EnhanceEngine.Delegate,
+    )
 
     private data class EnhancementWorkspace(
         val source: File,

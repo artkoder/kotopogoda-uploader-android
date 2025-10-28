@@ -202,10 +202,13 @@ class EnhanceEngineTest {
             buffer: EnhanceEngine.ImageBuffer,
             delegate: EnhanceEngine.Delegate,
             iterations: Int,
-        ): EnhanceEngine.ImageBuffer {
+        ): EnhanceEngine.ModelResult {
             calls += Call(delegate, iterations)
             val pixels = IntArray(buffer.pixels.size) { argb(200, 200, 200) }
-            return EnhanceEngine.ImageBuffer(buffer.width, buffer.height, pixels)
+            return EnhanceEngine.ModelResult(
+                buffer = EnhanceEngine.ImageBuffer(buffer.width, buffer.height, pixels),
+                delegate = delegate,
+            )
         }
     }
 
@@ -214,10 +217,13 @@ class EnhanceEngineTest {
         override suspend fun denoise(
             tile: EnhanceEngine.ImageBuffer,
             delegate: EnhanceEngine.Delegate,
-        ): EnhanceEngine.ImageBuffer {
+        ): EnhanceEngine.ModelResult {
             calls++
             val pixels = IntArray(tile.pixels.size) { argb(64, 64, 192) }
-            return EnhanceEngine.ImageBuffer(tile.width, tile.height, pixels)
+            return EnhanceEngine.ModelResult(
+                buffer = EnhanceEngine.ImageBuffer(tile.width, tile.height, pixels),
+                delegate = delegate,
+            )
         }
     }
 }
