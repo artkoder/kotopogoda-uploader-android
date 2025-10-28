@@ -54,7 +54,7 @@ class NetworkModuleTest {
         }
         val okHttpClient = NetworkModule.provideOkHttpClient(loggingInterceptor, hmacInterceptor)
 
-        MockWebServer().use { server ->
+        MockWebServer().apply { start() }.use { server ->
             server.enqueue(MockResponse().setResponseCode(200))
 
             val request = Request.Builder()
