@@ -473,7 +473,17 @@ class ViewerViewModelDocumentInfoTest {
                 file = enhancedFile,
                 uri = enhancedFile.toUri(),
                 metrics = metrics,
-                profile = EnhanceEngine.Profile(1f, 0f, 1f, 0f, 1f, 1f),
+                profile = EnhanceEngine.Profile(
+                    isLowLight = true,
+                    kDce = 1f,
+                    restormerMix = 0f,
+                    alphaDetail = 1f,
+                    sharpenAmount = 0f,
+                    sharpenRadius = 1f,
+                    sharpenThreshold = 1f,
+                    vibranceGain = 1f,
+                    saturationGain = 1f,
+                ),
                 delegate = EnhancementDelegateType.PRIMARY,
             )
             val stateField = ViewerViewModel::class.java.getDeclaredField("_enhancementState")
