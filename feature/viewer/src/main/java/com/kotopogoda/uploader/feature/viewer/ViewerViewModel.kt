@@ -83,7 +83,7 @@ class ViewerViewModel @Inject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
-    private val enhanceEngine: EnhanceEngine,
+    private val enhanceEngine: EnhanceEngine = EnhanceEngine(),
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 

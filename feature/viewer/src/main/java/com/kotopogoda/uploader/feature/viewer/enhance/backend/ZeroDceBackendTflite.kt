@@ -3,6 +3,10 @@ package com.kotopogoda.uploader.feature.viewer.enhance.backend
 import android.content.Context
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.FileInputStream
+import java.io.IOException
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
@@ -12,9 +16,6 @@ import org.tensorflow.lite.Delegate
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import timber.log.Timber
-import java.io.FileInputStream
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
 
 @Singleton
 class ZeroDceBackendTflite @Inject constructor(
@@ -56,6 +57,12 @@ class ZeroDceBackendTflite @Inject constructor(
         iterations: Int,
         preference: DelegatePreference,
     ): EnhanceEngine.ModelResult {
+        val zeroModel = loadModel(ZERO_DCE_MODEL)
+        val postModel = loadModel(ZERO_DCE_POST_MODEL)
+        if (zeroModel == null || postModel == null) {
+            Timber.tag(TAG).w("ZeroDCE model assets missing, falling back to simple gain")
+            return EnhanceEngine.ModelResult(applyGain(buffer, iterations), EnhanceEngine.Delegate.CPU)
+        }
         val options = Interpreter.Options()
         var gpuDelegate: Delegate? = null
         var postGpuDelegate: Delegate? = null
@@ -70,7 +77,7 @@ class ZeroDceBackendTflite @Inject constructor(
                     options.setNumThreads(max(1, Runtime.getRuntime().availableProcessors() - 1))
                 }
             }
-            Interpreter(loadModel(ZERO_DCE_MODEL), options).use { }
+            Interpreter(zeroModel, options).use { }
             val postOptions = Interpreter.Options().apply {
                 when (preference) {
                     DelegatePreference.GPU -> {
@@ -83,7 +90,7 @@ class ZeroDceBackendTflite @Inject constructor(
                     }
                 }
             }
-            Interpreter(loadModel(ZERO_DCE_POST_MODEL), postOptions).use { }
+            Interpreter(postModel, postOptions).use { }
         } finally {
             gpuDelegate?.close()
             postGpuDelegate?.close()
@@ -107,14 +114,19 @@ class ZeroDceBackendTflite @Inject constructor(
         return buffer
     }
 
-    private fun loadModel(name: String): MappedByteBuffer {
+    private fun loadModel(name: String): MappedByteBuffer? {
         val assetManager = context.assets
-        val descriptor = assetManager.openFd(name)
-        descriptor.use { afd ->
-            FileInputStream(afd.fileDescriptor).use { input ->
-                val channel: FileChannel = input.channel
-                return channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.length)
+        return try {
+            val descriptor = assetManager.openFd(name)
+            descriptor.use { afd ->
+                FileInputStream(afd.fileDescriptor).use { input ->
+                    val channel: FileChannel = input.channel
+                    channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.length)
+                }
             }
+        } catch (error: IOException) {
+            Timber.tag(TAG).w(error, "Failed to open ZeroDCE asset %s", name)
+            null
         }
     }
 
