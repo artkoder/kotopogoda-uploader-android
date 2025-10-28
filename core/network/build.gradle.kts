@@ -134,4 +134,9 @@ dependencies {
     testImplementation("androidx.work:work-testing:${libs.versions.work.get()}")
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation(libs.mockk)
+
+    androidTestImplementation("androidx.test:core-ktx:1.5.0")
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation("androidx.work:work-testing:${libs.versions.work.get()}")
+    androidTestImplementation("io.mockk:mockk-android:${libs.versions.mockk.get()}")
 }

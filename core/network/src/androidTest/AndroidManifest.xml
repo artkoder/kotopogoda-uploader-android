@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.kotopogoda.uploader.core.network.work.PollStatusWorkerMediaStoreTest$TestConfirmationActivity"
+            android:exported="false" />
+    </application>
+</manifest>

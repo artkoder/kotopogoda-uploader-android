@@ -1,7 +1,9 @@
 package com.kotopogoda.uploader.core.network.work
 
+import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -43,6 +45,7 @@ class PollStatusWorker @AssistedInject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
+    private val mediaStoreDeleteLauncher: MediaStoreDeleteLauncher,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -318,7 +321,7 @@ class PollStatusWorker @AssistedInject constructor(
         return Result.success(output.build())
     }
 
-    private fun deleteDocument(uri: Uri): DeleteCompletionState {
+    private suspend fun deleteDocument(uri: Uri): DeleteCompletionState {
         if (uri.scheme == ContentResolver.SCHEME_FILE) {
             val path = uri.path ?: return DeleteCompletionState.UNKNOWN
             val deleted = runCatching { File(path).delete() }.getOrDefault(false)
@@ -335,7 +338,7 @@ class PollStatusWorker @AssistedInject constructor(
         return if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN
     }
 
-    private fun deleteMediaStoreDocument(uri: Uri): DeleteCompletionState {
+    private suspend fun deleteMediaStoreDocument(uri: Uri): DeleteCompletionState {
         val resolver = appContext.contentResolver
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
             val deleted = runCatching { resolver.delete(uri, null, null) > 0 }
@@ -343,7 +346,93 @@ class PollStatusWorker @AssistedInject constructor(
             return if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN
         }
 
-        return DeleteCompletionState.AWAITING_MANUAL_DELETE
+        val deleteResult = runCatching { resolver.delete(uri, null, null) }
+        val rowsDeleted = deleteResult.getOrElse { error ->
+            return handleRecoverableDelete(resolver, uri, error)
+        }
+
+        if (rowsDeleted > 0) {
+            return DeleteCompletionState.DELETED
+        }
+
+        if (!mediaStoreEntryExists(resolver, uri)) {
+            return DeleteCompletionState.DELETED
+        }
+
+        return requestDeleteWithUserConfirmation(resolver, uri)
+    }
+
+    private suspend fun handleRecoverableDelete(
+        resolver: ContentResolver,
+        uri: Uri,
+        error: Throwable,
+    ): DeleteCompletionState {
+        val recoverable = error as? RecoverableSecurityException
+            ?: return DeleteCompletionState.UNKNOWN
+        Timber.tag("WorkManager").i(
+            pollLogMessage(
+                action = "poll_delete_requires_confirmation",
+                uri = uri,
+                details = arrayOf(
+                    "reason" to (recoverable.message ?: recoverable::class.simpleName),
+                ),
+            ),
+        )
+        return requestDeleteWithUserConfirmation(resolver, uri)
+    }
+
+    private suspend fun requestDeleteWithUserConfirmation(
+        resolver: ContentResolver,
+        uri: Uri,
+    ): DeleteCompletionState {
+        val result = runCatching { mediaStoreDeleteLauncher.requestDelete(resolver, uri) }
+            .getOrElse { error ->
+                Timber.tag("WorkManager").w(
+                    error,
+                    pollLogMessage(
+                        action = "poll_delete_request_failed",
+                        uri = uri,
+                    ),
+                )
+                return DeleteCompletionState.UNKNOWN
+            }
+
+        return when (result) {
+            is MediaStoreDeleteResult.Success -> {
+                if (mediaStoreEntryExists(resolver, uri)) {
+                    DeleteCompletionState.UNKNOWN
+                } else {
+                    DeleteCompletionState.DELETED
+                }
+            }
+            is MediaStoreDeleteResult.Cancelled -> DeleteCompletionState.AWAITING_MANUAL_DELETE
+            is MediaStoreDeleteResult.Failure -> {
+                Timber.tag("WorkManager").w(
+                    result.throwable,
+                    pollLogMessage(
+                        action = "poll_delete_request_failure_result",
+                        uri = uri,
+                    ),
+                )
+                DeleteCompletionState.UNKNOWN
+            }
+        }
+    }
+
+    private fun mediaStoreEntryExists(resolver: ContentResolver, uri: Uri): Boolean {
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        return runCatching {
+            resolver.query(uri, projection, null, null, null)?.use(Cursor::moveToFirst) ?: false
+        }.getOrElse { error ->
+            Timber.tag("WorkManager").w(
+                error,
+                pollLogMessage(
+                    action = "poll_delete_query_failed",
+                    uri = uri,
+                ),
+            )
+            true
+        }
     }
 
     private suspend fun recordCompletionState(state: DeleteCompletionState, displayName: String) {
