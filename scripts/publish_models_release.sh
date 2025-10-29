@@ -89,4 +89,9 @@ if ! git commit -m "Update models.lock for models-v1 release"; then
   fatal "Не удалось создать коммит с обновлённым models.lock.json."
 fi
 
+log INFO "Отправляем коммит в удалённый репозиторий..."
+if ! git push; then
+  fatal "Не удалось выполнить git push. Проверьте права доступа и состояние удалённого репозитория."
+fi
+
 log INFO "Скрипт успешно завершён."
