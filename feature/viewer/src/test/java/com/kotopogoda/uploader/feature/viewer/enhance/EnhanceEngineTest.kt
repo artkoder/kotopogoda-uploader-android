@@ -34,8 +34,8 @@ class EnhanceEngineTest {
         val metrics = EnhanceEngine.MetricsCalculator.calculate(buffer)
         assertTrue(metrics.lMean in 0.4..0.7)
         assertTrue(metrics.pDark in 0.25..0.75)
-        assertTrue("sharpness must be positive", metrics.bSharpness > 0.1)
-        assertTrue("noise must be positive", metrics.nNoise > 0.05)
+        assertTrue("sharpness must stay high", metrics.bSharpness > 0.9)
+        assertTrue("noise must be within calibrated range", metrics.nNoise in 0.5..0.9)
     }
 
     @Test
@@ -46,26 +46,49 @@ class EnhanceEngineTest {
             bSharpness = 0.2,
             nNoise = 0.5,
         )
-        val zero = EnhanceEngine.ProfileCalculator.calculate(metrics, 0f)
-        assertTrue(zero.isLowLight)
-        assertEquals(0f, zero.kDce, 1e-6f)
-        assertEquals(0f, zero.restormerMix, 1e-6f)
-        assertEquals(0f, zero.alphaDetail, 1e-6f)
-        assertEquals(0f, zero.sharpenAmount, 1e-6f)
-        assertClose(2.95f, zero.sharpenRadius, 1e-3f)
-        assertClose(0.018f, zero.sharpenThreshold, 1e-3f)
-        assertEquals(0f, zero.vibranceGain, 1e-6f)
-        assertClose(0.91f, zero.saturationGain, 1e-3f)
-        val full = EnhanceEngine.ProfileCalculator.calculate(metrics, 1f)
-        assertTrue(full.isLowLight)
-        assertClose(0.743f, full.kDce, 1e-3f)
-        assertClose(0.5f, full.restormerMix, 1e-3f)
-        assertClose(0.25f, full.alphaDetail, 1e-3f)
-        assertClose(0.54f, full.sharpenAmount, 1e-3f)
-        assertClose(2.95f, full.sharpenRadius, 1e-3f)
-        assertClose(0.018f, full.sharpenThreshold, 1e-3f)
-        assertClose(0.371f, full.vibranceGain, 1e-3f)
-        assertClose(1.43f, full.saturationGain, 1e-3f)
+        data class Expectation(
+            val kDce: Float,
+            val restormerMix: Float,
+            val alphaDetail: Float,
+            val sharpenAmount: Float,
+            val sharpenRadius: Float,
+            val sharpenThreshold: Float,
+            val vibranceGain: Float,
+            val saturationGain: Float,
+        )
+
+        val points = listOf(
+            0f to Expectation(0.272222f, 0.2f, 0.09f, 0.2475f, 3.4f, 0.014f, 0.194196f, 0.89f),
+            0.25f to Expectation(0.398611f, 0.246875f, 0.111094f, 0.294766f, 3.4f, 0.014f, 0.264997f, 0.974375f),
+            0.5f to Expectation(0.525f, 0.35f, 0.1575f, 0.39875f, 3.4f, 0.014f, 0.420759f, 1.16f),
+            0.75f to Expectation(0.651389f, 0.453125f, 0.203906f, 0.502734f, 3.4f, 0.014f, 0.576521f, 1.345625f),
+            1f to Expectation(0.777778f, 0.5f, 0.225f, 0.55f, 3.4f, 0.014f, 0.647321f, 1.43f),
+        )
+
+        points.forEach { (strength, expected) ->
+            val profile = EnhanceEngine.ProfileCalculator.calculate(metrics, strength)
+            assertTrue("low light flag should stay true", profile.isLowLight)
+            assertClose(expected.kDce, profile.kDce, 1e-3f)
+            assertClose(expected.restormerMix, profile.restormerMix, 1e-3f)
+            assertClose(expected.alphaDetail, profile.alphaDetail, 1e-3f)
+            assertClose(expected.sharpenAmount, profile.sharpenAmount, 1e-3f)
+            assertClose(expected.sharpenRadius, profile.sharpenRadius, 1e-3f)
+            assertClose(expected.sharpenThreshold, profile.sharpenThreshold, 1e-3f)
+            assertClose(expected.vibranceGain, profile.vibranceGain, 1e-3f)
+            assertClose(expected.saturationGain, profile.saturationGain, 1e-3f)
+        }
+    }
+
+    @Test
+    fun `sharpen disabled for noisy low strength`() {
+        val metrics = EnhanceEngine.Metrics(
+            lMean = 0.45,
+            pDark = 0.2,
+            bSharpness = 0.4,
+            nNoise = 0.7,
+        )
+        val profile = EnhanceEngine.ProfileCalculator.calculate(metrics, 0.35f)
+        assertEquals(0f, profile.sharpenAmount, 1e-6f)
     }
 
     @Test

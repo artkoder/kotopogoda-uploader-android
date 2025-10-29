@@ -12,7 +12,6 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.exp
-import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -777,14 +776,16 @@ class EnhanceEngine(
                 }
             }
 
-            var gradientSum = 0.0
+            var laplacianSum = 0.0
+            var laplacianSqSum = 0.0
             var noiseSum = 0.0
             for (y in 0 until height) {
                 val base = y * width
                 for (x in 0 until width) {
                     val index = base + x
-                    val sobel = sobelAt(luminances, width, height, x, y)
-                    gradientSum += sobel
+                    val laplacian = laplacianAt(luminances, width, height, x, y)
+                    laplacianSum += laplacian
+                    laplacianSqSum += laplacian * laplacian
                     val blurred = gaussianBlurAt(luminances, width, height, x, y)
                     noiseSum += abs(luminances[index] - blurred)
                 }
@@ -793,8 +794,19 @@ class EnhanceEngine(
             val norm = total.toDouble()
             val lMean = luminanceSum / norm
             val pDark = darkCount / norm
-            val bSharpness = (gradientSum / norm / SOBEL_NORMALIZATION).coerceIn(0.0, 1.0)
-            val nNoise = (noiseSum / norm / NOISE_NORMALIZATION).coerceIn(0.0, 1.0)
+            val laplacianMean = laplacianSum / norm
+            val laplacianVariance = (laplacianSqSum / norm) - laplacianMean * laplacianMean
+            val bSharpness = if (laplacianVariance <= 0.0) {
+                0.0
+            } else {
+                (laplacianVariance / (laplacianVariance + LAPLACIAN_EPSILON)).coerceIn(0.0, 1.0)
+            }
+            val meanNoise = noiseSum / norm
+            val nNoise = if (meanNoise <= 0.0) {
+                0.0
+            } else {
+                (meanNoise / (meanNoise + NOISE_EPSILON)).coerceIn(0.0, 1.0)
+            }
             return Metrics(lMean, pDark, bSharpness, nNoise)
         }
     }
@@ -809,30 +821,31 @@ class EnhanceEngine(
             val sharpness = metrics.bSharpness.toFloat()
             val noise = metrics.nNoise.toFloat()
 
-            val lowLightByLuma = mapLow(lMean, 0.48f, 0.25f)
-            val lowLightByDark = mapLow(darkness, 0.62f, 0.28f)
-            val lowLightScore = clamp01(lowLightByLuma * 0.65f + lowLightByDark * 0.35f)
-            val isLowLight = lowLightScore > 0.1f
-            val kDce = clamp(lowLightScore * eased, 0f, 1f)
+            val lowLightByLuma = mapLow(lMean, 0.53f, 0.27f)
+            val lowLightByDark = mapLow(darkness, 0.6f, 0.3f)
+            val lowLightScore = clamp01(lowLightByLuma * 0.6f + lowLightByDark * 0.4f)
+            val isLowLight = lowLightScore >= 0.2f
+            val kDce = clamp(lowLightScore * (0.35f + 0.65f * t), 0f, 1f)
 
-            val restormerMix = clamp(noise * eased, 0f, 1f)
+            val restormerMix = clamp(noise * (0.4f + 0.6f * eased), 0f, 1f)
 
-            val detailDeficit = mapLow(sharpness, 0.58f, 0.33f)
-            val alphaDetail = clamp(restormerMix * detailDeficit * clamp(1f - noise, 0f, 1f), 0f, 1f)
+            val detailDemand = mapLow(sharpness, 0.6f, 0.3f)
+            val alphaDetail = clamp(restormerMix * detailDemand * clamp(1f - noise * 1.1f, 0f, 1f), 0f, 1f)
 
-            var sharpenAmount = clamp(0.18f + 0.52f * detailDeficit - 0.32f * noise, 0f, 0.7f) * eased
-            val sharpenRadius = clamp(1.15f + 1.8f * mapLow(sharpness, 0.44f, 0.22f), 0.8f, 3.2f)
-            val sharpenThreshold = clamp(0.018f + 0.16f * mapLow(noise, 0.3f, 0.3f), 0.012f, 0.1f)
+            val detailBoost = mapLow(sharpness, 0.55f, 0.25f)
+            var sharpenAmount = clamp(0.16f + 0.58f * detailBoost - 0.38f * noise, 0f, 0.75f) * (0.45f + 0.55f * eased)
+            val sharpenRadius = clamp(1.0f + 2.6f * mapLow(sharpness, 0.46f, 0.2f), 0.75f, 3.4f)
+            val sharpenThreshold = clamp(0.014f + 0.18f * mapLow(noise, 0.28f, 0.3f), 0.01f, 0.12f)
             if (noise > 0.6f && t < 0.4f) {
                 sharpenAmount = 0f
             }
 
-            val vibranceBase = mapLow(lMean, 0.52f, 0.27f)
-            val vibranceGain = clamp(vibranceBase * (1f - 0.6f * noise) * eased * 0.65f, 0f, 1f)
+            val vibranceBase = mapLow(lMean, 0.55f, 0.28f)
+            val vibranceGain = clamp(vibranceBase * (0.3f + 0.7f * eased) * (1f - 0.55f * noise), 0f, 1.1f)
 
-            val saturationBase = mapLow(lMean, 0.6f, 0.35f)
-            val saturationGain = clamp(1f + (0.22f + 0.35f * saturationBase) * eased - 0.18f * noise, 0.85f, 1.5f)
-
+            val saturationBase = mapLow(lMean, 0.63f, 0.32f)
+            val saturationGain = clamp(1f + (0.2f + 0.34f * saturationBase) * eased - 0.22f * noise, 0.85f, 1.55f)
+            
             return Profile(
                 isLowLight = isLowLight,
                 kDce = kDce,
@@ -885,8 +898,8 @@ class EnhanceEngine(
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
         private const val OUTPUT_JPEG_QUALITY = 92
         private const val DARK_LUMINANCE_THRESHOLD = 0.22
-        private const val SOBEL_NORMALIZATION = 4.5
-        private const val NOISE_NORMALIZATION = 0.12
+        private const val LAPLACIAN_EPSILON = 0.02
+        private const val NOISE_EPSILON = 0.12
 
         private val EXIF_TAGS = arrayOf(
             ExifInterface.TAG_DATETIME,
@@ -1007,22 +1020,18 @@ internal fun hannWeight(position: Int, size: Int, overlap: Int): Float {
     return clamp01(window.toFloat())
 }
 
-private fun sobelAt(luma: DoubleArray, width: Int, height: Int, x: Int, y: Int): Double {
-    var gx = 0.0
-    var gy = 0.0
-    for (ky in -1..1) {
-        val cy = clamp(y + ky, 0, height - 1)
-        val base = cy * width
-        for (kx in -1..1) {
-            val cx = clamp(x + kx, 0, width - 1)
-            val weightX = SOBEL_X[ky + 1][kx + 1]
-            val weightY = SOBEL_Y[ky + 1][kx + 1]
-            val value = luma[base + cx]
-            gx += weightX * value
-            gy += weightY * value
-        }
-    }
-    return hypot(gx, gy)
+private fun laplacianAt(luma: DoubleArray, width: Int, height: Int, x: Int, y: Int): Double {
+    val centerIndex = y * width + x
+    val center = luma[centerIndex]
+    var sum = -4.0 * center
+
+    val left = if (x > 0) luma[centerIndex - 1] else center
+    val right = if (x < width - 1) luma[centerIndex + 1] else center
+    val up = if (y > 0) luma[centerIndex - width] else center
+    val down = if (y < height - 1) luma[centerIndex + width] else center
+
+    sum += left + right + up + down
+    return sum
 }
 
 private fun gaussianBlurAt(luma: DoubleArray, width: Int, height: Int, x: Int, y: Int): Double {
@@ -1040,18 +1049,6 @@ private fun gaussianBlurAt(luma: DoubleArray, width: Int, height: Int, x: Int, y
     }
     return if (weightAcc == 0.0) 0.0 else acc / weightAcc
 }
-
-private val SOBEL_X = arrayOf(
-    doubleArrayOf(-1.0, 0.0, 1.0),
-    doubleArrayOf(-2.0, 0.0, 2.0),
-    doubleArrayOf(-1.0, 0.0, 1.0),
-)
-
-private val SOBEL_Y = arrayOf(
-    doubleArrayOf(-1.0, -2.0, -1.0),
-    doubleArrayOf(0.0, 0.0, 0.0),
-    doubleArrayOf(1.0, 2.0, 1.0),
-)
 
 private val GAUSSIAN_KERNEL = arrayOf(
     doubleArrayOf(1.0, 2.0, 1.0),
