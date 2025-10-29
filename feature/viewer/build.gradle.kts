@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val modelsLockLiteral: String by rootProject.extra
+
 android {
     namespace = "com.kotopogoda.uploader.feature.viewer"
     compileSdk = 35
@@ -13,6 +15,7 @@ android {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+        buildConfigField("String", "MODELS_LOCK_JSON", modelsLockLiteral)
     }
 
     compileOptions {
@@ -26,6 +29,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

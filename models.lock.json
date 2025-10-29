@@ -1,0 +1,33 @@
+{
+  "repository": "kotopogoda/kotopogoda-uploader-android",
+  "models": {
+    "zerodcepp_fp16": {
+      "release": "models-v1",
+      "asset": "zerodcepp_fp16_v1.zip",
+      "sha256": null,
+      "backend": "tflite",
+      "min_mb": 3.0,
+      "files": [
+        {
+          "path": "models/zerodcepp_fp16.tflite",
+          "sha256": "f63a1e3ce3e09d771f45a8df00ab32a76a003de9f4538ecf9cac439cfa71436d",
+          "min_mb": 3.0
+        }
+      ]
+    },
+    "restormer_fp16": {
+      "release": "models-v1",
+      "asset": "restormer_fp16_v1.zip",
+      "sha256": null,
+      "backend": "tflite",
+      "min_mb": 48.0,
+      "files": [
+        {
+          "path": "models/restormer_fp16.tflite",
+          "sha256": "24a35adfa525ecd99a8052042581b301e4ecc9853fe6585589c79688899578e3",
+          "min_mb": 48.0
+        }
+      ]
+    }
+  }
+}

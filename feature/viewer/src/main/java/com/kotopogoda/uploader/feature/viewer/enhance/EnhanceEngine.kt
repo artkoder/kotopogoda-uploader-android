@@ -38,6 +38,11 @@ class EnhanceEngine(
         GPU,
     }
 
+    enum class ModelBackend {
+        TFLITE,
+        NCNN,
+    }
+
     data class Request(
         val source: File,
         val strength: Float,
@@ -57,6 +62,7 @@ class EnhanceEngine(
         val delegate: Delegate,
         val pipeline: Pipeline,
         val timings: Timings,
+        val models: ModelsTelemetry,
     )
 
     data class Pipeline(
@@ -89,11 +95,33 @@ class EnhanceEngine(
         val delegate: Delegate,
     )
 
+    data class ModelUsage(
+        val backend: ModelBackend,
+        val checksum: String,
+    )
+
+    data class ModelsTelemetry(
+        val zeroDce: ModelUsage?,
+        val restormer: ModelUsage?,
+    )
+
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
         val strength = request.strength.coerceIn(0f, 1f)
 
-        zeroDce?.let { Timber.tag(LOG_TAG).i("ZeroDCE model checksum: %s", it.checksum) }
-        restormer?.let { Timber.tag(LOG_TAG).i("Restormer model checksum: %s", it.checksum) }
+        zeroDce?.let {
+            Timber.tag(LOG_TAG).i(
+                "ZeroDCE model backend=%s checksum=%s",
+                it.backend,
+                it.checksum,
+            )
+        }
+        restormer?.let {
+            Timber.tag(LOG_TAG).i(
+                "Restormer model backend=%s checksum=%s",
+                it.backend,
+                it.checksum,
+            )
+        }
 
         lateinit var buffer: ImageBuffer
         lateinit var metrics: Metrics
@@ -198,6 +226,11 @@ class EnhanceEngine(
             total = totalDuration,
         )
 
+        val models = ModelsTelemetry(
+            zeroDce = zeroDce?.let { ModelUsage(it.backend, it.checksum) },
+            restormer = restormer?.let { ModelUsage(it.backend, it.checksum) },
+        )
+
         Result(
             file = output,
             metrics = metrics,
@@ -205,6 +238,7 @@ class EnhanceEngine(
             delegate = actualDelegate,
             pipeline = pipeline,
             timings = timings,
+            models = models,
         )
     }
 
@@ -594,11 +628,13 @@ class EnhanceEngine(
     }
 
     interface ZeroDceModel {
+        val backend: ModelBackend
         val checksum: String
         suspend fun enhance(buffer: ImageBuffer, delegate: Delegate, iterations: Int): ModelResult
     }
 
     interface RestormerModel {
+        val backend: ModelBackend
         val checksum: String
         suspend fun denoise(tile: ImageBuffer, delegate: Delegate): ModelResult
     }

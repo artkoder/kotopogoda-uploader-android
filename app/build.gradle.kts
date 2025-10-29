@@ -9,6 +9,8 @@ import org.gradle.api.Action
 import org.gradle.api.GradleException
 import org.gradle.api.execution.TaskExecutionGraph
 
+val modelsLockLiteral: String by rootProject.extra
+
 android {
     namespace = "com.kotopogoda.uploader"
     compileSdk = 35
@@ -31,6 +33,7 @@ android {
         }
 
         buildConfigField("String", "API_BASE_URL", "\"$prodApiBaseUrl\"")
+        buildConfigField("String", "MODELS_LOCK_JSON", modelsLockLiteral)
     }
 
     signingConfigs {
