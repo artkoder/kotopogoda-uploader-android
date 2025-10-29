@@ -1,0 +1,64 @@
+name: Prepare models
+
+on:
+  workflow_dispatch:
+    inputs:
+      zero_dce_backend:
+        description: "Предпочитаемый backend для Zero-DCE++ (auto/tflite/ncnn)"
+        default: auto
+        required: false
+      restormer_backend:
+        description: "Предпочитаемый backend для Restormer (auto/tflite/ncnn)"
+        default: auto
+        required: false
+      zero_dce_tflite_url:
+        description: "URL TFLite модели Zero-DCE++"
+        required: false
+      zero_dce_ncnn_param_url:
+        description: "URL NCNN param Zero-DCE++"
+        required: false
+      zero_dce_ncnn_bin_url:
+        description: "URL NCNN bin Zero-DCE++"
+        required: false
+      restormer_tflite_url:
+        description: "URL TFLite модели Restormer"
+        required: false
+      restormer_ncnn_param_url:
+        description: "URL NCNN param Restormer"
+        required: false
+      restormer_ncnn_bin_url:
+        description: "URL NCNN bin Restormer"
+        required: false
+      zero_dce_version:
+        description: "Версия архива Zero-DCE++"
+        required: false
+        default: v1
+      restormer_version:
+        description: "Версия архива Restormer"
+        required: false
+        default: v1
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ZERO_DCE_BACKEND: ${{ inputs.zero_dce_backend }}
+      RESTORMER_BACKEND: ${{ inputs.restormer_backend }}
+      ZERO_DCE_TFLITE_URL: ${{ inputs.zero_dce_tflite_url }}
+      ZERO_DCE_NCNN_PARAM_URL: ${{ inputs.zero_dce_ncnn_param_url }}
+      ZERO_DCE_NCNN_BIN_URL: ${{ inputs.zero_dce_ncnn_bin_url }}
+      RESTORMER_TFLITE_URL: ${{ inputs.restormer_tflite_url }}
+      RESTORMER_NCNN_PARAM_URL: ${{ inputs.restormer_ncnn_param_url }}
+      RESTORMER_NCNN_BIN_URL: ${{ inputs.restormer_ncnn_bin_url }}
+      ZERO_DCE_VERSION: ${{ inputs.zero_dce_version }}
+      RESTORMER_VERSION: ${{ inputs.restormer_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Prepare model artifacts
+        run: scripts/prepare_models.sh
