@@ -8,26 +8,48 @@ import org.junit.Test
 class MediaPermissionGateTest {
 
     @Test
-    fun `returns read media images for API 33 and above`() {
+    fun `returns read media images with access location for API 33 and above`() {
         assertEquals(
-            Manifest.permission.READ_MEDIA_IMAGES,
-            mediaReadPermissionFor(Build.VERSION_CODES.TIRAMISU)
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
+            ),
+            mediaPermissionsFor(Build.VERSION_CODES.TIRAMISU)
         )
         assertEquals(
-            Manifest.permission.READ_MEDIA_IMAGES,
-            mediaReadPermissionFor(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
+            ),
+            mediaPermissionsFor(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
         )
     }
 
     @Test
-    fun `returns read external storage for API 32 and below`() {
+    fun `returns read external storage with access location for API 29-32`() {
         assertEquals(
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            mediaReadPermissionFor(Build.VERSION_CODES.S_V2)
+            listOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
+            ),
+            mediaPermissionsFor(Build.VERSION_CODES.S_V2)
         )
         assertEquals(
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            mediaReadPermissionFor(Build.VERSION_CODES.P)
+            listOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
+            ),
+            mediaPermissionsFor(Build.VERSION_CODES.Q)
+        )
+    }
+
+    @Test
+    fun `returns read external storage for API 28 and below`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ),
+            mediaPermissionsFor(Build.VERSION_CODES.P)
         )
     }
 }
