@@ -21,19 +21,28 @@ def pip_install(requirement: str) -> None:
     """Устанавливает указанный Python-пакет через pip."""
 
     log(f"Устанавливаем пакет {requirement}")
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            "--disable-pip-version-check",
-            requirement,
-        ],
-        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", requirement],
-        check=True,
-    )
+    upgrade_cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "--disable-pip-version-check",
+        requirement,
+    ]
+    base_cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        requirement,
+    ]
+    try:
+        subprocess.run(upgrade_cmd, check=True)
+    except subprocess.CalledProcessError:
+        log("Повторная попытка установки без --upgrade")
+        subprocess.run(base_cmd, check=True)
 
 
 def ensure_ml_dtypes_float4() -> None:
