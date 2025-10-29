@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.IntentSender
 import android.net.Uri
 import android.os.Build
+import android.os.Debug
+import android.os.SystemClock
 import android.media.ExifInterface
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -74,7 +76,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.collections.ArrayDeque
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlin.system.measureTimeMillis
 import timber.log.Timber
 
@@ -1706,6 +1710,12 @@ class ViewerViewModel @Inject constructor(
                 val tileSize = DEFAULT_ENHANCE_TILE_SIZE
                 val tileOverlap = DEFAULT_ENHANCE_TILE_OVERLAP
                 val totalTiles = computeTileCount(analysis.width, analysis.height, tileSize, tileOverlap)
+                val progressSamples = FloatArray(max(1, totalTiles)) { 0f }
+                val startElapsed = SystemClock.elapsedRealtime()
+                var lastEmitElapsed = startElapsed
+                var lastEmitProgress = 0f
+                var latestResult: EnhancementResult? = null
+                val predictedProfile = EnhanceEngine.ProfileCalculator.calculate(metrics, normalized)
                 if (totalTiles > 0) {
                     _enhancementState.update { state ->
                         state.copy(progressByTile = (0 until totalTiles).associateWith { 0f })
@@ -1722,6 +1732,64 @@ class ViewerViewModel @Inject constructor(
                     "tile_size" to tileSize,
                     "tile_overlap" to tileOverlap,
                 )
+                suspend fun emitEnhancementMetrics(force: Boolean = false) {
+                    val now = SystemClock.elapsedRealtime()
+                    val progress = if (totalTiles <= 0) {
+                        if (latestResult != null) 1f else 0f
+                    } else {
+                        var sum = 0f
+                        val limit = min(totalTiles, progressSamples.size)
+                        for (i in 0 until limit) {
+                            sum += progressSamples[i].coerceIn(0f, 1f)
+                        }
+                        if (limit == 0) 0f else (sum / limit)
+                    }.coerceIn(0f, 1f)
+                    if (!force) {
+                        val elapsedSinceLast = now - lastEmitElapsed
+                        val progressDelta = progress - lastEmitProgress
+                        if (elapsedSinceLast < ENHANCE_METRICS_INTERVAL_MS && progressDelta < ENHANCE_METRICS_PROGRESS_DELTA) {
+                            return
+                        }
+                    }
+                    lastEmitElapsed = now
+                    lastEmitProgress = progress
+                    val elapsed = now - startElapsed
+                    val eta = if (progress >= ENHANCE_METRICS_PROGRESS_DELTA && progress < 0.999f) {
+                        ((elapsed / progress) * (1f - progress)).roundToLong()
+                    } else {
+                        null
+                    }
+                    val (ramMb, vramMb) = collectMemoryTelemetry()
+                    val queueStats = uploadQueueRepository.getQueueStats()
+                    val queueLength = queueStats.queued + queueStats.processing
+                    val currentResult = latestResult
+                    val pipeline = currentResult?.pipeline ?: EnhanceEngine.Pipeline(
+                        tileSize = tileSize,
+                        overlap = tileOverlap,
+                        tileCount = totalTiles,
+                    )
+                    val delegate = currentResult?.delegate ?: delegatePlan.delegateType
+                    val engineDelegate = currentResult?.engineDelegate ?: delegatePlan.engineDelegate
+                    val models = currentResult?.models
+                    val profile = currentResult?.profile ?: predictedProfile
+                    val metricsForLog = currentResult?.metrics ?: metrics
+                    logEnhancementMetrics(
+                        photo = photo,
+                        delegate = delegate,
+                        engineDelegate = engineDelegate,
+                        pipeline = pipeline,
+                        metrics = metricsForLog,
+                        profile = profile,
+                        models = models,
+                        progress = progress,
+                        elapsedMs = elapsed,
+                        etaMs = eta,
+                        ramMb = ramMb,
+                        vramMb = vramMb,
+                        queueLength = queueLength,
+                    )
+                }
+                viewModelScope.launch { emitEnhancementMetrics(force = true) }
                 val progressCallback: (Int, Int, Float) -> Unit = { index, _, progress ->
                     viewModelScope.launch {
                         _enhancementState.update { state ->
@@ -1729,6 +1797,10 @@ class ViewerViewModel @Inject constructor(
                             updated[index] = progress
                             state.copy(progressByTile = updated)
                         }
+                        if (index in progressSamples.indices) {
+                            progressSamples[index] = progress.coerceIn(0f, 1f)
+                        }
+                        emitEnhancementMetrics()
                     }
                 }
                 var fallbackReason: String? = null
@@ -1784,6 +1856,7 @@ class ViewerViewModel @Inject constructor(
                     runFallbackEnhancement(workspace, metrics)
                 }
                 producedResult = result
+                latestResult = result
                 val matchesCurrentPhoto = currentPhoto.value?.id == photo.id
                 _enhancementState.update { state ->
                     state.copy(
@@ -1797,7 +1870,7 @@ class ViewerViewModel @Inject constructor(
                     )
                 }
                 logEnhancementDecision(photo, normalized, delegatePlan, analysis, result)
-                logEnhancementMetrics(photo, result)
+                emitEnhancementMetrics(force = true)
                 logEnhancementResult(photo, result, normalized)
                 if (result.delegate == EnhancementDelegateType.FALLBACK) {
                     logEnhancement(
@@ -1977,13 +2050,38 @@ class ViewerViewModel @Inject constructor(
 
     private fun EnhancementResult.zeroDceSha(): String = models.zeroDce?.checksum ?: "none"
 
-    private fun EnhancementResult.restormerSha(): String = models.restormer?.checksum ?: "none"
+    private fun zeroDceBackend(models: EnhanceEngine.ModelsTelemetry?): String =
+        models?.zeroDce?.backend?.name?.lowercase() ?: "none"
 
-    private fun EnhancementResult.tileUsed(): Boolean = pipeline.tileUsed
+    private fun restormerBackend(models: EnhanceEngine.ModelsTelemetry?): String =
+        models?.restormer?.backend?.name?.lowercase() ?: "none"
+
+    private fun zeroDceSha(models: EnhanceEngine.ModelsTelemetry?): String =
+        models?.zeroDce?.checksum ?: "none"
+
+    private fun restormerSha(models: EnhanceEngine.ModelsTelemetry?): String =
+        models?.restormer?.checksum ?: "none"
+
+    private fun zeroDceShaOk(models: EnhanceEngine.ModelsTelemetry?): Boolean? =
+        models?.zeroDce?.checksumOk
+
+    private fun restormerShaOk(models: EnhanceEngine.ModelsTelemetry?): Boolean? =
+        models?.restormer?.checksumOk
+
+    private fun collectMemoryTelemetry(): Pair<Double, Double?> {
+        val runtime = Runtime.getRuntime()
+        val usedMb = (runtime.totalMemory() - runtime.freeMemory()).toDouble() / BYTES_IN_MB
+        val memoryInfo = Debug.MemoryInfo()
+        Debug.getMemoryInfo(memoryInfo)
+        val graphicsKb = memoryInfo.memoryStats["summary.graphics"]?.toLongOrNull()
+        val graphicsMb = graphicsKb?.div(1024.0)
+        return usedMb to graphicsMb
+    }
 
     private fun Double.format3(): String = String.format(Locale.US, "%.3f", this)
     private fun Float.format3(): String = String.format(Locale.US, "%.3f", this)
     private fun Float.format2(): String = String.format(Locale.US, "%.2f", this)
+    private fun Double.format1(): String = String.format(Locale.US, "%.1f", this)
 
     private fun logEnhancement(action: String, photo: PhotoItem, vararg details: Pair<String, Any?>) {
         Timber.tag(ENHANCE_TAG).i(
@@ -2015,11 +2113,13 @@ class ViewerViewModel @Inject constructor(
             "delegate_actual" to result.delegate.name.lowercase(),
             "engine_delegate_plan" to plan.engineDelegate.name.lowercase(),
             "engine_delegate_actual" to engineDelegateActual,
-            "zero_dce_backend" to result.zeroDceBackend(),
-            "zero_dce_sha256" to result.zeroDceSha(),
-            "restormer_backend" to result.restormerBackend(),
-            "restormer_sha256" to result.restormerSha(),
-            "tile_used" to result.tileUsed(),
+            "zero_dce_backend" to zeroDceBackend(result.models),
+            "zero_dce_sha256" to zeroDceSha(result.models),
+            "sha256_ok_zero_dce" to zeroDceShaOk(result.models),
+            "restormer_backend" to restormerBackend(result.models),
+            "restormer_sha256" to restormerSha(result.models),
+            "sha256_ok_restormer" to restormerShaOk(result.models),
+            "tile_used" to result.pipeline.tileUsed,
             "k_dce" to result.profile.kDce.format3(),
             "alpha_detail" to result.profile.alphaDetail.format3(),
             "restormer_mix" to result.profile.restormerMix.format3(),
@@ -2030,6 +2130,9 @@ class ViewerViewModel @Inject constructor(
             "saturation_gain" to result.profile.saturationGain.format3(),
             "tile_size" to result.pipeline.tileSize,
             "tile_overlap" to result.pipeline.overlap,
+            "tile_size_actual" to result.pipeline.tileSizeActual,
+            "tile_overlap_actual" to result.pipeline.overlapActual,
+            "mixing_window" to result.pipeline.mixingWindow,
             "tile_count" to result.pipeline.tileCount,
             "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
             "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
@@ -2040,6 +2143,8 @@ class ViewerViewModel @Inject constructor(
             "zero_dce_iterations" to result.pipeline.zeroDceIterations,
             "zero_dce_applied" to result.pipeline.zeroDceApplied,
             "restormer_applied" to result.pipeline.restormerApplied,
+            "zero_dce_delegate_fallback" to result.pipeline.zeroDceDelegateFallback,
+            "restormer_delegate_fallback" to result.pipeline.restormerDelegateFallback,
             "has_seam_fix" to result.pipeline.hasSeamFix,
             "metrics_l_mean" to analysis.metrics.lMean.format3(),
             "metrics_p_dark" to analysis.metrics.pDark.format3(),
@@ -2048,37 +2153,71 @@ class ViewerViewModel @Inject constructor(
         )
     }
 
-    private fun logEnhancementMetrics(photo: PhotoItem, result: EnhancementResult) {
-        val pipelineStages = result.pipeline.stages.joinToString(separator = "+").ifEmpty { "none" }
-        val engineDelegateActual = result.engineDelegate?.name?.lowercase() ?: "none"
+    private fun logEnhancementMetrics(
+        photo: PhotoItem,
+        delegate: EnhancementDelegateType,
+        engineDelegate: EnhanceEngine.Delegate?,
+        pipeline: EnhanceEngine.Pipeline,
+        metrics: EnhanceEngine.Metrics,
+        profile: EnhanceEngine.Profile,
+        models: EnhanceEngine.ModelsTelemetry?,
+        progress: Float,
+        elapsedMs: Long,
+        etaMs: Long?,
+        ramMb: Double,
+        vramMb: Double?,
+        queueLength: Int,
+    ) {
+        val pipelineStages = pipeline.stages.joinToString(separator = "+").ifEmpty { "none" }
+        val engineDelegateActual = engineDelegate?.name?.lowercase() ?: "none"
         logEnhancement(
             action = "enhance_metrics",
             photo = photo,
             "pipeline" to pipelineStages,
-            "delegate" to result.delegate.name.lowercase(),
-            "delegate_actual" to result.delegate.name.lowercase(),
+            "delegate" to delegate.name.lowercase(),
+            "delegate_actual" to delegate.name.lowercase(),
             "engine_delegate" to engineDelegateActual,
-            "zero_dce_backend" to result.zeroDceBackend(),
-            "zero_dce_sha256" to result.zeroDceSha(),
-            "restormer_backend" to result.restormerBackend(),
-            "restormer_sha256" to result.restormerSha(),
-            "tile_used" to result.tileUsed(),
-            "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
-            "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
-            "seam_area" to result.pipeline.seamArea,
-            "seam_zero_area" to result.pipeline.seamZeroArea,
-            "seam_min_weight" to result.pipeline.seamMinWeight.format3(),
-            "seam_max_weight" to result.pipeline.seamMaxWeight.format3(),
-            "l_mean" to result.metrics.lMean.format3(),
-            "p_dark" to result.metrics.pDark.format3(),
-            "b_sharpness" to result.metrics.bSharpness.format3(),
-            "n_noise" to result.metrics.nNoise.format3(),
-            "k_dce" to result.profile.kDce.format3(),
-            "alpha_detail" to result.profile.alphaDetail.format3(),
-            "restormer_mix" to result.profile.restormerMix.format3(),
-            "sharpen_amount" to result.profile.sharpenAmount.format3(),
-            "vibrance_gain" to result.profile.vibranceGain.format3(),
-            "saturation_gain" to result.profile.saturationGain.format3(),
+            "zero_dce_backend" to zeroDceBackend(models),
+            "zero_dce_sha256" to zeroDceSha(models),
+            "sha256_ok_zero_dce" to zeroDceShaOk(models),
+            "restormer_backend" to restormerBackend(models),
+            "restormer_sha256" to restormerSha(models),
+            "sha256_ok_restormer" to restormerShaOk(models),
+            "tile_used" to pipeline.tileUsed,
+            "seam_max_delta" to pipeline.seamMaxDelta.format3(),
+            "seam_mean_delta" to pipeline.seamMeanDelta.format3(),
+            "seam_area" to pipeline.seamArea,
+            "seam_zero_area" to pipeline.seamZeroArea,
+            "seam_min_weight" to pipeline.seamMinWeight.format3(),
+            "seam_max_weight" to pipeline.seamMaxWeight.format3(),
+            "mixing_window" to pipeline.mixingWindow,
+            "tile_size" to pipeline.tileSize,
+            "tile_overlap" to pipeline.overlap,
+            "tile_size_actual" to pipeline.tileSizeActual,
+            "tile_overlap_actual" to pipeline.overlapActual,
+            "tile_count" to pipeline.tileCount,
+            "zero_dce_iterations" to pipeline.zeroDceIterations,
+            "zero_dce_applied" to pipeline.zeroDceApplied,
+            "restormer_applied" to pipeline.restormerApplied,
+            "zero_dce_delegate_fallback" to pipeline.zeroDceDelegateFallback,
+            "restormer_delegate_fallback" to pipeline.restormerDelegateFallback,
+            "has_seam_fix" to pipeline.hasSeamFix,
+            "l_mean" to metrics.lMean.format3(),
+            "p_dark" to metrics.pDark.format3(),
+            "b_sharpness" to metrics.bSharpness.format3(),
+            "n_noise" to metrics.nNoise.format3(),
+            "k_dce" to profile.kDce.format3(),
+            "alpha_detail" to profile.alphaDetail.format3(),
+            "restormer_mix" to profile.restormerMix.format3(),
+            "sharpen_amount" to profile.sharpenAmount.format3(),
+            "vibrance_gain" to profile.vibranceGain.format3(),
+            "saturation_gain" to profile.saturationGain.format3(),
+            "progress" to progress.format3(),
+            "elapsed_ms" to elapsedMs,
+            "eta_ms" to (etaMs ?: -1L),
+            "ram_mb" to ramMb.format1(),
+            "vram_mb" to vramMb?.format1(),
+            "queue_len" to queueLength,
         )
     }
 
@@ -2099,11 +2238,13 @@ class ViewerViewModel @Inject constructor(
             "engine_delegate" to engineDelegateActual,
             "strength" to normalizedStrength.format2(),
             "file_size" to result.file.length(),
-            "zero_dce_backend" to result.zeroDceBackend(),
-            "zero_dce_sha256" to result.zeroDceSha(),
-            "restormer_backend" to result.restormerBackend(),
-            "restormer_sha256" to result.restormerSha(),
-            "tile_used" to result.tileUsed(),
+            "zero_dce_backend" to zeroDceBackend(result.models),
+            "zero_dce_sha256" to zeroDceSha(result.models),
+            "sha256_ok_zero_dce" to zeroDceShaOk(result.models),
+            "restormer_backend" to restormerBackend(result.models),
+            "restormer_sha256" to restormerSha(result.models),
+            "sha256_ok_restormer" to restormerShaOk(result.models),
+            "tile_used" to result.pipeline.tileUsed,
             "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
             "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
             "seam_area" to result.pipeline.seamArea,
@@ -2122,10 +2263,15 @@ class ViewerViewModel @Inject constructor(
             "duration_exif_ms" to timings.exif,
             "tile_size" to result.pipeline.tileSize,
             "tile_overlap" to result.pipeline.overlap,
+            "tile_size_actual" to result.pipeline.tileSizeActual,
+            "tile_overlap_actual" to result.pipeline.overlapActual,
+            "mixing_window" to result.pipeline.mixingWindow,
             "tile_count" to result.pipeline.tileCount,
             "zero_dce_iterations" to result.pipeline.zeroDceIterations,
             "zero_dce_applied" to result.pipeline.zeroDceApplied,
             "restormer_applied" to result.pipeline.restormerApplied,
+            "zero_dce_delegate_fallback" to result.pipeline.zeroDceDelegateFallback,
+            "restormer_delegate_fallback" to result.pipeline.restormerDelegateFallback,
             "has_seam_fix" to result.pipeline.hasSeamFix,
         )
     }
@@ -2358,6 +2504,9 @@ class ViewerViewModel @Inject constructor(
         private const val ENHANCE_CATEGORY = "ENHANCE"
         private const val DEFAULT_ENHANCE_TILE_SIZE = 512
         private const val DEFAULT_ENHANCE_TILE_OVERLAP = 64
+        private const val ENHANCE_METRICS_INTERVAL_MS = 1_000L
+        private const val ENHANCE_METRICS_PROGRESS_DELTA = 0.01f
+        private const val BYTES_IN_MB = 1024.0 * 1024.0
         private val FALLBACK_PROFILE = EnhanceEngine.Profile(
             isLowLight = false,
             kDce = 0f,
