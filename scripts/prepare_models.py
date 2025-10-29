@@ -16,6 +16,36 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+
+def pip_install(requirement: str) -> None:
+    """Устанавливает указанный Python-пакет через pip."""
+
+    log(f"Устанавливаем пакет {requirement}")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", requirement],
+        check=True,
+    )
+
+
+def ensure_ml_dtypes_float4() -> None:
+    """Гарантирует наличие поддержки float4_e2m1fn в ml_dtypes."""
+
+    try:
+        import importlib
+        import ml_dtypes  # type: ignore
+    except ImportError:
+        pip_install("ml-dtypes>=0.3.2")
+        import importlib
+        ml_dtypes = importlib.import_module("ml_dtypes")  # type: ignore
+    else:
+        if hasattr(ml_dtypes, "float4_e2m1fn"):
+            return
+        pip_install("ml-dtypes>=0.3.2")
+        ml_dtypes = importlib.reload(ml_dtypes)  # type: ignore
+
+    if not hasattr(ml_dtypes, "float4_e2m1fn"):
+        raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = ROOT_DIR / ".work" / "models"
 MODEL_SOURCES_FILE = ROOT_DIR / "scripts" / "model_sources.lock.json"
@@ -139,6 +169,7 @@ def ensure_python_modules(modules: List[str]) -> None:
 
 
 def convert_zero_dce(model_cfg: dict, sources: Dict[str, Path], convert_dir: Path) -> Tuple[str, List[Dict[str, Path]]]:
+    ensure_ml_dtypes_float4()
     ensure_python_modules(["torch", "onnx", "onnx_tf", "tensorflow"])
     import importlib.util
     import torch
@@ -214,6 +245,7 @@ def convert_zero_dce(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pat
 
 
 def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Path) -> Tuple[str, List[Dict[str, Path]]]:
+    ensure_ml_dtypes_float4()
     ensure_python_modules(["torch", "onnx", "onnx_tf", "tensorflow", "einops"])
     import torch
     from onnx_tf.backend import prepare
