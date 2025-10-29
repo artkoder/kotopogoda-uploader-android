@@ -1740,6 +1740,7 @@ class ViewerViewModel @Inject constructor(
                             engineDelegate = engineResult.delegate,
                             pipeline = engineResult.pipeline,
                             timings = engineResult.timings,
+                            models = engineResult.models,
                         )
                     } else {
                         fallbackReason = "precondition"
@@ -1923,6 +1924,7 @@ class ViewerViewModel @Inject constructor(
                 hasSeamFix = false,
             ),
             timings = EnhanceEngine.Timings(),
+            models = EnhanceEngine.ModelsTelemetry(null, null),
         )
     }
 
@@ -1939,6 +1941,16 @@ class ViewerViewModel @Inject constructor(
         runCatching { if (source.exists()) source.delete() }
         runCatching { if (output.exists()) output.delete() }
     }
+
+    private fun EnhancementResult.zeroDceBackend(): String = models.zeroDce?.backend?.name?.lowercase() ?: "none"
+
+    private fun EnhancementResult.restormerBackend(): String = models.restormer?.backend?.name?.lowercase() ?: "none"
+
+    private fun EnhancementResult.zeroDceSha(): String = models.zeroDce?.checksum ?: "none"
+
+    private fun EnhancementResult.restormerSha(): String = models.restormer?.checksum ?: "none"
+
+    private fun EnhancementResult.tileUsed(): Boolean = pipeline.tileCount > 0 && pipeline.restormerApplied
 
     private fun Double.format3(): String = String.format(Locale.US, "%.3f", this)
     private fun Float.format3(): String = String.format(Locale.US, "%.3f", this)
@@ -1974,6 +1986,11 @@ class ViewerViewModel @Inject constructor(
             "delegate_actual" to result.delegate.name.lowercase(),
             "engine_delegate_plan" to plan.engineDelegate.name.lowercase(),
             "engine_delegate_actual" to engineDelegateActual,
+            "zero_dce_backend" to result.zeroDceBackend(),
+            "zero_dce_sha256" to result.zeroDceSha(),
+            "restormer_backend" to result.restormerBackend(),
+            "restormer_sha256" to result.restormerSha(),
+            "tile_used" to result.tileUsed(),
             "k_dce" to result.profile.kDce.format3(),
             "alpha_detail" to result.profile.alphaDetail.format3(),
             "restormer_mix" to result.profile.restormerMix.format3(),
@@ -2004,7 +2021,13 @@ class ViewerViewModel @Inject constructor(
             photo = photo,
             "pipeline" to pipelineStages,
             "delegate" to result.delegate.name.lowercase(),
+            "delegate_actual" to result.delegate.name.lowercase(),
             "engine_delegate" to engineDelegateActual,
+            "zero_dce_backend" to result.zeroDceBackend(),
+            "zero_dce_sha256" to result.zeroDceSha(),
+            "restormer_backend" to result.restormerBackend(),
+            "restormer_sha256" to result.restormerSha(),
+            "tile_used" to result.tileUsed(),
             "l_mean" to result.metrics.lMean.format3(),
             "p_dark" to result.metrics.pDark.format3(),
             "b_sharpness" to result.metrics.bSharpness.format3(),
@@ -2031,9 +2054,15 @@ class ViewerViewModel @Inject constructor(
             photo = photo,
             "pipeline" to pipelineStages,
             "delegate" to result.delegate.name.lowercase(),
+            "delegate_actual" to result.delegate.name.lowercase(),
             "engine_delegate" to engineDelegateActual,
             "strength" to normalizedStrength.format2(),
             "file_size" to result.file.length(),
+            "zero_dce_backend" to result.zeroDceBackend(),
+            "zero_dce_sha256" to result.zeroDceSha(),
+            "restormer_backend" to result.restormerBackend(),
+            "restormer_sha256" to result.restormerSha(),
+            "tile_used" to result.tileUsed(),
             "duration_total_ms" to timings.total,
             "duration_decode_ms" to timings.decode,
             "duration_metrics_ms" to timings.metrics,
@@ -2317,6 +2346,7 @@ class ViewerViewModel @Inject constructor(
         val engineDelegate: EnhanceEngine.Delegate?,
         val pipeline: EnhanceEngine.Pipeline,
         val timings: EnhanceEngine.Timings,
+        val models: EnhanceEngine.ModelsTelemetry,
     )
 
     enum class EnhancementDelegateType { PRIMARY, FALLBACK }

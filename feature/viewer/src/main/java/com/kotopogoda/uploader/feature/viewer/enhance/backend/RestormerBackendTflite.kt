@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.feature.viewer.enhance.backend
 import android.content.Context
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Named
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -21,9 +22,12 @@ import kotlin.math.max
 @Singleton
 class RestormerBackendTflite @Inject constructor(
     @ApplicationContext private val context: Context,
+    @Named("restormer_model_path") private val modelPath: String,
 ) : EnhanceEngine.RestormerModel {
 
-    override val checksum: String by lazy { computeChecksum(RESTORMER_MODEL) }
+    override val backend: EnhanceEngine.ModelBackend = EnhanceEngine.ModelBackend.TFLITE
+
+    override val checksum: String by lazy { computeChecksum(modelPath) }
 
     override suspend fun denoise(
         tile: EnhanceEngine.ImageBuffer,
@@ -69,7 +73,7 @@ class RestormerBackendTflite @Inject constructor(
                 }
             }
 
-            Interpreter(loadModel(RESTORMER_MODEL), options).use { interpreter ->
+            Interpreter(loadModel(modelPath), options).use { interpreter ->
                 val inputTensor = interpreter.getInputTensor(0)
                 val outputTensor = interpreter.getOutputTensor(0)
                 require(inputTensor.shape().size >= 4) { "Restormer input tensor shape is invalid" }
@@ -150,6 +154,5 @@ class RestormerBackendTflite @Inject constructor(
 
     companion object {
         private const val TAG = "Enhance/Restormer"
-        private const val RESTORMER_MODEL = "models/restormer_fp16.tflite"
     }
 }

@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.feature.viewer.enhance.backend
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Named
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
@@ -21,9 +22,12 @@ import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 @Singleton
 class ZeroDceBackendTflite @Inject constructor(
     @ApplicationContext private val context: Context,
+    @Named("zero_dce_model_path") private val modelPath: String,
 ) : EnhanceEngine.ZeroDceModel {
 
-    override val checksum: String by lazy { computeChecksum(ZERO_DCE_MODEL) }
+    override val backend: EnhanceEngine.ModelBackend = EnhanceEngine.ModelBackend.TFLITE
+
+    override val checksum: String by lazy { computeChecksum(modelPath) }
 
     override suspend fun enhance(
         buffer: EnhanceEngine.ImageBuffer,
@@ -72,7 +76,7 @@ class ZeroDceBackendTflite @Inject constructor(
                 }
             }
 
-            Interpreter(loadModel(ZERO_DCE_MODEL), options).use { interpreter ->
+            Interpreter(loadModel(modelPath), options).use { interpreter ->
                 val inputTensor = interpreter.getInputTensor(0)
                 val outputTensor = interpreter.getOutputTensor(0)
                 require(inputTensor.shape().size >= 4) { "ZeroDCE input tensor shape is invalid" }
@@ -171,6 +175,5 @@ class ZeroDceBackendTflite @Inject constructor(
 
     companion object {
         private const val TAG = "Enhance/ZeroDCE"
-        private const val ZERO_DCE_MODEL = "models/zerodcepp_fp16.tflite"
     }
 }

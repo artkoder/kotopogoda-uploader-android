@@ -2,10 +2,11 @@ package com.kotopogoda.uploader.ml
 
 import android.content.Context
 import android.content.res.AssetManager
+import com.kotopogoda.uploader.BuildConfig
+import com.kotopogoda.uploader.core.data.ml.ModelFile
+import com.kotopogoda.uploader.core.data.ml.ModelsLockParser
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import java.io.BufferedInputStream
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.security.DigestInputStream
 import java.security.MessageDigest
 import kotlin.io.DEFAULT_BUFFER_SIZE
@@ -13,71 +14,63 @@ import timber.log.Timber
 
 object ModelChecksumVerifier {
 
-    private data class ModelAsset(
-        val modelPath: String,
-        val checksumPath: String,
-    )
-
-    private val modelAssets = listOf(
-        ModelAsset(
-            modelPath = "models/restormer_fp16.tflite",
-            checksumPath = "models/restormer_fp16.tflite.sha256",
-        ),
-        ModelAsset(
-            modelPath = "models/zerodcepp_fp16.tflite",
-            checksumPath = "models/zerodcepp_fp16.tflite.sha256",
-        ),
-    )
-
     fun verify(context: Context) {
         val assetManager = context.assets
-        modelAssets.forEach { asset ->
-            val expected = readExpectedChecksum(assetManager, asset)
-            val actual = calculateChecksum(assetManager, asset)
-            if (!expected.equals(actual, ignoreCase = true)) {
-                val logMessage = UploadLog.message(
-                    category = "ML/CHECKSUM",
-                    action = "mismatch",
-                    details = arrayOf(
-                        "asset" to asset.modelPath,
-                        "expected" to expected,
-                        "actual" to actual,
+        val modelsLock = ModelsLockParser.parse(BuildConfig.MODELS_LOCK_JSON)
+        modelsLock.models.values.forEach { model ->
+            model.files.forEach { file ->
+                val actual = calculateChecksum(assetManager, file)
+                if (!actual.sha.equals(file.sha256, ignoreCase = true)) {
+                    val logMessage = UploadLog.message(
+                        category = "ML/CHECKSUM",
+                        action = "mismatch",
+                        details = arrayOf(
+                            "model" to model.name,
+                            "asset" to file.path,
+                            "expected" to file.sha256,
+                            "actual" to actual.sha,
+                            "bytes" to actual.bytes,
+                        ),
+                    )
+                    Timber.tag("app").e(logMessage)
+                    error("Checksum mismatch for asset ${file.path}")
+                }
+                if (file.minBytes > 0 && actual.bytes < file.minBytes) {
+                    val logMessage = UploadLog.message(
+                        category = "ML/CHECKSUM",
+                        action = "size_mismatch",
+                        details = arrayOf(
+                            "model" to model.name,
+                            "asset" to file.path,
+                            "expected_min_bytes" to file.minBytes,
+                            "actual_bytes" to actual.bytes,
+                        ),
+                    )
+                    Timber.tag("app").e(logMessage)
+                    error("Asset ${file.path} is smaller than expected")
+                }
+                Timber.tag("app").i(
+                    UploadLog.message(
+                        category = "ML/CHECKSUM",
+                        action = "sha256_ok",
+                        details = arrayOf(
+                            "model" to model.name,
+                            "asset" to file.path,
+                            "expected" to file.sha256,
+                            "actual" to actual.sha,
+                            "bytes" to actual.bytes,
+                            "sha256_ok" to true,
+                        ),
                     ),
                 )
-                Timber.tag("app").e(logMessage)
-                error("Checksum mismatch for asset ${asset.modelPath}")
-            }
-            Timber.tag("app").i(
-                UploadLog.message(
-                    category = "ML/CHECKSUM",
-                    action = "sha256_ok",
-                    details = arrayOf(
-                        "asset" to asset.modelPath,
-                        "expected" to expected,
-                        "actual" to actual,
-                        "sha256_ok" to true,
-                    ),
-                ),
-            )
-        }
-    }
-
-    private fun readExpectedChecksum(assetManager: AssetManager, asset: ModelAsset): String {
-        assetManager.open(asset.checksumPath).use { input ->
-            BufferedReader(InputStreamReader(input)).use { reader ->
-                val line = reader.lineSequence()
-                    .firstOrNull { it.isNotBlank() }
-                    ?.substringBefore(" ")
-                    ?.trim()
-                return line?.lowercase()
-                    ?: error("Checksum file ${asset.checksumPath} is empty")
             }
         }
     }
 
-    private fun calculateChecksum(assetManager: AssetManager, asset: ModelAsset): String {
+    private fun calculateChecksum(assetManager: AssetManager, file: ModelFile): ChecksumResult {
         val digest = MessageDigest.getInstance("SHA-256")
-        assetManager.open(asset.modelPath).use { input ->
+        var totalBytes = 0L
+        assetManager.open(file.path).use { input ->
             DigestInputStream(BufferedInputStream(input), digest).use { stream ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 while (true) {
@@ -85,11 +78,16 @@ object ModelChecksumVerifier {
                     if (read <= 0) {
                         break
                     }
+                    totalBytes += read
                 }
             }
         }
-        return digest.digest().joinToString(separator = "") { byte ->
-            "%02x".format(byte)
-        }
+        val sha = digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+        return ChecksumResult(sha = sha, bytes = totalBytes)
     }
+
+    private data class ChecksumResult(
+        val sha: String,
+        val bytes: Long,
+    )
 }
