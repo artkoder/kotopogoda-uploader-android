@@ -11,6 +11,8 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import com.kotopogoda.uploader.core.data.upload.UploadLog
+import com.kotopogoda.uploader.core.data.util.logUriReadDebug
+import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -112,8 +114,10 @@ class SaFileRepository @Inject constructor(
 
     private fun copyDocument(from: Uri, to: Uri) {
         val resolver: ContentResolver = context.contentResolver
-        val input = resolver.openInputStream(from)
-            ?: throw IllegalStateException("Unable to open input stream for $from")
+        val normalizedFrom = resolver.requireOriginalIfNeeded(from)
+        resolver.logUriReadDebug("SaFileRepository.copy", from, normalizedFrom)
+        val input = resolver.openInputStream(normalizedFrom)
+            ?: throw IllegalStateException("Unable to open input stream for $normalizedFrom")
         val output = resolver.openOutputStream(to)
             ?: throw IllegalStateException("Unable to open output stream for $to")
 

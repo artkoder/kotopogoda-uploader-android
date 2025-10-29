@@ -28,9 +28,11 @@ object Hashing {
     }
 
     fun sha256(contentResolver: ContentResolver, uri: Uri): String {
+        val normalizedUri = contentResolver.requireOriginalIfNeeded(uri)
+        contentResolver.logUriReadDebug("Hashing.sha256", uri, normalizedUri)
         return sha256 {
-            contentResolver.openInputStream(uri)
-                ?: throw IllegalStateException("Unable to open input stream for uri: $uri")
+            contentResolver.openInputStream(normalizedUri)
+                ?: throw IllegalStateException("Unable to open input stream for uri: $normalizedUri")
         }
     }
 }

@@ -13,6 +13,8 @@ import okhttp3.RequestBody
 import okio.HashingSink
 import okio.buffer
 import okio.blackholeSink
+import com.kotopogoda.uploader.core.data.util.logUriReadDebug
+import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 
 internal data class UploadRequestPayload(
     val fileSize: Long,
@@ -35,8 +37,10 @@ internal suspend fun prepareUploadRequestPayload(
     } catch (error: NoSuchAlgorithmException) {
         throw IOException("SHA-256 algorithm is not available", error)
     }
+    val normalizedUri = resolver.requireOriginalIfNeeded(uri)
+    resolver.logUriReadDebug("UploadRequestPayload.digest", uri, normalizedUri)
     var actualSize = 0L
-    resolver.openInputStream(uri)?.use { input ->
+    resolver.openInputStream(normalizedUri)?.use { input ->
         val buffer = ByteArray(BUFFER_SIZE)
         while (true) {
             val read = input.read(buffer)
@@ -46,7 +50,7 @@ internal suspend fun prepareUploadRequestPayload(
                 actualSize += read
             }
         }
-    } ?: throw IOException("Unable to open input stream for $uri")
+    } ?: throw IOException("Unable to open input stream for $normalizedUri")
 
     val fileSha = digest.digest().toHexString()
     val resolvedSize = if (totalBytes > 0) totalBytes else actualSize
@@ -55,7 +59,8 @@ internal suspend fun prepareUploadRequestPayload(
     val createBody: (onProgress: ((Long, Long) -> Unit)?) -> MultipartBody = { progressCallback ->
         val fileRequestBody = ContentUriRequestBody(
             resolver = resolver,
-            uri = uri,
+            originalUri = uri,
+            normalizedUri = normalizedUri,
             mediaType = mediaType,
             contentLength = resolvedSize,
         )
@@ -97,7 +102,8 @@ private fun buildBoundary(seed: String, fileSha: String): String {
 
 private class ContentUriRequestBody(
     private val resolver: ContentResolver,
-    private val uri: Uri,
+    private val originalUri: Uri,
+    private val normalizedUri: Uri,
     private val mediaType: MediaType,
     private val contentLength: Long,
 ) : RequestBody() {
@@ -107,8 +113,9 @@ private class ContentUriRequestBody(
     override fun contentLength(): Long = contentLength
 
     override fun writeTo(sink: okio.BufferedSink) {
-        val input = resolver.openInputStream(uri)
-            ?: throw IOException("Unable to open input stream for $uri")
+        resolver.logUriReadDebug("UploadRequestPayload.body", originalUri, normalizedUri)
+        val input = resolver.openInputStream(normalizedUri)
+            ?: throw IOException("Unable to open input stream for $normalizedUri")
         input.use { stream ->
             val buffer = ByteArray(BUFFER_SIZE)
             while (true) {
