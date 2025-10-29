@@ -95,6 +95,18 @@ abstract class FetchModelsTask : DefaultTask() {
             assetsDir.mkdirs()
         }
 
+        val unzippedUsage = mutableMapOf<Path, Int>()
+        models.forEach { (nameAny, payloadAny) ->
+            val name = nameAny?.toString() ?: error("Имя модели отсутствует")
+            val payload = payloadAny as? Map<*, *> ?: error("Модель '$name' имеет некорректный формат")
+            val unzipped = payload["unzipped"]?.toString()
+                ?: error("Для модели '$name' не указан unzipped")
+            val path = normaliseUnzipped(unzipped)
+            if (path != null) {
+                unzippedUsage[path] = (unzippedUsage[path] ?: 0) + 1
+            }
+        }
+
         models.forEach { (nameAny, payloadAny) ->
             val name = nameAny?.toString() ?: error("Имя модели отсутствует")
             val payload = payloadAny as? Map<*, *> ?: error("Модель '$name' имеет некорректный формат")
@@ -135,8 +147,18 @@ abstract class FetchModelsTask : DefaultTask() {
 
             val rootDir = resolveRootDir(assetsDir, unzippedPath)
             if (unzippedPath != null) {
-                if (rootDir.exists()) {
-                    rootDir.deleteRecursively()
+                val shouldDeleteRoot = unzippedUsage[unzippedPath] == 1
+                if (shouldDeleteRoot) {
+                    if (rootDir.exists()) {
+                        rootDir.deleteRecursively()
+                    }
+                } else {
+                    files.forEach { entry ->
+                        val existing = resolveFile(assetsDir, unzippedPath, entry.path)
+                        if (existing.exists()) {
+                            existing.delete()
+                        }
+                    }
                 }
             } else {
                 files.forEach { entry ->
