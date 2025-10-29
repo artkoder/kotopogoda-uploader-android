@@ -21,7 +21,9 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev
+          APT_PACKAGES="git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev"
+          sudo apt-get install -y ${APT_PACKAGES} libprotobuf-lite23 libprotobuf23 \
+            || sudo apt-get install -y ${APT_PACKAGES} libprotobuf-lite32t64 libprotobuf32t64
           sudo ldconfig
 
           NCNN_VERSION=20240410
@@ -31,6 +33,7 @@ jobs:
           sudo install -m 0755 ncnn-${NCNN_VERSION}-ubuntu-2204/bin/ncnnoptimize /usr/local/bin/ncnnoptimize
           sudo cp -a ncnn-${NCNN_VERSION}-ubuntu-2204/lib/. /usr/local/lib/
           sudo ldconfig
+          onnx2ncnn -h > /dev/null
           rm -rf ncnn-${NCNN_VERSION}-ubuntu-2204 ncnn-${NCNN_VERSION}-ubuntu-2204.zip
 
       - name: Verify NCNN tools availability
