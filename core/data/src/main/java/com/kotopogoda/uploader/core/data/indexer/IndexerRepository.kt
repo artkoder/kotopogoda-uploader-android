@@ -12,6 +12,8 @@ import com.kotopogoda.uploader.core.data.photo.PhotoEntity
 import com.kotopogoda.uploader.core.data.photo.PhotoStatus
 import com.kotopogoda.uploader.core.data.util.ExifDateParser
 import com.kotopogoda.uploader.core.data.util.Hashing
+import com.kotopogoda.uploader.core.data.util.logUriReadDebug
+import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -96,17 +98,20 @@ class IndexerRepository @Inject constructor(
         val lastModified = document.lastModified()
         val relPath = resolveRelativePath(uri)
 
+        val resolver = context.contentResolver
+        val normalizedUri = resolver.requireOriginalIfNeeded(uri)
+        resolver.logUriReadDebug("IndexerRepository.hash", uri, normalizedUri)
         val sha256 = try {
             Hashing.sha256 {
-                context.contentResolver.openInputStream(uri)
-                    ?: throw IllegalStateException("Unable to open stream for $uri")
+                resolver.openInputStream(normalizedUri)
+                    ?: throw IllegalStateException("Unable to open stream for $normalizedUri")
             }
         } catch (error: Exception) {
             Log.w(TAG, "Unable to hash file $uri", error)
             return ScanOutcome.SKIPPED
         }
 
-        val takenAt = readTakenAtTimestamp(uri, lastModified)
+        val takenAt = readTakenAtTimestamp(uri, normalizedUri, lastModified)
         val existing = runCatching { photoDao.getById(id) }.getOrElse { error ->
             Log.w(TAG, "Failed to load existing record for $id", error)
             return ScanOutcome.SKIPPED
@@ -161,15 +166,16 @@ class IndexerRepository @Inject constructor(
         }
     }
 
-    private fun readTakenAtTimestamp(uri: Uri, lastModified: Long): Long? {
+    private fun readTakenAtTimestamp(original: Uri, normalized: Uri, lastModified: Long): Long? {
         val resolver = context.contentResolver
+        resolver.logUriReadDebug("IndexerRepository.exif", original, normalized)
         val exifTimestamp = try {
-            resolver.openInputStream(uri)?.use { inputStream ->
+            resolver.openInputStream(normalized)?.use { inputStream ->
                 val exif = ExifInterface(inputStream)
                 ExifDateParser.extractCaptureTimestampMillis(exif)
             }
         } catch (error: Exception) {
-            Log.w(TAG, "Failed to read EXIF for $uri", error)
+            Log.w(TAG, "Failed to read EXIF for $original", error)
             null
         }
         if (exifTimestamp != null) {
@@ -181,7 +187,7 @@ class IndexerRepository @Inject constructor(
         }
 
         return resolver.query(
-            uri,
+            normalized,
             arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
             null,
             null,

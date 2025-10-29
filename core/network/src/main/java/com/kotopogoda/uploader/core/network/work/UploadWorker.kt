@@ -15,6 +15,8 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadLog
+import com.kotopogoda.uploader.core.data.util.logUriReadDebug
+import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import com.kotopogoda.uploader.core.network.api.UploadAcceptedDto
 import com.kotopogoda.uploader.core.network.api.UploadLookupDto
 import com.kotopogoda.uploader.core.network.api.UploadApi
@@ -1011,7 +1013,10 @@ class UploadWorker @AssistedInject constructor(
     }
 
     private suspend fun resolveContentSize(uri: Uri): Long = withContext(Dispatchers.IO) {
-        appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        val resolver = appContext.contentResolver
+        val normalizedUri = resolver.requireOriginalIfNeeded(uri)
+        resolver.logUriReadDebug("UploadWorker.size", uri, normalizedUri)
+        resolver.openAssetFileDescriptor(normalizedUri, "r")?.use { it.length } ?: -1L
     }
 
     private suspend fun executeUpload(
