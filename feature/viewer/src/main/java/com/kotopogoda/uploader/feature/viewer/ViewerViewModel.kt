@@ -1,8 +1,11 @@
 package com.kotopogoda.uploader.feature.viewer
 
 import android.app.PendingIntent
+import android.app.RecoverableSecurityException
+import android.content.ContentResolver
 import android.content.Context
 import android.content.IntentSender
+import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.Debug
@@ -65,8 +68,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -158,6 +165,7 @@ class ViewerViewModel @Inject constructor(
     private var pendingBatchDelete: PendingBatchDelete? = null
     private var pendingBatchMove: PendingBatchMove? = null
     private var pendingSingleMove: PendingSingleMove? = null
+    private val pendingCleanupJobs = mutableMapOf<String, Job>()
 
     private fun logUi(category: String, action: String, uri: Uri? = null, vararg details: Pair<String, Any?>) {
         Timber.tag(UI_TAG).i(
@@ -577,6 +585,8 @@ class ViewerViewModel @Inject constructor(
                     "matches_photo" to matchesCurrentPhoto,
                     "enhanced" to useEnhancedResult,
                     "strength" to "%.2f".format(normalizedStrength),
+                    "cleanup_source" to true,
+                    "cleanup_result" to useEnhancedResult,
                 )
                 enhancementResult?.let { publishDetails += "delegate" to it.delegate.name.lowercase() }
                 logEnhancement(
@@ -638,6 +648,14 @@ class ViewerViewModel @Inject constructor(
                     contentSha256 = contentSha256,
                     options = enqueueOptions,
                 )
+                val cleanupRequest = PendingUploadCleanup(
+                    photo = current,
+                    documentInfo = documentInfo,
+                    enhancementResult = enhancementResult.takeIf { useEnhancedResult },
+                    useEnhancedResult = useEnhancedResult,
+                    idempotencyKey = idempotencyKey,
+                    enqueueUri = enqueueUri,
+                )
                 if (useEnhancedResult && enhancementResult != null) {
                     logEnhancement(
                         action = "enhance_result_publish",
@@ -654,20 +672,9 @@ class ViewerViewModel @Inject constructor(
                         "seam_min_weight" to enhancementResult.pipeline.seamMinWeight.format3(),
                         "seam_max_weight" to enhancementResult.pipeline.seamMaxWeight.format3(),
                     )
-                    val cleanupDuration = measureTimeMillis {
-                        disposeEnhancementResult(
-                            enhancementResult,
-                            deleteResultFile = false,
-                        )
-                    }
-                    val sourceCleanupSucceeded = !enhancementResult.sourceFile.exists()
-                    val resultRetained = enhancementResult.file.exists()
-                    logEnhancement(
-                        action = "enhance_cleanup",
-                        photo = current,
-                        "duration_ms" to cleanupDuration,
-                        "success" to sourceCleanupSucceeded,
-                        "result_retained" to resultRetained,
+                    disposeEnhancementResult(
+                        enhancementResult,
+                        EnhancementResultDisposition.Enqueued,
                     )
                     _enhancementState.update { state ->
                         state.copy(
@@ -678,6 +685,7 @@ class ViewerViewModel @Inject constructor(
                         )
                     }
                 }
+                scheduleUploadCleanup(cleanupRequest)
                 pushAction(
                     UserAction.EnqueuedUpload(
                         uri = current.uri,
@@ -1934,14 +1942,182 @@ class ViewerViewModel @Inject constructor(
 
     private fun disposeEnhancementResult(
         result: EnhancementResult?,
-        deleteResultFile: Boolean = true,
+        disposition: EnhancementResultDisposition = EnhancementResultDisposition.DISCARD,
     ) {
-        result?.let {
-            if (deleteResultFile) {
-                runCatching { if (it.file.exists()) it.file.delete() }
+        val target = result ?: return
+        when (disposition) {
+            EnhancementResultDisposition.DISCARD -> {
+                runCatching { if (target.file.exists()) target.file.delete() }
+                runCatching { if (target.sourceFile.exists()) target.sourceFile.delete() }
             }
-            runCatching { if (it.sourceFile.exists()) it.sourceFile.delete() }
+            EnhancementResultDisposition.ENQUEUED -> {
+                runCatching { if (target.sourceFile.exists()) target.sourceFile.delete() }
+            }
+            EnhancementResultDisposition.UPLOADED -> {
+                runCatching { if (target.file.exists()) target.file.delete() }
+                runCatching { if (target.sourceFile.exists()) target.sourceFile.delete() }
+            }
         }
+    }
+
+    private fun scheduleUploadCleanup(data: PendingUploadCleanup) {
+        pendingCleanupJobs.remove(data.idempotencyKey)?.cancel()
+        val job = viewModelScope.launch {
+            try {
+                val finalState = awaitUploadCompletion(data)
+                if (finalState == UploadItemState.FAILED) {
+                    logEnhancement(
+                        action = "cleanup_error",
+                        photo = data.photo,
+                        "reason" to "upload_failed",
+                        "upload_state" to finalState.name.lowercase(),
+                        "cleanup_result" to data.useEnhancedResult,
+                    )
+                    return@launch
+                }
+                val outcome = performUploadCleanup(data)
+                val action = if (outcome.isSuccess) "cleanup_ok" else "cleanup_error"
+                val cleanupDetails = mutableListOf(
+                    "source_deleted" to outcome.source.success,
+                    "source_attempts" to outcome.source.attempts,
+                    "result_deleted" to outcome.result.success,
+                    "result_attempts" to outcome.result.attempts,
+                    "upload_state" to (finalState?.name?.lowercase() ?: "unknown"),
+                    "cleanup_result" to data.useEnhancedResult,
+                )
+                outcome.source.lastError?.let { cleanupDetails += "source_error" to it }
+                outcome.result.lastError?.let { cleanupDetails += "result_error" to it }
+                logEnhancement(
+                    action = action,
+                    photo = data.photo,
+                    *cleanupDetails.toTypedArray(),
+                )
+                val enhanceCleanupDetails = mutableListOf(
+                    "source_deleted" to outcome.source.success,
+                    "result_deleted" to outcome.result.success,
+                    "cleanup_attempts_source" to outcome.source.attempts,
+                    "cleanup_attempts_result" to outcome.result.attempts,
+                    "result_present" to (data.enhancementResult != null),
+                    "upload_state" to (finalState?.name?.lowercase() ?: "unknown"),
+                )
+                logEnhancement(
+                    action = "enhance_cleanup",
+                    photo = data.photo,
+                    *enhanceCleanupDetails.toTypedArray(),
+                )
+            } catch (error: Exception) {
+                logEnhancement(
+                    action = "cleanup_error",
+                    photo = data.photo,
+                    "reason" to (error.message ?: error::class.simpleName?.lowercase()),
+                    "cleanup_result" to data.useEnhancedResult,
+                )
+            } finally {
+                pendingCleanupJobs.remove(data.idempotencyKey)
+            }
+        }
+        pendingCleanupJobs[data.idempotencyKey] = job
+    }
+
+    private suspend fun awaitUploadCompletion(data: PendingUploadCleanup): UploadItemState? {
+        uploadQueueRepository.observeQueuedOrProcessing(data.enqueueUri)
+            .filter { enqueued -> !enqueued }
+            .first()
+        return uploadQueueRepository.observeQueue()
+            .map { entries ->
+                entries.firstOrNull { entry ->
+                    entry.entity.idempotencyKey == data.idempotencyKey ||
+                        entry.entity.photoId == data.photo.id
+                }?.state
+            }
+            .firstOrNull { state ->
+                state == null || state == UploadItemState.SUCCEEDED || state == UploadItemState.FAILED
+            }
+    }
+
+    private suspend fun performUploadCleanup(data: PendingUploadCleanup): CleanupOutcome {
+        val sourceAttempt = deletePhotoDocumentWithRetry(data.documentInfo.uri)
+        val resultAttempt = deleteEnhancementFileWithRetry(data.enhancementResult)
+        data.enhancementResult?.let { disposeEnhancementResult(it, EnhancementResultDisposition.UPLOADED) }
+        return CleanupOutcome(source = sourceAttempt, result = resultAttempt)
+    }
+
+    private suspend fun deletePhotoDocumentWithRetry(uri: Uri): CleanupAttempt =
+        retryCleanup { deletePhotoDocumentOnce(uri) }
+
+    private suspend fun deleteEnhancementFileWithRetry(result: EnhancementResult?): CleanupAttempt {
+        val target = result ?: return CleanupAttempt(success = true, attempts = 0, lastError = null)
+        return retryCleanup {
+            withContext(Dispatchers.IO) {
+                if (!target.file.exists()) {
+                    return@withContext true
+                }
+                target.file.delete() || !target.file.exists()
+            }
+        }
+    }
+
+    private suspend fun deletePhotoDocumentOnce(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        when {
+            uri.scheme == ContentResolver.SCHEME_FILE -> {
+                val path = uri.path ?: return@withContext true
+                val file = File(path)
+                if (!file.exists()) {
+                    return@withContext true
+                }
+                file.delete() || !file.exists()
+            }
+            uri.authority == MediaStore.AUTHORITY -> deleteMediaStoreDocument(uri)
+            else -> {
+                val document = DocumentFile.fromSingleUri(context, uri) ?: return@withContext true
+                if (!document.exists()) {
+                    return@withContext true
+                }
+                document.delete() || !document.exists()
+            }
+        }
+    }
+
+    private fun deleteMediaStoreDocument(uri: Uri): Boolean {
+        val resolver = context.contentResolver
+        val rowsDeleted = runCatching { resolver.delete(uri, null, null) }
+            .getOrElse { error ->
+                if (error is RecoverableSecurityException || error is SecurityException) {
+                    return false
+                }
+                throw error
+            }
+        if (rowsDeleted > 0) {
+            return true
+        }
+        return !mediaStoreEntryExists(resolver, uri)
+    }
+
+    private fun mediaStoreEntryExists(resolver: ContentResolver, uri: Uri): Boolean {
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        return runCatching {
+            resolver.query(uri, projection, null, null, null)?.use(Cursor::moveToFirst) ?: false
+        }.getOrElse { true }
+    }
+
+    private suspend fun retryCleanup(
+        attempts: Int = 3,
+        block: suspend () -> Boolean,
+    ): CleanupAttempt {
+        var lastError: String? = null
+        repeat(attempts) { index ->
+            val success = runCatching { block() }.getOrElse { error ->
+                lastError = error.message ?: error::class.simpleName
+                false
+            }
+            if (success) {
+                return CleanupAttempt(success = true, attempts = index + 1, lastError = lastError)
+            }
+            if (index < attempts - 1) {
+                delay(250L)
+            }
+        }
+        return CleanupAttempt(success = false, attempts = attempts, lastError = lastError)
     }
 
     private suspend fun createEnhancementWorkspace(photo: PhotoItem): EnhancementWorkspace =
@@ -2380,6 +2556,28 @@ class ViewerViewModel @Inject constructor(
         val toIndex: Int
     )
 
+    private data class PendingUploadCleanup(
+        val photo: PhotoItem,
+        val documentInfo: DocumentInfo,
+        val enhancementResult: EnhancementResult?,
+        val useEnhancedResult: Boolean,
+        val idempotencyKey: String,
+        val enqueueUri: Uri,
+    )
+
+    private data class CleanupAttempt(
+        val success: Boolean,
+        val attempts: Int,
+        val lastError: String?,
+    )
+
+    private data class CleanupOutcome(
+        val source: CleanupAttempt,
+        val result: CleanupAttempt,
+    ) {
+        val isSuccess: Boolean get() = source.success && result.success
+    }
+
     private enum class MovePermissionType { Write, Delete }
 
     private data class DeleteBackup(val file: File) {
@@ -2532,6 +2730,8 @@ class ViewerViewModel @Inject constructor(
         val resultPhotoId: String? = null,
         val isResultForCurrentPhoto: Boolean = false,
     )
+
+    enum class EnhancementResultDisposition { DISCARD, ENQUEUED, UPLOADED }
 
     data class EnhancementResult(
         val sourceFile: File,

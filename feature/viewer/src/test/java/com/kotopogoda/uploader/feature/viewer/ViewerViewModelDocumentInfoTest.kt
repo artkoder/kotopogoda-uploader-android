@@ -598,7 +598,8 @@ class ViewerViewModelDocumentInfoTest {
         coEvery { reviewProgressStore.loadPosition(any()) } returns storedPosition
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
         every { uploadQueueRepository.observeQueue() } returns flowOf(emptyList())
-        every { uploadQueueRepository.observeQueuedOrProcessing(any()) } returns flowOf(false)
+        every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
+        every { uploadQueueRepository.observeQueuedOrProcessing(any<String>()) } returns flowOf(false)
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
 
         val viewModel = ViewerViewModel(
