@@ -143,6 +143,7 @@ class UploadQueueRepositoryTest {
                 enhanceMetricsPDark = null,
                 enhanceMetricsBSharpness = null,
                 enhanceMetricsNNoise = null,
+                locationHiddenBySystem = false,
                 updatedAt = expectedNow,
             )
         }
@@ -191,6 +192,7 @@ class UploadQueueRepositoryTest {
                 enhanceMetricsPDark = null,
                 enhanceMetricsBSharpness = null,
                 enhanceMetricsNNoise = null,
+                locationHiddenBySystem = false,
                 updatedAt = expectedNow,
             )
         }

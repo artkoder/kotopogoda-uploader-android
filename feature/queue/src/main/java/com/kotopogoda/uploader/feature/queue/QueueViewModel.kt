@@ -17,9 +17,12 @@ import com.kotopogoda.uploader.core.network.upload.UploadWorkMetadata
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.kotopogoda.uploader.feature.queue.R
@@ -34,6 +37,10 @@ class QueueViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val workManager by lazy { workManagerProvider.get() }
+    private val _events = Channel<QueueEvent>(Channel.BUFFERED)
+    val events: Flow<QueueEvent> = _events.receiveAsFlow()
+
+    private var lastLocationHidden = false
 
     init {
         summaryStarter.ensureRunning()
@@ -50,6 +57,12 @@ class QueueViewModel @Inject constructor(
         uploadQueueRepository.observeQueue(),
         workInfoFlow,
     ) { items, lookup ->
+        val hasLocationHidden = items.any { it.locationHiddenBySystem }
+        if (hasLocationHidden && !lastLocationHidden) {
+            _events.trySend(QueueEvent.ShowLocationHiddenMessage)
+        }
+        lastLocationHidden = hasLocationHidden
+
         val uiItems = items.map { entry ->
             val workInfo = findWorkInfo(entry, lookup)
             entry.toQueueItemUiModel(workInfo)
@@ -255,6 +268,10 @@ data class QueueWorkLookup(
     companion object {
         val EMPTY = QueueWorkLookup(emptyMap(), emptyMap())
     }
+}
+
+sealed interface QueueEvent {
+    data object ShowLocationHiddenMessage : QueueEvent
 }
 
 data class QueueItemWorkInfos(

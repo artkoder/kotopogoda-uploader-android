@@ -14,7 +14,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -232,6 +232,17 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                 }
                 if ("enhance_metrics_n_noise" !in columns) {
                     db.execSQL("ALTER TABLE `upload_items` ADD COLUMN `enhance_metrics_n_noise` REAL")
+                }
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = getTableColumns(db, "upload_items")
+                if ("location_hidden_by_system" !in columns) {
+                    db.execSQL(
+                        "ALTER TABLE `upload_items` ADD COLUMN `location_hidden_by_system` INTEGER NOT NULL DEFAULT 0"
+                    )
                 }
             }
         }

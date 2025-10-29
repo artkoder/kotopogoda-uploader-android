@@ -52,4 +52,6 @@ data class UploadItemEntity(
     val httpCode: Int? = null,
     @ColumnInfo(name = "last_error_message")
     val lastErrorMessage: String? = null,
+    @ColumnInfo(name = "location_hidden_by_system", defaultValue = "0")
+    val locationHiddenBySystem: Boolean = false,
 )
