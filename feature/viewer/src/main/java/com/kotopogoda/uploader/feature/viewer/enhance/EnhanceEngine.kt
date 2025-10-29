@@ -15,6 +15,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.system.measureTimeMillis
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -98,6 +99,7 @@ class EnhanceEngine(
                     Timber.tag(LOG_TAG).i("ZeroDCE model checksum: %s", checksum)
                 }
                 .onFailure {
+                    if (it is CancellationException) throw it
                     Timber.tag(LOG_TAG).w(it, "ZeroDCE model checksum read failed")
                 }
         }
@@ -107,6 +109,7 @@ class EnhanceEngine(
                     Timber.tag(LOG_TAG).i("Restormer model checksum: %s", checksum)
                 }
                 .onFailure {
+                    if (it is CancellationException) throw it
                     Timber.tag(LOG_TAG).w(it, "Restormer model checksum read failed")
                 }
         }
