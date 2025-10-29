@@ -21,20 +21,22 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          APT_PACKAGES="git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev"
-          sudo apt-get install -y ${APT_PACKAGES} libprotobuf-lite23 libprotobuf23 \
-            || sudo apt-get install -y ${APT_PACKAGES} libprotobuf-lite32t64 libprotobuf32t64
-          sudo ldconfig
+          APT_PACKAGES="git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev cmake ninja-build build-essential"
+          sudo apt-get install -y ${APT_PACKAGES}
 
           NCNN_VERSION=20240410
-          wget -q https://github.com/Tencent/ncnn/releases/download/${NCNN_VERSION}/ncnn-${NCNN_VERSION}-ubuntu-2204.zip
-          unzip -q ncnn-${NCNN_VERSION}-ubuntu-2204.zip
-          sudo install -m 0755 ncnn-${NCNN_VERSION}-ubuntu-2204/bin/onnx2ncnn /usr/local/bin/onnx2ncnn
-          sudo install -m 0755 ncnn-${NCNN_VERSION}-ubuntu-2204/bin/ncnnoptimize /usr/local/bin/ncnnoptimize
-          sudo cp -a ncnn-${NCNN_VERSION}-ubuntu-2204/lib/. /usr/local/lib/
-          sudo ldconfig
+          NCNN_REPO=https://github.com/Tencent/ncnn.git
+          git clone --depth 1 --branch ${NCNN_VERSION} ${NCNN_REPO} ncnn
+          cmake -S ncnn -B ncnn/build -G Ninja \
+            -DNCNN_VULKAN=OFF \
+            -DNCNN_BUILD_TOOLS=ON \
+            -DNCNN_BUILD_EXAMPLES=OFF \
+            -DNCNN_BUILD_BENCHMARK=OFF
+          cmake --build ncnn/build --target onnx2ncnn ncnnoptimize
+          sudo install -m 0755 ncnn/build/tools/onnx/onnx2ncnn /usr/local/bin/onnx2ncnn
+          sudo install -m 0755 ncnn/build/tools/onnx/ncnnoptimize /usr/local/bin/ncnnoptimize
           onnx2ncnn -h > /dev/null
-          rm -rf ncnn-${NCNN_VERSION}-ubuntu-2204 ncnn-${NCNN_VERSION}-ubuntu-2204.zip
+          rm -rf ncnn
 
       - name: Verify NCNN tools availability
         run: |
