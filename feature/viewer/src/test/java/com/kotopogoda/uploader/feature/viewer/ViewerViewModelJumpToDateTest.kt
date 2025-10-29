@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.feature.viewer
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
@@ -112,7 +113,8 @@ class ViewerViewModelJumpToDateTest {
         coEvery { reviewProgressStore.loadPosition(any()) } returns null
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
         every { uploadQueueRepository.observeQueue() } returns flowOf(emptyList())
-        every { uploadQueueRepository.observeQueuedOrProcessing(any()) } returns flowOf(false)
+        every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
+        every { uploadQueueRepository.observeQueuedOrProcessing(any<String>()) } returns flowOf(false)
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
 
         val context = mockk<Context>(relaxed = true)

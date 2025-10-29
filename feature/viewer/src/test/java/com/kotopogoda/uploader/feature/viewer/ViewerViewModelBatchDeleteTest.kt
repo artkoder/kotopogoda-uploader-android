@@ -135,7 +135,8 @@ class ViewerViewModelBatchDeleteTest {
         every { photoRepository.observePhotos() } returns flowOf(PagingData.empty())
         every { folderRepository.observeFolder() } returns flowOf(null)
         every { uploadQueueRepository.observeQueue() } returns flowOf(emptyList())
-        every { uploadQueueRepository.observeQueuedOrProcessing(any()) } returns flowOf(false)
+        every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
+        every { uploadQueueRepository.observeQueuedOrProcessing(any<String>()) } returns flowOf(false)
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
         coEvery { folderRepository.getFolder() } returns null
         coEvery { reviewProgressStore.loadPosition(any()) } returns null
