@@ -28,6 +28,8 @@ jobs:
           unzip -q ncnn-${NCNN_VERSION}-ubuntu-2204.zip
           sudo install -m 0755 ncnn-${NCNN_VERSION}-ubuntu-2204/bin/onnx2ncnn /usr/local/bin/onnx2ncnn
           sudo install -m 0755 ncnn-${NCNN_VERSION}-ubuntu-2204/bin/ncnnoptimize /usr/local/bin/ncnnoptimize
+          sudo cp -a ncnn-${NCNN_VERSION}-ubuntu-2204/lib/. /usr/local/lib/
+          sudo ldconfig
           rm -rf ncnn-${NCNN_VERSION}-ubuntu-2204 ncnn-${NCNN_VERSION}-ubuntu-2204.zip
 
       - name: Verify NCNN tools availability
