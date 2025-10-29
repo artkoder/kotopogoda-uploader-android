@@ -14,7 +14,12 @@ import urllib.request
 import zipfile
 from hashlib import sha256
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
+
+try:
+    from importlib import metadata as importlib_metadata
+except ImportError:  # pragma: no cover - поддержка старых Python
+    import importlib_metadata as importlib_metadata  # type: ignore
 
 
 def pip_install(requirement: str) -> None:
@@ -45,53 +50,80 @@ def pip_install(requirement: str) -> None:
         subprocess.run(base_cmd, check=True)
 
 
+def _tensorflow_requires_legacy_ml_dtypes() -> bool:
+    try:
+        version = importlib_metadata.version("tensorflow")
+    except importlib_metadata.PackageNotFoundError:
+        return False
+
+    parts: List[int] = []
+    for piece in version.split("."):
+        if not piece.isdigit():
+            break
+        parts.append(int(piece))
+        if len(parts) >= 2:
+            break
+    if len(parts) < 2:
+        return False
+    major, minor = parts[0], parts[1]
+    return (major, minor) < (2, 19)
+
+
 def ensure_ml_dtypes_float4() -> None:
     """Гарантирует наличие поддержки float4_e2m1fn в ml_dtypes."""
 
     import importlib
 
-    needs_install = False
+    def load_module() -> object:
+        return importlib.import_module("ml_dtypes")
 
     try:
-        import ml_dtypes  # type: ignore
+        ml_dtypes = load_module()
     except ImportError:
-        needs_install = True
+        ml_dtypes = None
     else:
         if hasattr(ml_dtypes, "float4_e2m1fn"):
             return
-        needs_install = True
 
-    if not needs_install:
-        return
-
-    pip_install("ml-dtypes>=0.3.2")
-    importlib.invalidate_caches()
-    sys.modules.pop("ml_dtypes", None)
-
-    check_code = (
-        "import ml_dtypes\n"
-        "import sys\n"
-        "sys.exit(0 if hasattr(ml_dtypes, 'float4_e2m1fn') else 1)\n"
-    )
-    try:
-        subprocess.run([sys.executable, "-c", check_code], check=True)
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим") from exc
-    try:
-        import importlib
-        import ml_dtypes  # type: ignore
-    except ImportError:
-        pip_install("ml-dtypes>=0.3.2")
-        import importlib
-        ml_dtypes = importlib.import_module("ml_dtypes")  # type: ignore
+    tf_requires_legacy = _tensorflow_requires_legacy_ml_dtypes()
+    legacy_requirement = "ml-dtypes>=0.4.0,<0.5.0"
+    requirements = ["ml-dtypes>=0.3.2"]
+    if tf_requires_legacy:
+        requirements = [legacy_requirement]
     else:
+        requirements.append(legacy_requirement)
+
+    last_error: Optional[BaseException] = None
+    for requirement in requirements:
+        pip_install(requirement)
+        importlib.invalidate_caches()
+        sys.modules.pop("ml_dtypes", None)
+        try:
+            ml_dtypes = load_module()
+        except ImportError as exc:
+            last_error = exc
+            if "float4_e2m1fn" in str(exc) and requirement != legacy_requirement:
+                continue
+            break
+
         if hasattr(ml_dtypes, "float4_e2m1fn"):
             return
-        pip_install("ml-dtypes>=0.3.2")
-        ml_dtypes = importlib.reload(ml_dtypes)  # type: ignore
 
-    if not hasattr(ml_dtypes, "float4_e2m1fn"):
-        raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
+        if requirement == legacy_requirement:
+            if tf_requires_legacy:
+                reason = "TensorFlow ограничивает версию ml-dtypes"
+            else:
+                reason = "ml-dtypes>=0.5.0 недоступен в среде исполнения"
+            log(f"{reason}; добавляем заглушку float4_e2m1fn")
+            setattr(ml_dtypes, "float4_e2m1fn", object())
+            return
+
+        last_error = RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
+
+    if last_error is not None:
+        raise RuntimeError("Не удалось подготовить ml-dtypes") from last_error
+
+    raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = ROOT_DIR / ".work" / "models"
