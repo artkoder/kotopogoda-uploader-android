@@ -72,6 +72,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.collections.ArrayDeque
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.system.measureTimeMillis
@@ -641,6 +642,13 @@ class ViewerViewModel @Inject constructor(
                         "strength" to "%.2f".format(normalizedStrength),
                         "sha256" to contentSha256,
                         "size" to (enqueueOptions.overrideSize ?: enhancementResult.file.length()),
+                        "tile_used" to enhancementResult.pipeline.tileUsed,
+                        "seam_max_delta" to enhancementResult.pipeline.seamMaxDelta.format3(),
+                        "seam_mean_delta" to enhancementResult.pipeline.seamMeanDelta.format3(),
+                        "seam_area" to enhancementResult.pipeline.seamArea,
+                        "seam_zero_area" to enhancementResult.pipeline.seamZeroArea,
+                        "seam_min_weight" to enhancementResult.pipeline.seamMinWeight.format3(),
+                        "seam_max_weight" to enhancementResult.pipeline.seamMaxWeight.format3(),
                     )
                     val cleanupDuration = measureTimeMillis {
                         disposeEnhancementResult(
@@ -1696,7 +1704,8 @@ class ViewerViewModel @Inject constructor(
                 }
                 val metrics = analysis.metrics
                 val tileSize = DEFAULT_ENHANCE_TILE_SIZE
-                val totalTiles = computeTileCount(analysis.width, analysis.height, tileSize)
+                val tileOverlap = DEFAULT_ENHANCE_TILE_OVERLAP
+                val totalTiles = computeTileCount(analysis.width, analysis.height, tileSize, tileOverlap)
                 if (totalTiles > 0) {
                     _enhancementState.update { state ->
                         state.copy(progressByTile = (0 until totalTiles).associateWith { 0f })
@@ -1710,6 +1719,8 @@ class ViewerViewModel @Inject constructor(
                     "delegate" to delegatePlan.delegateType.name.lowercase(),
                     "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                     "tiles" to totalTiles,
+                    "tile_size" to tileSize,
+                    "tile_overlap" to tileOverlap,
                 )
                 val progressCallback: (Int, Int, Float) -> Unit = { index, _, progress ->
                     viewModelScope.launch {
@@ -1728,6 +1739,7 @@ class ViewerViewModel @Inject constructor(
                                 source = workspace.source,
                                 strength = normalized,
                                 tileSize = tileSize,
+                                overlap = tileOverlap,
                                 delegate = delegatePlan.engineDelegate,
                                 exif = workspace.exif,
                                 outputFile = workspace.output,
@@ -1796,6 +1808,13 @@ class ViewerViewModel @Inject constructor(
                         "engine_delegate" to (result.engineDelegate?.name?.lowercase() ?: "none"),
                         "pipeline" to result.pipeline.stages.joinToString(separator = "+"),
                         "tile_count" to result.pipeline.tileCount,
+                        "tile_used" to result.pipeline.tileUsed,
+                        "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
+                        "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
+                        "seam_area" to result.pipeline.seamArea,
+                        "seam_zero_area" to result.pipeline.seamZeroArea,
+                        "seam_min_weight" to result.pipeline.seamMinWeight.format3(),
+                        "seam_max_weight" to result.pipeline.seamMaxWeight.format3(),
                     )
                 }
             } finally {
@@ -1935,13 +1954,16 @@ class ViewerViewModel @Inject constructor(
         )
     }
 
-    private fun computeTileCount(width: Int, height: Int, tileSize: Int): Int {
+    private fun computeTileCount(width: Int, height: Int, tileSize: Int, overlap: Int): Int {
         if (tileSize <= 0 || width <= 0 || height <= 0) {
             return 0
         }
-        val xTiles = (width + tileSize - 1) / tileSize
-        val yTiles = (height + tileSize - 1) / tileSize
-        return xTiles * yTiles
+        val safeTile = tileSize.coerceAtLeast(1)
+        val safeOverlap = overlap.coerceAtLeast(0)
+        val step = max(1, safeTile - safeOverlap * 2)
+        val tilesX = ceil(width / step.toDouble()).toInt()
+        val tilesY = ceil(height / step.toDouble()).toInt()
+        return (tilesX * tilesY).coerceAtLeast(0)
     }
 
     private fun EnhancementWorkspace.cleanup() {
@@ -1957,7 +1979,7 @@ class ViewerViewModel @Inject constructor(
 
     private fun EnhancementResult.restormerSha(): String = models.restormer?.checksum ?: "none"
 
-    private fun EnhancementResult.tileUsed(): Boolean = pipeline.tileCount > 0 && pipeline.restormerApplied
+    private fun EnhancementResult.tileUsed(): Boolean = pipeline.tileUsed
 
     private fun Double.format3(): String = String.format(Locale.US, "%.3f", this)
     private fun Float.format3(): String = String.format(Locale.US, "%.3f", this)
@@ -2009,6 +2031,12 @@ class ViewerViewModel @Inject constructor(
             "tile_size" to result.pipeline.tileSize,
             "tile_overlap" to result.pipeline.overlap,
             "tile_count" to result.pipeline.tileCount,
+            "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
+            "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
+            "seam_area" to result.pipeline.seamArea,
+            "seam_zero_area" to result.pipeline.seamZeroArea,
+            "seam_min_weight" to result.pipeline.seamMinWeight.format3(),
+            "seam_max_weight" to result.pipeline.seamMaxWeight.format3(),
             "zero_dce_iterations" to result.pipeline.zeroDceIterations,
             "zero_dce_applied" to result.pipeline.zeroDceApplied,
             "restormer_applied" to result.pipeline.restormerApplied,
@@ -2035,6 +2063,12 @@ class ViewerViewModel @Inject constructor(
             "restormer_backend" to result.restormerBackend(),
             "restormer_sha256" to result.restormerSha(),
             "tile_used" to result.tileUsed(),
+            "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
+            "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
+            "seam_area" to result.pipeline.seamArea,
+            "seam_zero_area" to result.pipeline.seamZeroArea,
+            "seam_min_weight" to result.pipeline.seamMinWeight.format3(),
+            "seam_max_weight" to result.pipeline.seamMaxWeight.format3(),
             "l_mean" to result.metrics.lMean.format3(),
             "p_dark" to result.metrics.pDark.format3(),
             "b_sharpness" to result.metrics.bSharpness.format3(),
@@ -2070,6 +2104,12 @@ class ViewerViewModel @Inject constructor(
             "restormer_backend" to result.restormerBackend(),
             "restormer_sha256" to result.restormerSha(),
             "tile_used" to result.tileUsed(),
+            "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
+            "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
+            "seam_area" to result.pipeline.seamArea,
+            "seam_zero_area" to result.pipeline.seamZeroArea,
+            "seam_min_weight" to result.pipeline.seamMinWeight.format3(),
+            "seam_max_weight" to result.pipeline.seamMaxWeight.format3(),
             "duration_total_ms" to timings.total,
             "duration_decode_ms" to timings.decode,
             "duration_metrics_ms" to timings.metrics,
@@ -2316,7 +2356,8 @@ class ViewerViewModel @Inject constructor(
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
         private const val ENHANCE_TAG = "Enhance"
         private const val ENHANCE_CATEGORY = "ENHANCE"
-        private const val DEFAULT_ENHANCE_TILE_SIZE = 256
+        private const val DEFAULT_ENHANCE_TILE_SIZE = 512
+        private const val DEFAULT_ENHANCE_TILE_OVERLAP = 64
         private val FALLBACK_PROFILE = EnhanceEngine.Profile(
             isLowLight = false,
             kDce = 0f,

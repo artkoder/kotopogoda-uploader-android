@@ -7,8 +7,10 @@ import android.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
@@ -70,11 +72,18 @@ class EnhanceEngine(
         val tileSize: Int = DEFAULT_TILE_SIZE,
         val overlap: Int = DEFAULT_TILE_OVERLAP,
         val tileCount: Int = 0,
+        val tileUsed: Boolean = false,
         val zeroDceIterations: Int = 0,
         val zeroDceApplied: Boolean = false,
         val restormerMix: Float = 0f,
         val restormerApplied: Boolean = false,
         val hasSeamFix: Boolean = false,
+        val seamMaxDelta: Float = 0f,
+        val seamMeanDelta: Float = 0f,
+        val seamArea: Int = 0,
+        val seamZeroArea: Int = 0,
+        val seamMinWeight: Float = 0f,
+        val seamMaxWeight: Float = 0f,
     )
 
     data class Timings(
@@ -272,6 +281,16 @@ class EnhanceEngine(
         val delegate: Delegate,
         val tileCount: Int,
         val seamFixApplied: Boolean,
+        val seamMetrics: SeamMetrics,
+    )
+
+    private data class SeamMetrics(
+        val maxDelta: Float = 0f,
+        val meanDelta: Float = 0f,
+        val area: Int = 0,
+        val zeroArea: Int = 0,
+        val minWeight: Float = 0f,
+        val maxWeight: Float = 0f,
     )
 
     private suspend fun runRestormer(
@@ -284,13 +303,14 @@ class EnhanceEngine(
     ): RestormerReport {
         val model = restormer
         if (mix <= 1e-3f || model == null) {
-            val totalTiles = computeTileCount(buffer.width, buffer.height, tileSize)
+            val totalTiles = computeTileCount(buffer.width, buffer.height, tileSize, overlap)
             repeat(totalTiles) { onTileProgress(it, totalTiles, 1f) }
             return RestormerReport(
                 result = null,
                 delegate = delegate,
                 tileCount = totalTiles,
                 seamFixApplied = overlap > 0,
+                seamMetrics = SeamMetrics(),
             )
         }
         val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
@@ -335,13 +355,13 @@ class EnhanceEngine(
                 for (py in 0 until tileHeight) {
                     val globalY = innerY + py
                     if (globalY >= height) continue
-                    val weightY = featherWeight(py, tileHeight, overlap)
+                    val weightY = hannWeight(py, tileHeight, overlap)
                     val base = globalY * width
                     val tileBase = py * tileWidth
                     for (px in 0 until tileWidth) {
                         val globalX = innerX + px
                         if (globalX >= width) continue
-                        val weightX = featherWeight(px, tileWidth, overlap)
+                        val weightX = hannWeight(px, tileWidth, overlap)
                         val weight = weightX * weightY
                         if (weight <= 0f) continue
                         val color = tilePixels[tileBase + px]
@@ -357,19 +377,52 @@ class EnhanceEngine(
             }
         }
         val resultPixels = IntArray(buffer.pixels.size)
+        var seamArea = 0
+        var seamZeroArea = 0
+        var seamDeltaSum = 0.0
+        var seamMaxDelta = 0f
+        var seamMinWeight = Float.POSITIVE_INFINITY
+        var seamMaxWeight = 0f
         for (i in resultPixels.indices) {
             val baseColor = buffer.pixels[i]
             val weight = accWeight[i]
-            val processedR = if (weight > 0f) accR[i] / weight / 255f else Color.red(baseColor) / 255f
-            val processedG = if (weight > 0f) accG[i] / weight / 255f else Color.green(baseColor) / 255f
-            val processedB = if (weight > 0f) accB[i] / weight / 255f else Color.blue(baseColor) / 255f
+            if (weight > 0f) {
+                seamMinWeight = min(seamMinWeight, weight)
+                seamMaxWeight = max(seamMaxWeight, weight)
+            } else {
+                seamZeroArea++
+            }
+            val baseR = Color.red(baseColor) / 255f
+            val baseG = Color.green(baseColor) / 255f
+            val baseB = Color.blue(baseColor) / 255f
+            val processedR = if (weight > 0f) accR[i] / weight / 255f else baseR
+            val processedG = if (weight > 0f) accG[i] / weight / 255f else baseG
+            val processedB = if (weight > 0f) accB[i] / weight / 255f else baseB
             resultPixels[i] = composeColor(Color.alpha(baseColor), processedR, processedG, processedB)
+            if (weight < 0.999f) {
+                val delta = max(
+                    max(abs(processedR - baseR), abs(processedG - baseG)),
+                    abs(processedB - baseB),
+                )
+                seamArea++
+                seamDeltaSum += delta.toDouble()
+                seamMaxDelta = max(seamMaxDelta, delta)
+            }
         }
+        val seamMetrics = SeamMetrics(
+            maxDelta = seamMaxDelta,
+            meanDelta = if (seamArea > 0) (seamDeltaSum / seamArea).toFloat() else 0f,
+            area = seamArea,
+            zeroArea = seamZeroArea,
+            minWeight = if (seamMinWeight.isFinite()) seamMinWeight else 0f,
+            maxWeight = seamMaxWeight,
+        )
         return RestormerReport(
             result = ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate),
             delegate = currentDelegate,
             tileCount = totalTiles,
             seamFixApplied = overlap > 0 && totalTiles > 0,
+            seamMetrics = seamMetrics,
         )
     }
 
@@ -393,25 +446,37 @@ class EnhanceEngine(
             stages += "saturation"
         }
         val zeroIterations = if (zeroApplied) max(1, request.zeroDceIterations) else 0
+        val seamMetrics = restReport.seamMetrics
+        val tileUsed = restReport.tileCount > 0 && restormerUsed
         return Pipeline(
             stages = stages,
             tileSize = request.tileSize,
             overlap = request.overlap,
             tileCount = restReport.tileCount,
+            tileUsed = tileUsed,
             zeroDceIterations = zeroIterations,
             zeroDceApplied = zeroApplied,
             restormerMix = profile.restormerMix,
             restormerApplied = restormerUsed,
             hasSeamFix = restReport.seamFixApplied && restormerUsed,
+            seamMaxDelta = seamMetrics.maxDelta,
+            seamMeanDelta = seamMetrics.meanDelta,
+            seamArea = seamMetrics.area,
+            seamZeroArea = seamMetrics.zeroArea,
+            seamMinWeight = seamMetrics.minWeight,
+            seamMaxWeight = seamMetrics.maxWeight,
         )
     }
 
-    private fun computeTileCount(width: Int, height: Int, tileSize: Int): Int {
+    private fun computeTileCount(width: Int, height: Int, tileSize: Int, overlap: Int): Int {
         if (tileSize <= 0 || width <= 0 || height <= 0) {
             return 0
         }
-        val tilesX = (width + tileSize - 1) / tileSize
-        val tilesY = (height + tileSize - 1) / tileSize
+        val safeTile = tileSize.coerceAtLeast(1)
+        val safeOverlap = overlap.coerceAtLeast(0)
+        val step = max(1, safeTile - safeOverlap * 2)
+        val tilesX = ceil(width / step.toDouble()).toInt()
+        val tilesY = ceil(height / step.toDouble()).toInt()
         return tilesX * tilesY
     }
 
@@ -815,8 +880,8 @@ class EnhanceEngine(
 
     companion object {
         private const val LOG_TAG = "Enhance/Engine"
-        private const val DEFAULT_TILE_SIZE = 384
-        private const val DEFAULT_TILE_OVERLAP = 32
+        private const val DEFAULT_TILE_SIZE = 512
+        private const val DEFAULT_TILE_OVERLAP = 64
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
         private const val OUTPUT_JPEG_QUALITY = 92
         private const val DARK_LUMINANCE_THRESHOLD = 0.22
@@ -929,10 +994,17 @@ private fun hsvToRgb(h: Float, s: Float, v: Float): Triple<Float, Float, Float> 
     }
 }
 
-private fun featherWeight(position: Int, size: Int, overlap: Int): Float {
-    if (overlap <= 0 || size <= 1) return 1f
-    val distanceToEdge = min(position, size - 1 - position).toFloat()
-    return clamp01((distanceToEdge / overlap).coerceIn(0f, 1f))
+internal fun hannWeight(position: Int, size: Int, overlap: Int): Float {
+    if (size <= 1 || overlap <= 0) return 1f
+    val lastIndex = size - 1
+    val safePosition = position.coerceIn(0, lastIndex)
+    val distanceToEdge = min(safePosition, lastIndex - safePosition)
+    val effectiveOverlap = min(overlap, size / 2)
+    if (effectiveOverlap <= 0) return 1f
+    if (distanceToEdge >= effectiveOverlap) return 1f
+    val normalized = (distanceToEdge.toFloat() / effectiveOverlap.toFloat()).coerceIn(0f, 1f)
+    val window = 0.5 * (1 - cos(PI * normalized))
+    return clamp01(window.toFloat())
 }
 
 private fun sobelAt(luma: DoubleArray, width: Int, height: Int, x: Int, y: Int): Double {

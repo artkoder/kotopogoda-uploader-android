@@ -31,6 +31,7 @@ def pip_install(requirement: str) -> None:
             "--disable-pip-version-check",
             requirement,
         ],
+        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", requirement],
         check=True,
     )
 
@@ -67,6 +68,21 @@ def ensure_ml_dtypes_float4() -> None:
         subprocess.run([sys.executable, "-c", check_code], check=True)
     except subprocess.CalledProcessError as exc:
         raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим") from exc
+    try:
+        import importlib
+        import ml_dtypes  # type: ignore
+    except ImportError:
+        pip_install("ml-dtypes>=0.3.2")
+        import importlib
+        ml_dtypes = importlib.import_module("ml_dtypes")  # type: ignore
+    else:
+        if hasattr(ml_dtypes, "float4_e2m1fn"):
+            return
+        pip_install("ml-dtypes>=0.3.2")
+        ml_dtypes = importlib.reload(ml_dtypes)  # type: ignore
+
+    if not hasattr(ml_dtypes, "float4_e2m1fn"):
+        raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = ROOT_DIR / ".work" / "models"
