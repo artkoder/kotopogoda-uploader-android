@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          APT_PACKAGES="git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev cmake ninja-build build-essential"
+          APT_PACKAGES="git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev cmake ninja-build build-essential lld"
           sudo apt-get install -y ${APT_PACKAGES}
 
           NCNN_REPO=https://github.com/Tencent/ncnn.git
