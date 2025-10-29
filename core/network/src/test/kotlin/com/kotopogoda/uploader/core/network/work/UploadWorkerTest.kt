@@ -194,6 +194,8 @@ class UploadWorkerTest {
         val expectedFileSha = file.readBytes().sha256Hex()
         val expectedRequestSha = bodyBytes.sha256Hex()
         assertEquals(expectedRequestSha, request.getHeader("X-Content-SHA256"))
+        assertEquals("unknown", request.getHeader("X-Has-GPS"))
+        assertEquals("unknown", request.getHeader("X-EXIF-Source"))
         val boundary = request.getHeader("Content-Type")?.substringAfter("boundary=")?.trim()
         requireNotNull(boundary) { "Multipart boundary missing" }
         val contentShaPart = body.findMultipartValue(boundary, "content_sha256")
@@ -255,7 +257,7 @@ class UploadWorkerTest {
         val uri = Uri.parse("content://$authority/items/1")
         val data = ByteArray(STREAMING_TEST_SIZE) { index -> (index % 251).toByte() }
         val streamFactory = TrackingInputStreamFactory(uri, data, context.contentResolver)
-        streamFactory.prepare(streamCount = 3)
+        streamFactory.prepare(streamCount = 4)
 
         mockWebServer.enqueue(
             MockResponse()
@@ -278,6 +280,8 @@ class UploadWorkerTest {
         val expectedFileSha = data.sha256Hex()
         val expectedRequestSha = bodyBytes.sha256Hex()
         assertEquals(expectedRequestSha, request.headers["X-Content-SHA256"])
+        assertEquals("unknown", request.getHeader("X-Has-GPS"))
+        assertEquals("unknown", request.getHeader("X-EXIF-Source"))
         val boundary = request.getHeader("Content-Type")?.substringAfter("boundary=")?.trim()
         requireNotNull(boundary) { "Multipart boundary missing" }
         val contentShaPart = bodyString.findMultipartValue(boundary, "content_sha256")
@@ -285,8 +289,9 @@ class UploadWorkerTest {
         assertTrue(bodyString.contains(expectedFileSha))
 
         val readHistory = streamFactory.readHistory
-        assertEquals(3, readHistory.size)
-        readHistory.forEach { reads ->
+        assertEquals(4, readHistory.size)
+        val digestAndUploadReads = readHistory.drop(1)
+        digestAndUploadReads.forEach { reads ->
             assertEquals(STREAMING_TEST_SIZE, reads.sum())
             assertTrue(reads.size > 1, "Expected multiple chunk reads, got $reads")
             assertTrue((reads.maxOrNull() ?: 0) < STREAMING_TEST_SIZE, "Chunks should be smaller than the whole payload")

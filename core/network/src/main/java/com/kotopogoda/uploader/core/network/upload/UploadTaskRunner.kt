@@ -1,8 +1,10 @@
 package com.kotopogoda.uploader.core.network.upload
 
+import android.Manifest
 import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -24,6 +26,8 @@ import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
+import androidx.core.content.ContextCompat
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.api.UploadStatusDto
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
@@ -32,7 +36,10 @@ import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskRe
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult.Failure
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult.Success
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskState
+import com.kotopogoda.uploader.core.network.upload.prepareUploadRequestPayload
+import com.kotopogoda.uploader.core.network.upload.toLogDetails
 import com.kotopogoda.uploader.core.work.UploadErrorKind
+import timber.log.Timber
 
 @Singleton
 class UploadTaskRunner @Inject constructor(
@@ -46,6 +53,7 @@ class UploadTaskRunner @Inject constructor(
         val uri = params.uri
         try {
             val mediaType = resolveMediaType(uri)
+            val hasMediaLocationPermission = hasAccessMediaLocationPermission()
             val payload = prepareUploadRequestPayload(
                 resolver = appContext.contentResolver,
                 uri = uri,
@@ -54,12 +62,26 @@ class UploadTaskRunner @Inject constructor(
                 mediaType = mediaType,
                 totalBytes = -1L,
                 boundarySeed = params.idempotencyKey,
+                hasAccessMediaLocationPermission = hasMediaLocationPermission,
+            )
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    category = CATEGORY_UPLOAD_CONTENT,
+                    action = "exif_metadata",
+                    uri = uri,
+                    details = (arrayOf(
+                        "display_name" to params.displayName,
+                        "idempotency_key" to params.idempotencyKey,
+                    ) + payload.exifMetadata.toLogDetails()).toTypedArray(),
+                )
             )
             val requestBody = payload.createRequestBody(null)
             val response = try {
                 uploadApi.upload(
                     idempotencyKey = params.idempotencyKey,
                     contentSha256Header = payload.requestSha256Hex,
+                    hasGpsHeader = payload.exifMetadata.hasGpsHeaderValue,
+                    exifSourceHeader = payload.exifMetadata.exifSourceHeaderValue,
                     body = requestBody,
                 )
             } catch (unknown: UnknownHostException) {
@@ -208,6 +230,13 @@ class UploadTaskRunner @Inject constructor(
         }.getOrNull()
     }
 
+    private fun hasAccessMediaLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.ACCESS_MEDIA_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun resolveMediaType(uri: Uri): MediaType {
         val mimeType = appContext.contentResolver.getType(uri)
             ?.takeIf { it.isNotBlank() }
@@ -283,6 +312,7 @@ class UploadTaskRunner @Inject constructor(
         private const val DEFAULT_MIME_TYPE = "application/octet-stream"
         private const val DEFAULT_RETRY_DELAY_MILLIS = 30_000L
         private const val RETRY_AFTER_HEADER = "Retry-After"
+        private const val CATEGORY_UPLOAD_CONTENT = "UPLOAD/CONTENT"
     }
 }
 

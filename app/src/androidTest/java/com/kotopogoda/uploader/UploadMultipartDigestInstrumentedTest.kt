@@ -54,6 +54,7 @@ class UploadMultipartDigestInstrumentedTest {
             mediaType = "text/plain".toMediaType(),
             totalBytes = file.length(),
             boundarySeed = "instrumented-key",
+            hasAccessMediaLocationPermission = false,
         )
         val requestBody = payload.createRequestBody(null)
 

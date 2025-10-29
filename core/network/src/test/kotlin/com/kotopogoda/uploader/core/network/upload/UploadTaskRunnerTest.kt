@@ -11,6 +11,7 @@ import kotlin.math.min
 import okio.Buffer
 import okhttp3.MediaType.Companion.toMediaType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,6 +35,7 @@ class UploadTaskRunnerTest {
             mediaType = "image/jpeg".toMediaType(),
             totalBytes = -1L,
             boundarySeed = "digest-test",
+            hasAccessMediaLocationPermission = false,
         )
 
         val expectedFileSha = MessageDigest.getInstance("SHA-256")
@@ -50,8 +52,11 @@ class UploadTaskRunnerTest {
             .digest(bodyBytes)
             .joinToString(separator = "") { byte -> "%02x".format(byte) }
         assertEquals(expectedRequestSha, payload.requestSha256Hex)
+        assertFalse(payload.exifMetadata.permissionGranted)
+        assertEquals("unknown", payload.exifMetadata.hasGpsHeaderValue)
+        assertEquals("unknown", payload.exifMetadata.exifSourceHeaderValue)
 
-        assertEquals(3, streamFactory.streams.size)
+        assertEquals(4, streamFactory.streams.size)
         streamFactory.streams.forEach { stream ->
             assertTrue(stream.closed)
             assertTrue("Expected multiple reads per stream", stream.totalReads > 1)
@@ -75,6 +80,7 @@ class UploadTaskRunnerTest {
             mediaType = "image/jpeg".toMediaType(),
             totalBytes = -1L,
             boundarySeed = "missing",
+            hasAccessMediaLocationPermission = false,
         )
     }
 
@@ -133,7 +139,7 @@ class UploadTaskRunnerTest {
         }
 
         companion object {
-            private const val MAX_STREAMS = 3
+            private const val MAX_STREAMS = 4
         }
     }
 }

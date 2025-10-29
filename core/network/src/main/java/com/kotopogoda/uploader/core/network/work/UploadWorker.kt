@@ -1,8 +1,11 @@
 package com.kotopogoda.uploader.core.network.work
 
+import android.Manifest
 import android.app.RecoverableSecurityException
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -27,6 +30,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.network.upload.UploadTags
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind
 import com.kotopogoda.uploader.core.network.upload.prepareUploadRequestPayload
+import com.kotopogoda.uploader.core.network.upload.toLogDetails
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import dagger.assisted.Assisted
@@ -117,6 +121,7 @@ class UploadWorker @AssistedInject constructor(
                 appContext.contentResolver.getType(uri)
             }?.takeIf { it.isNotBlank() } ?: DEFAULT_MIME_TYPE
             val mediaType = mimeType.toMediaTypeOrNull() ?: DEFAULT_MIME_TYPE.toMediaType()
+            val hasMediaLocationPermission = hasAccessMediaLocationPermission()
             val payload = prepareUploadPayload(
                 uri = uri,
                 displayName = displayName,
@@ -124,6 +129,7 @@ class UploadWorker @AssistedInject constructor(
                 totalBytes = totalBytes,
                 mediaType = mediaType,
                 mimeType = mimeType,
+                hasAccessMediaLocationPermission = hasMediaLocationPermission,
             )
             Timber.tag("WorkManager").i(
                 UploadLog.message(
@@ -138,6 +144,18 @@ class UploadWorker @AssistedInject constructor(
                         "request_sha256" to payload.requestSha256Hex,
                     ),
                 ),
+            )
+            Timber.tag("WorkManager").i(
+                UploadLog.message(
+                    category = CATEGORY_UPLOAD_CONTENT,
+                    action = "exif_metadata",
+                    uri = uri,
+                    details = buildList {
+                        add("queue_item_id" to itemId)
+                        add("display_name" to displayName)
+                        addAll(payload.exifMetadata.toLogDetails().asList())
+                    }.toTypedArray(),
+                )
             )
             Timber.tag("WorkManager").i(
                 UploadLog.message(
@@ -428,6 +446,7 @@ class UploadWorker @AssistedInject constructor(
         totalBytes: Long,
         mediaType: MediaType,
         mimeType: String,
+        hasAccessMediaLocationPermission: Boolean,
     ): UploadRequestPayload {
         return prepareUploadRequestPayload(
             resolver = appContext.contentResolver,
@@ -437,6 +456,7 @@ class UploadWorker @AssistedInject constructor(
             mediaType = mediaType,
             totalBytes = totalBytes,
             boundarySeed = idempotencyKey,
+            hasAccessMediaLocationPermission = hasAccessMediaLocationPermission,
         )
     }
 
@@ -1022,8 +1042,17 @@ class UploadWorker @AssistedInject constructor(
         uploadApi.upload(
             idempotencyKey = idempotencyKey,
             contentSha256Header = payload.requestSha256Hex,
+            hasGpsHeader = payload.exifMetadata.hasGpsHeaderValue,
+            exifSourceHeader = payload.exifMetadata.exifSourceHeaderValue,
             body = requestBody,
         )
+    }
+
+    private fun hasAccessMediaLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.ACCESS_MEDIA_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private suspend fun executeLookupByIdempotencyKey(

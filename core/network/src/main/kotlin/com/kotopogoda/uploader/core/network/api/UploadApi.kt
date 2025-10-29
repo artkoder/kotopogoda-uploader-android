@@ -34,6 +34,8 @@ interface UploadApi {
     suspend fun upload(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Header("X-Content-SHA256") contentSha256Header: String,
+        @Header("X-Has-GPS") hasGpsHeader: String,
+        @Header("X-EXIF-Source") exifSourceHeader: String,
         @Body body: RequestBody,
     ): Response<UploadAcceptedDto>
 
