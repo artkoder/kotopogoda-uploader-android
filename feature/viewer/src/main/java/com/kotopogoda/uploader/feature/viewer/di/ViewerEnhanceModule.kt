@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.feature.viewer.di
 import com.kotopogoda.uploader.feature.viewer.BuildConfig
 import com.kotopogoda.uploader.core.data.ml.ModelBackend
 import com.kotopogoda.uploader.core.data.ml.ModelDefinition
+import com.kotopogoda.uploader.core.data.ml.ModelFile
 import com.kotopogoda.uploader.core.data.ml.ModelsLock
 import com.kotopogoda.uploader.core.data.ml.ModelsLockParser
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
@@ -64,14 +65,23 @@ object ViewerEnhanceModule {
     fun provideEnhanceEngine(
         zeroDceModel: EnhanceEngine.ZeroDceModel,
         restormerModel: EnhanceEngine.RestormerModel,
+        lock: ModelsLock,
     ): EnhanceEngine = EnhanceEngine(
         zeroDce = zeroDceModel,
         restormer = restormerModel,
+        expectedChecksums = EnhanceEngine.ExpectedChecksums(
+            zeroDce = requireTfliteChecksum(lock.require("zerodcepp_fp16")),
+            restormer = requireTfliteChecksum(lock.require("restormer_fp16")),
+        ),
     )
 }
 
-private fun requireTflitePath(definition: ModelDefinition): String {
-    val file = definition.files.firstOrNull { it.path.endsWith(".tflite") }
+private fun requireTflitePath(definition: ModelDefinition): String =
+    requireTfliteFile(definition).path
+
+private fun requireTfliteChecksum(definition: ModelDefinition): String =
+    requireTfliteFile(definition).sha256
+
+private fun requireTfliteFile(definition: ModelDefinition): ModelFile =
+    definition.files.firstOrNull { it.path.endsWith(".tflite") }
         ?: throw IllegalStateException("Для модели ${definition.name} не найден TFLite-файл в models.lock.json")
-    return file.path
-}

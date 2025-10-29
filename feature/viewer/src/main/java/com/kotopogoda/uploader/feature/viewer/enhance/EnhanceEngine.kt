@@ -32,6 +32,7 @@ class EnhanceEngine(
     private val zeroDce: ZeroDceModel? = null,
     private val restormer: RestormerModel? = null,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val expectedChecksums: ExpectedChecksums = ExpectedChecksums(),
 ) {
 
     enum class Delegate {
@@ -70,12 +71,17 @@ class EnhanceEngine(
         val stages: List<String> = emptyList(),
         val tileSize: Int = DEFAULT_TILE_SIZE,
         val overlap: Int = DEFAULT_TILE_OVERLAP,
+        val tileSizeActual: Int = tileSize,
+        val overlapActual: Int = overlap,
+        val mixingWindow: Int = 0,
         val tileCount: Int = 0,
         val tileUsed: Boolean = false,
         val zeroDceIterations: Int = 0,
         val zeroDceApplied: Boolean = false,
+        val zeroDceDelegateFallback: Boolean = false,
         val restormerMix: Float = 0f,
         val restormerApplied: Boolean = false,
+        val restormerDelegateFallback: Boolean = false,
         val hasSeamFix: Boolean = false,
         val seamMaxDelta: Float = 0f,
         val seamMeanDelta: Float = 0f,
@@ -106,11 +112,18 @@ class EnhanceEngine(
     data class ModelUsage(
         val backend: ModelBackend,
         val checksum: String,
+        val expectedChecksum: String?,
+        val checksumOk: Boolean?,
     )
 
     data class ModelsTelemetry(
         val zeroDce: ModelUsage?,
         val restormer: ModelUsage?,
+    )
+
+    data class ExpectedChecksums(
+        val zeroDce: String? = null,
+        val restormer: String? = null,
     )
 
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
@@ -220,7 +233,8 @@ class EnhanceEngine(
             Timber.tag(LOG_TAG).i("Enhance delegate: %s", actualDelegate)
         }
 
-        val pipeline = buildPipeline(profile, request, restReport)
+        val zeroDelegateFallback = profile.isLowLight && profile.kDce > 1e-3f && zeroResult.delegate != request.delegate
+        val pipeline = buildPipeline(profile, request, restReport, zeroDelegateFallback)
         val timings = Timings(
             decode = decodeDuration,
             metrics = metricsDuration,
@@ -235,8 +249,24 @@ class EnhanceEngine(
         )
 
         val models = ModelsTelemetry(
-            zeroDce = zeroDce?.let { ModelUsage(it.backend, it.checksum) },
-            restormer = restormer?.let { ModelUsage(it.backend, it.checksum) },
+            zeroDce = zeroDce?.let { model ->
+                val expected = expectedChecksums.zeroDce
+                ModelUsage(
+                    backend = model.backend,
+                    checksum = model.checksum,
+                    expectedChecksum = expected,
+                    checksumOk = expected?.equals(model.checksum, ignoreCase = true),
+                )
+            },
+            restormer = restormer?.let { model ->
+                val expected = expectedChecksums.restormer
+                ModelUsage(
+                    backend = model.backend,
+                    checksum = model.checksum,
+                    expectedChecksum = expected,
+                    checksumOk = expected?.equals(model.checksum, ignoreCase = true),
+                )
+            },
         )
 
         Result(
@@ -281,6 +311,10 @@ class EnhanceEngine(
         val tileCount: Int,
         val seamFixApplied: Boolean,
         val seamMetrics: SeamMetrics,
+        val tileSize: Int,
+        val overlap: Int,
+        val mixingWindow: Int,
+        val delegateFallback: Boolean,
     )
 
     private data class SeamMetrics(
@@ -301,19 +335,26 @@ class EnhanceEngine(
         onTileProgress: (tileIndex: Int, total: Int, progress: Float) -> Unit,
     ): RestormerReport {
         val model = restormer
+        val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
+        val safeOverlap = overlap.coerceAtLeast(0)
+        val effectiveOverlap = min(safeOverlap, safeTile / 2)
+        val mixingWindow = effectiveOverlap * 2
         if (mix <= 1e-3f || model == null) {
-            val totalTiles = computeTileCount(buffer.width, buffer.height, tileSize, overlap)
+            val totalTiles = computeTileCount(buffer.width, buffer.height, safeTile, effectiveOverlap)
             repeat(totalTiles) { onTileProgress(it, totalTiles, 1f) }
             return RestormerReport(
                 result = null,
                 delegate = delegate,
                 tileCount = totalTiles,
-                seamFixApplied = overlap > 0,
+                seamFixApplied = effectiveOverlap > 0,
                 seamMetrics = SeamMetrics(),
+                tileSize = safeTile,
+                overlap = effectiveOverlap,
+                mixingWindow = mixingWindow,
+                delegateFallback = false,
             )
         }
-        val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
-        val step = max(1, safeTile - overlap * 2)
+        val step = max(1, safeTile - effectiveOverlap * 2)
         val width = buffer.width
         val height = buffer.height
         val tilesX = ceil(width / step.toDouble()).toInt()
@@ -325,6 +366,7 @@ class EnhanceEngine(
         val accWeight = FloatArray(width * height)
         var index = 0
         var currentDelegate = delegate
+        var delegateFallback = false
         for (ty in 0 until tilesY) {
             val innerY = ty * step
             val innerHeight = min(safeTile, height - innerY)
@@ -335,6 +377,7 @@ class EnhanceEngine(
                 if (innerWidth <= 0) continue
                 onTileProgress(index, totalTiles, 0f)
                 val tile = buffer.subRegion(innerX, innerY, innerWidth, innerHeight)
+                val requestedDelegate = currentDelegate
                 val processed = try {
                     model.denoise(tile, currentDelegate)
                 } catch (error: Exception) {
@@ -347,6 +390,9 @@ class EnhanceEngine(
                     currentDelegate = Delegate.CPU
                     ModelResult(tile, Delegate.CPU)
                 }
+                if (processed.delegate != requestedDelegate) {
+                    delegateFallback = true
+                }
                 currentDelegate = processed.delegate
                 val tilePixels = processed.buffer.pixels
                 val tileWidth = processed.buffer.width
@@ -354,13 +400,13 @@ class EnhanceEngine(
                 for (py in 0 until tileHeight) {
                     val globalY = innerY + py
                     if (globalY >= height) continue
-                    val weightY = hannWeight(py, tileHeight, overlap)
+                    val weightY = hannWeight(py, tileHeight, effectiveOverlap)
                     val base = globalY * width
                     val tileBase = py * tileWidth
                     for (px in 0 until tileWidth) {
                         val globalX = innerX + px
                         if (globalX >= width) continue
-                        val weightX = hannWeight(px, tileWidth, overlap)
+                        val weightX = hannWeight(px, tileWidth, effectiveOverlap)
                         val weight = weightX * weightY
                         if (weight <= 0f) continue
                         val color = tilePixels[tileBase + px]
@@ -420,12 +466,21 @@ class EnhanceEngine(
             result = ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate),
             delegate = currentDelegate,
             tileCount = totalTiles,
-            seamFixApplied = overlap > 0 && totalTiles > 0,
+            seamFixApplied = effectiveOverlap > 0 && totalTiles > 0,
             seamMetrics = seamMetrics,
+            tileSize = safeTile,
+            overlap = effectiveOverlap,
+            mixingWindow = mixingWindow,
+            delegateFallback = delegateFallback,
         )
     }
 
-    private fun buildPipeline(profile: Profile, request: Request, restReport: RestormerReport): Pipeline {
+    private fun buildPipeline(
+        profile: Profile,
+        request: Request,
+        restReport: RestormerReport,
+        zeroDelegateFallback: Boolean,
+    ): Pipeline {
         val stages = mutableListOf<String>()
         val zeroApplied = profile.isLowLight && profile.kDce > 1e-3f
         if (zeroApplied) {
@@ -451,12 +506,17 @@ class EnhanceEngine(
             stages = stages,
             tileSize = request.tileSize,
             overlap = request.overlap,
+            tileSizeActual = restReport.tileSize,
+            overlapActual = restReport.overlap,
+            mixingWindow = restReport.mixingWindow,
             tileCount = restReport.tileCount,
             tileUsed = tileUsed,
             zeroDceIterations = zeroIterations,
             zeroDceApplied = zeroApplied,
+            zeroDceDelegateFallback = zeroDelegateFallback,
             restormerMix = profile.restormerMix,
             restormerApplied = restormerUsed,
+            restormerDelegateFallback = restReport.delegateFallback && restormerUsed,
             hasSeamFix = restReport.seamFixApplied && restormerUsed,
             seamMaxDelta = seamMetrics.maxDelta,
             seamMeanDelta = seamMetrics.meanDelta,

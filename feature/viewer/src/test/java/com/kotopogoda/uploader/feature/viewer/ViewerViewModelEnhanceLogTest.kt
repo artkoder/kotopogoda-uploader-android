@@ -87,9 +87,14 @@ class ViewerViewModelEnhanceLogTest {
             stages = listOf("restormer"),
             tileSize = 512,
             overlap = 64,
+            tileSizeActual = 480,
+            overlapActual = 48,
+            mixingWindow = 96,
             tileCount = 4,
             tileUsed = true,
             restormerApplied = true,
+            zeroDceDelegateFallback = true,
+            restormerDelegateFallback = false,
             seamMaxDelta = 0.42f,
             seamMeanDelta = 0.21f,
             seamArea = 12,
@@ -117,7 +122,20 @@ class ViewerViewModelEnhanceLogTest {
             engineDelegate = EnhanceEngine.Delegate.GPU,
             pipeline = pipeline,
             timings = EnhanceEngine.Timings(),
-            models = EnhanceEngine.ModelsTelemetry(null, null),
+            models = EnhanceEngine.ModelsTelemetry(
+                zeroDce = EnhanceEngine.ModelUsage(
+                    backend = EnhanceEngine.ModelBackend.TFLITE,
+                    checksum = "aaa",
+                    expectedChecksum = "aaa",
+                    checksumOk = true,
+                ),
+                restormer = EnhanceEngine.ModelUsage(
+                    backend = EnhanceEngine.ModelBackend.TFLITE,
+                    checksum = "bbb",
+                    expectedChecksum = "ccc",
+                    checksumOk = false,
+                ),
+            ),
         )
 
         val method = ViewerViewModel::class.java.getDeclaredMethod(
@@ -137,6 +155,13 @@ class ViewerViewModelEnhanceLogTest {
         assertEquals("0.150", loggedDetails["seam_min_weight"])
         assertEquals("1.750", loggedDetails["seam_max_weight"])
         assertEquals("true", loggedDetails["tile_used"])
+        assertEquals("480", loggedDetails["tile_size_actual"])
+        assertEquals("48", loggedDetails["tile_overlap_actual"])
+        assertEquals("96", loggedDetails["mixing_window"])
+        assertEquals("true", loggedDetails["zero_dce_delegate_fallback"])
+        assertEquals("false", loggedDetails["restormer_delegate_fallback"])
+        assertEquals("true", loggedDetails["sha256_ok_zero_dce"])
+        assertEquals("false", loggedDetails["sha256_ok_restormer"])
 
         sourceFile.delete()
         resultFile.delete()

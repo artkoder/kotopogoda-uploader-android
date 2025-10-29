@@ -189,6 +189,77 @@ class EnhanceEngineTest {
     }
 
     @Test
+    fun `pipeline reports tile telemetry and restormer fallback`() = runTest {
+        val noisyPixels = IntArray(16) { index -> if (index % 2 == 0) argb(255, 0, 0) else argb(0, 0, 255) }
+        val decoder = QueueDecoder(listOf(EnhanceEngine.ImageBuffer(4, 4, noisyPixels)))
+        val encoder = RecordingEncoder()
+        val restormer = FallbackRestormer()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = null,
+            restormer = restormer,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
+
+        val result = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                delegate = EnhanceEngine.Delegate.GPU,
+                tileSize = 256,
+                overlap = 200,
+            ),
+        )
+
+        val pipeline = result.pipeline
+        assertEquals(256, pipeline.tileSizeActual)
+        assertEquals(128, pipeline.overlapActual)
+        assertEquals(256, pipeline.mixingWindow)
+        assertTrue("restormer should be used", pipeline.restormerApplied)
+        assertTrue("restormer fallback must be recorded", pipeline.restormerDelegateFallback)
+
+        input.delete()
+        output.delete()
+    }
+
+    @Test
+    fun `pipeline reports zero-dce delegate fallback`() = runTest {
+        val darkPixels = IntArray(16) { argb(10, 10, 10) }
+        val decoder = QueueDecoder(listOf(EnhanceEngine.ImageBuffer(4, 4, darkPixels)))
+        val encoder = RecordingEncoder()
+        val zeroDce = FallbackZeroDce()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = zeroDce,
+            restormer = null,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
+
+        val result = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                delegate = EnhanceEngine.Delegate.GPU,
+            ),
+        )
+
+        val pipeline = result.pipeline
+        assertTrue("zero-dce must be applied for dark image", pipeline.zeroDceApplied)
+        assertTrue("zero-dce fallback must be reported", pipeline.zeroDceDelegateFallback)
+
+        input.delete()
+        output.delete()
+    }
+
+    @Test
     fun `hann window tapers to zero at edges`() {
         assertClose(0f, hannWeight(position = 0, size = 512, overlap = 64), 1e-6f)
         assertClose(0.5f, hannWeight(position = 32, size = 512, overlap = 64), 1e-3f)
@@ -249,6 +320,22 @@ class EnhanceEngineTest {
         }
     }
 
+    private class FallbackZeroDce : EnhanceEngine.ZeroDceModel {
+        override val backend: EnhanceEngine.ModelBackend = EnhanceEngine.ModelBackend.TFLITE
+        override val checksum: String = "zero-dce-fallback"
+        override suspend fun enhance(
+            buffer: EnhanceEngine.ImageBuffer,
+            delegate: EnhanceEngine.Delegate,
+            iterations: Int,
+        ): EnhanceEngine.ModelResult {
+            val pixels = IntArray(buffer.pixels.size) { argb(180, 180, 180) }
+            return EnhanceEngine.ModelResult(
+                buffer = EnhanceEngine.ImageBuffer(buffer.width, buffer.height, pixels),
+                delegate = EnhanceEngine.Delegate.CPU,
+            )
+        }
+    }
+
     private class TrackingRestormer : EnhanceEngine.RestormerModel {
         var calls: Int = 0
         override val backend: EnhanceEngine.ModelBackend = EnhanceEngine.ModelBackend.TFLITE
@@ -262,6 +349,26 @@ class EnhanceEngineTest {
             return EnhanceEngine.ModelResult(
                 buffer = EnhanceEngine.ImageBuffer(tile.width, tile.height, pixels),
                 delegate = delegate,
+            )
+        }
+    }
+
+    private class FallbackRestormer : EnhanceEngine.RestormerModel {
+        override val backend: EnhanceEngine.ModelBackend = EnhanceEngine.ModelBackend.TFLITE
+        override val checksum: String = "restormer-fallback"
+        override suspend fun denoise(
+            tile: EnhanceEngine.ImageBuffer,
+            delegate: EnhanceEngine.Delegate,
+        ): EnhanceEngine.ModelResult {
+            val pixels = IntArray(tile.pixels.size) { argb(32, 32, 160) }
+            val resolvedDelegate = if (delegate == EnhanceEngine.Delegate.GPU) {
+                EnhanceEngine.Delegate.CPU
+            } else {
+                delegate
+            }
+            return EnhanceEngine.ModelResult(
+                buffer = EnhanceEngine.ImageBuffer(tile.width, tile.height, pixels),
+                delegate = resolvedDelegate,
             )
         }
     }
