@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euxo pipefail
           python3 -m pip install --upgrade pip
-          python3 -m pip install torch torchvision onnx onnxsim onnxruntime tensorflow==2.18.0 tf2onnx onnx-tf einops
+          python3 -m pip install torch torchvision onnx onnxsim onnxruntime tensorflow==2.20.0 tf2onnx onnx-tf einops
 
       - name: Prepare model artifacts
         run: |
