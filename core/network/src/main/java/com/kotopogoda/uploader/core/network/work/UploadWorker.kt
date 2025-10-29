@@ -779,6 +779,26 @@ class UploadWorker @AssistedInject constructor(
             )
         )
         recordError(displayName, errorKind, httpCode)
+        val locationHidden = LocationHiddenDetector.isLocationHidden(resolvedMessage, throwable?.message)
+        try {
+            uploadQueueRepository.setLocationHiddenBySystem(
+                id = itemId,
+                hidden = locationHidden,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            logGuardError(
+                action = "set_location_hidden_failed",
+                uri = parsedUri,
+                details = guardDetails(
+                    displayName = displayName,
+                    errorKind = errorKind,
+                    httpCode = httpCode,
+                ),
+                throwable = error,
+            )
+        }
         try {
             uploadQueueRepository.markFailed(
                 id = itemId,

@@ -39,6 +39,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import io.mockk.coVerify
 import io.mockk.mockk
 import androidx.work.ForegroundUpdater
 import org.robolectric.RobolectricTestRunner
@@ -236,6 +237,30 @@ class PollStatusWorkerTest {
         val result = worker.doWork()
 
         assertTrue(result is Failure)
+        coVerify(exactly = 1) {
+            uploadQueueRepository.setLocationHiddenBySystem(1L, false)
+        }
+    }
+
+    @Test
+    fun failedStatusWithLocationHiddenSetsFlag() = runBlocking {
+        val file = createTempFile()
+        val inputData = pollInputData(file)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"status":"failed","error":"location_hidden_by_system"}""")
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Failure)
+        coVerify(exactly = 1) {
+            uploadQueueRepository.setLocationHiddenBySystem(1L, true)
+        }
     }
 
     @Test

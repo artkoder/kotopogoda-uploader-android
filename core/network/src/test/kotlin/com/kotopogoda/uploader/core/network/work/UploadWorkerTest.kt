@@ -543,6 +543,9 @@ class UploadWorkerTest {
                 errorMessage = "Token expired",
             )
         }
+        coVerify(exactly = 1) {
+            uploadQueueRepository.setLocationHiddenBySystem(1L, false)
+        }
     }
 
     @Test
@@ -573,6 +576,9 @@ class UploadWorkerTest {
                 requeue = false,
                 errorMessage = "forbidden",
             )
+        }
+        coVerify(exactly = 1) {
+            uploadQueueRepository.setLocationHiddenBySystem(1L, false)
         }
     }
 
@@ -605,6 +611,41 @@ class UploadWorkerTest {
                 requeue = false,
                 errorMessage = "X-Timestamp must be an integer",
             )
+        }
+        coVerify(exactly = 1) {
+            uploadQueueRepository.setLocationHiddenBySystem(1L, false)
+        }
+    }
+
+    @Test
+    fun locationHiddenMessageSetsFlag() = runBlocking {
+        val file = createTempFileWithContent("hidden")
+        val inputData = inputDataFor(file)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":"location_hidden_by_system","message":"Location hidden by system"}""")
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Failure)
+        val outputData = (result as Failure).outputData
+        assertEquals("Location hidden by system", outputData.getString(UploadEnqueuer.KEY_ERROR_MESSAGE))
+        coVerify(exactly = 1) {
+            uploadQueueRepository.markFailed(
+                id = 1L,
+                errorKind = UploadErrorKind.HTTP,
+                httpCode = 400,
+                requeue = false,
+                errorMessage = "Location hidden by system",
+            )
+        }
+        coVerify(exactly = 1) {
+            uploadQueueRepository.setLocationHiddenBySystem(1L, true)
         }
     }
 
