@@ -249,13 +249,46 @@ def format_mib(size_bytes: int) -> float:
     return round(size_bytes / (1024 ** 2), 4)
 
 
+MODULE_INSTALL_MAP = {
+    "torch": ["torch", "torchvision"],
+    "onnx": ["onnx", "onnxsim", "onnxruntime"],
+    "onnx_tf": ["onnx-tf"],
+    "tensorflow": ["tensorflow==2.20.0", "tf2onnx"],
+    "einops": ["einops"],
+}
+
+
 def ensure_python_modules(modules: List[str]) -> None:
-    missing = []
+    missing: List[str] = []
     for module in modules:
         try:
             __import__(module)
         except ImportError:
             missing.append(module)
+
+    if not missing:
+        return
+
+    attempted_requirements: set[str] = set()
+    for module in missing:
+        requirements = MODULE_INSTALL_MAP.get(module, [])
+        if not requirements:
+            continue
+        for requirement in requirements:
+            if requirement in attempted_requirements:
+                continue
+            attempted_requirements.add(requirement)
+            pip_install(requirement)
+
+    if attempted_requirements:
+        missing_after_install: List[str] = []
+        for module in modules:
+            try:
+                __import__(module)
+            except ImportError:
+                missing_after_install.append(module)
+        missing = missing_after_install
+
     if missing:
         raise RuntimeError(
             "Требуются Python-модули: " + ", ".join(missing)
