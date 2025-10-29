@@ -38,8 +38,14 @@ jobs:
           sudo install -m 0755 ncnn/build/tools/onnx/onnx2ncnn /usr/local/bin/onnx2ncnn
           sudo install -m 0755 ncnn/build/tools/ncnnoptimize /usr/local/bin/ncnnoptimize
           sudo ldconfig
-          onnx2ncnn -h > /dev/null
-          ncnnoptimize -h > /dev/null
+          if ! onnx2ncnn --help >/dev/null 2>&1; then
+            echo "onnx2ncnn не поддерживает --help, выполняем холостой запуск"
+            onnx2ncnn </dev/null >/dev/null 2>&1 || true
+          fi
+          if ! ncnnoptimize --help >/dev/null 2>&1; then
+            echo "ncnnoptimize не поддерживает --help, выполняем холостой запуск"
+            ncnnoptimize </dev/null >/dev/null 2>&1 || true
+          fi
           rm -rf ncnn
 
       - name: Verify NCNN tools availability
