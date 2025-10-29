@@ -6,6 +6,8 @@ import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.zip.ZipInputStream
+import java.nio.file.Path
+import java.nio.file.Paths
 import kotlin.io.DEFAULT_BUFFER_SIZE
 import kotlin.math.roundToLong
 import org.gradle.api.DefaultTask
@@ -102,10 +104,13 @@ abstract class FetchModelsTask : DefaultTask() {
                 ?: error("Для модели '$name' не указан asset")
             val assetSha = payload["sha256"]?.toString()?.lowercase(Locale.US)
             val assetMinBytes = payload["min_mb"]?.let { toMegabytes(it) } ?: 0L
+            val unzipped = payload["unzipped"]?.toString()
+                ?: error("Для модели '$name' не указан unzipped")
+            val unzippedPath = normaliseUnzipped(unzipped)
             val files = readFileEntries(name, payload)
 
             val ready = files.all { entry ->
-                val filePath = assetsDir.resolve(entry.path)
+                val filePath = resolveFile(assetsDir, unzippedPath, entry.path)
                 filePath.exists() && verifyFile(filePath, entry.sha256, entry.minBytes)
             }
             if (ready) {
@@ -128,10 +133,24 @@ abstract class FetchModelsTask : DefaultTask() {
                 throw IllegalStateException("Архив '$assetName' меньше минимального размера ${payload["min_mb"]} МБ")
             }
 
+            val rootDir = resolveRootDir(assetsDir, unzippedPath)
+            if (unzippedPath != null) {
+                if (rootDir.exists()) {
+                    rootDir.deleteRecursively()
+                }
+            } else {
+                files.forEach { entry ->
+                    val existing = resolveFile(assetsDir, null, entry.path)
+                    if (existing.exists()) {
+                        existing.delete()
+                    }
+                }
+            }
+
             unzip(archiveFile, assetsDir)
 
             files.forEach { entry ->
-                val modelFile = assetsDir.resolve(entry.path)
+                val modelFile = resolveFile(assetsDir, unzippedPath, entry.path)
                 if (!modelFile.exists()) {
                     throw IllegalStateException("После распаковки отсутствует файл ${entry.path} для модели '$name'")
                 }
@@ -166,6 +185,42 @@ abstract class FetchModelsTask : DefaultTask() {
             val minBytes = data["min_mb"]?.let { toMegabytes(it) } ?: 0L
             FileEntry(path, sha, minBytes)
         }
+    }
+
+    private fun normaliseUnzipped(value: String): Path? {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty() || trimmed == ".") {
+            return null
+        }
+        val path = Paths.get(trimmed).normalize()
+        require(!path.isAbsolute) { "Поле 'unzipped' для модели должно быть относительным путём" }
+        for (name in path) {
+            require(name.toString() != "..") { "Поле 'unzipped' не должно содержать '..'" }
+        }
+        return if (path.nameCount == 0) null else path
+    }
+
+    private fun resolveRootDir(baseDir: java.io.File, root: Path?): java.io.File {
+        val basePath = baseDir.toPath()
+        val resolved = root?.let { basePath.resolve(it).normalize() } ?: basePath
+        if (!resolved.startsWith(basePath)) {
+            throw IllegalStateException("Каталог распаковки выходит за пределы ${baseDir.absolutePath}")
+        }
+        return resolved.toFile()
+    }
+
+    private fun resolveFile(baseDir: java.io.File, root: Path?, relativePath: String): java.io.File {
+        val normalisedRelative = Paths.get(relativePath).normalize()
+        require(!normalisedRelative.isAbsolute) { "Пути файлов моделей должны быть относительными" }
+        for (name in normalisedRelative) {
+            require(name.toString() != "..") { "Пути файлов моделей не должны содержать '..'" }
+        }
+        val rootDir = resolveRootDir(baseDir, root).toPath()
+        val target = rootDir.resolve(normalisedRelative).normalize()
+        if (!target.startsWith(baseDir.toPath())) {
+            throw IllegalStateException("Путь файла выходит за пределы каталога моделей: $target")
+        }
+        return target.toFile()
     }
 
     private fun verifyFile(file: java.io.File, expectedSha: String, minBytes: Long): Boolean {
