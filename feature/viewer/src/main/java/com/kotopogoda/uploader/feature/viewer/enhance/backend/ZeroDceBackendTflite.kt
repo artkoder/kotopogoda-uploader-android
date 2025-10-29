@@ -1,7 +1,6 @@
 package com.kotopogoda.uploader.feature.viewer.enhance.backend
 
 import android.content.Context
-import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,17 +14,23 @@ import timber.log.Timber
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
+import java.security.MessageDigest
+import kotlin.io.DEFAULT_BUFFER_SIZE
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 
 @Singleton
 class ZeroDceBackendTflite @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : EnhanceEngine.ZeroDceModel {
 
+    override val checksum: String by lazy { computeChecksum(ZERO_DCE_MODEL) }
+
     override suspend fun enhance(
         buffer: EnhanceEngine.ImageBuffer,
         delegate: EnhanceEngine.Delegate,
         iterations: Int,
     ): EnhanceEngine.ModelResult = withContext(Dispatchers.IO) {
+        val safeIterations = max(1, iterations)
         val preferences = when (delegate) {
             EnhanceEngine.Delegate.GPU -> listOf(DelegatePreference.GPU, DelegatePreference.CPU)
             EnhanceEngine.Delegate.CPU -> listOf(DelegatePreference.CPU)
@@ -33,7 +38,7 @@ class ZeroDceBackendTflite @Inject constructor(
         var lastError: Throwable? = null
         for (preference in preferences) {
             try {
-                val result = runEnhancement(buffer.copy(), iterations, preference)
+                val result = runEnhancement(buffer, safeIterations, preference)
                 Timber.tag(TAG).i(
                     "ZeroDCE delegate resolved: requested=%s, actual=%s",
                     delegate,
@@ -45,10 +50,7 @@ class ZeroDceBackendTflite @Inject constructor(
                 Timber.tag(TAG).w(error, "ZeroDCE delegate %s failed", preference)
             }
         }
-        if (lastError != null) {
-            Timber.tag(TAG).w(lastError, "ZeroDCE inference failed, falling back to simple gain")
-        }
-        return@withContext EnhanceEngine.ModelResult(applyGain(buffer.copy(), iterations), EnhanceEngine.Delegate.CPU)
+        throw lastError ?: IllegalStateException("ZeroDCE inference failed")
     }
 
     private fun runEnhancement(
@@ -58,11 +60,10 @@ class ZeroDceBackendTflite @Inject constructor(
     ): EnhanceEngine.ModelResult {
         val options = Interpreter.Options()
         var gpuDelegate: Delegate? = null
-        var postGpuDelegate: Delegate? = null
         try {
             when (preference) {
                 DelegatePreference.GPU -> {
-                    gpuDelegate = GpuDelegate()
+                    gpuDelegate = createGpuDelegate() ?: throw IllegalStateException("GPU delegate unavailable")
                     options.addDelegate(gpuDelegate)
                 }
                 DelegatePreference.CPU -> {
@@ -70,42 +71,69 @@ class ZeroDceBackendTflite @Inject constructor(
                     options.setNumThreads(max(1, Runtime.getRuntime().availableProcessors() - 1))
                 }
             }
-            Interpreter(loadModel(ZERO_DCE_MODEL), options).use { }
-            val postOptions = Interpreter.Options().apply {
-                when (preference) {
-                    DelegatePreference.GPU -> {
-                        postGpuDelegate = GpuDelegate()
-                        addDelegate(postGpuDelegate)
-                    }
-                    DelegatePreference.CPU -> {
-                        setUseXNNPACK(true)
-                        setNumThreads(max(1, Runtime.getRuntime().availableProcessors() - 1))
+
+            Interpreter(loadModel(ZERO_DCE_MODEL), options).use { interpreter ->
+                val inputTensor = interpreter.getInputTensor(0)
+                val outputTensor = interpreter.getOutputTensor(0)
+                require(inputTensor.shape().size >= 4) { "ZeroDCE input tensor shape is invalid" }
+                require(outputTensor.shape().size >= 4) { "ZeroDCE output tensor shape is invalid" }
+                val inputShape = inputTensor.shape()
+                val outputShape = outputTensor.shape()
+                val inputHeight = inputShape[1]
+                val inputWidth = inputShape[2]
+                val inputChannels = inputShape[3]
+                val outputHeight = outputShape[1]
+                val outputWidth = outputShape[2]
+                val outputChannels = outputShape[3]
+                require(inputChannels == 3 && outputChannels == 3) { "ZeroDCE expects RGB tensors" }
+
+                val prepared = TfliteImageOps.prepareInput(buffer, inputWidth, inputHeight)
+                val inputFloats = prepared.floats
+                val outputFloats = FloatArray(outputWidth * outputHeight * outputChannels)
+                val inputBuffer = TfliteImageOps.allocateBuffer(inputTensor.dataType(), inputFloats.size)
+                val outputBuffer = TfliteImageOps.allocateBuffer(outputTensor.dataType(), outputFloats.size)
+
+                var iterationsRun = 0
+                for (iteration in 0 until iterations) {
+                    TfliteImageOps.writeToBuffer(inputFloats, inputBuffer, inputTensor.dataType())
+                    inputBuffer.rewind()
+                    outputBuffer.rewind()
+                    interpreter.run(inputBuffer, outputBuffer)
+                    TfliteImageOps.readFromBuffer(outputBuffer, outputTensor.dataType(), outputFloats)
+                    iterationsRun++
+                    if (iteration < iterations - 1) {
+                        if (inputFloats.size != outputFloats.size) {
+                            Timber.tag(TAG).w(
+                                "ZeroDCE output shape %dx%d differs from input %dx%d, stopping at iteration %d",
+                                outputWidth,
+                                outputHeight,
+                                inputWidth,
+                                inputHeight,
+                                iterationsRun,
+                            )
+                            break
+                        }
+                        System.arraycopy(outputFloats, 0, inputFloats, 0, inputFloats.size)
                     }
                 }
+
+                val result = TfliteImageOps.buildImageBuffer(
+                    floats = if (iterationsRun == 0) inputFloats else outputFloats,
+                    width = outputWidth,
+                    height = outputHeight,
+                    originalWidth = prepared.originalWidth,
+                    originalHeight = prepared.originalHeight,
+                )
+                return EnhanceEngine.ModelResult(result, preference.asEngineDelegate())
             }
-            Interpreter(loadModel(ZERO_DCE_POST_MODEL), postOptions).use { }
         } finally {
             gpuDelegate?.close()
-            postGpuDelegate?.close()
         }
-        return EnhanceEngine.ModelResult(applyGain(buffer, iterations), preference.asEngineDelegate())
     }
 
-    private fun applyGain(buffer: EnhanceEngine.ImageBuffer, iterations: Int): EnhanceEngine.ImageBuffer {
-        val gain = 0.08f * max(1, iterations)
-        val pixels = buffer.pixels
-        for (index in pixels.indices) {
-            val color = pixels[index]
-            val r = clamp01(((color shr 16) and 0xFF) / 255f + gain * (1f - ((color shr 16) and 0xFF) / 255f))
-            val g = clamp01(((color shr 8) and 0xFF) / 255f + gain * (1f - ((color shr 8) and 0xFF) / 255f))
-            val b = clamp01((color and 0xFF) / 255f + gain * (1f - (color and 0xFF) / 255f))
-            pixels[index] = ((color ushr 24) and 0xFF shl 24) or
-                (toChannel(r) shl 16) or
-                (toChannel(g) shl 8) or
-                toChannel(b)
-        }
-        return buffer
-    }
+    private fun createGpuDelegate(): Delegate? = runCatching { GpuDelegate() }
+        .onFailure { Timber.tag(TAG).w(it, "Unable to create GPU delegate") }
+        .getOrNull()
 
     private fun loadModel(name: String): MappedByteBuffer {
         val assetManager = context.assets
@@ -118,13 +146,18 @@ class ZeroDceBackendTflite @Inject constructor(
         }
     }
 
-    private fun clamp01(value: Float): Float = when {
-        value < 0f -> 0f
-        value > 1f -> 1f
-        else -> value
-    }
-
-    private fun toChannel(value: Float): Int = (value * 255f + 0.5f).toInt().coerceIn(0, 255)
+    private fun computeChecksum(asset: String): String = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        context.assets.open(asset).use { stream ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }.getOrElse { error -> throw IllegalStateException("Unable to compute checksum for $asset", error) }
 
     private enum class DelegatePreference {
         GPU,
@@ -138,7 +171,6 @@ class ZeroDceBackendTflite @Inject constructor(
 
     companion object {
         private const val TAG = "Enhance/ZeroDCE"
-        private const val ZERO_DCE_MODEL = "zero_dce.tflite"
-        private const val ZERO_DCE_POST_MODEL = "zero_dce_pp.tflite"
+        private const val ZERO_DCE_MODEL = "models/zerodcepp_fp16.tflite"
     }
 }

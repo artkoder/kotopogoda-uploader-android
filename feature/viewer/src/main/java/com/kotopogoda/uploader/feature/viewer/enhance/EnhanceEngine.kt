@@ -92,6 +92,9 @@ class EnhanceEngine(
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
         val strength = request.strength.coerceIn(0f, 1f)
 
+        zeroDce?.let { Timber.tag(LOG_TAG).i("ZeroDCE model checksum: %s", it.checksum) }
+        restormer?.let { Timber.tag(LOG_TAG).i("Restormer model checksum: %s", it.checksum) }
+
         lateinit var buffer: ImageBuffer
         lateinit var metrics: Metrics
         lateinit var profile: Profile
@@ -216,8 +219,16 @@ class EnhanceEngine(
             return ModelResult(source, delegate)
         }
         val safeIterations = max(1, iterations)
-        val processed = zeroDce?.enhance(source.copy(), delegate, safeIterations)
-            ?: ModelResult(fallbackZeroDce(source.copy(), safeIterations), Delegate.CPU)
+        val backend = zeroDce
+        if (backend == null) {
+            return ModelResult(fallbackZeroDce(source.copy(), safeIterations), Delegate.CPU)
+        }
+        val processed = try {
+            backend.enhance(source.copy(), delegate, safeIterations)
+        } catch (error: Exception) {
+            Timber.tag(LOG_TAG).w(error, "ZeroDCE backend failed, using fallback curve")
+            return ModelResult(fallbackZeroDce(source.copy(), safeIterations), Delegate.CPU)
+        }
         val blended = blendBuffers(source, processed.buffer, mix)
         return ModelResult(blended, processed.delegate)
     }
@@ -271,7 +282,18 @@ class EnhanceEngine(
                 if (innerWidth <= 0) continue
                 onTileProgress(index, totalTiles, 0f)
                 val tile = buffer.subRegion(innerX, innerY, innerWidth, innerHeight)
-                val processed = model.denoise(tile, currentDelegate)
+                val processed = try {
+                    model.denoise(tile, currentDelegate)
+                } catch (error: Exception) {
+                    Timber.tag(LOG_TAG).w(
+                        error,
+                        "Restormer backend failed for tile (%d,%d), using original",
+                        tx,
+                        ty,
+                    )
+                    currentDelegate = Delegate.CPU
+                    ModelResult(tile, Delegate.CPU)
+                }
                 currentDelegate = processed.delegate
                 val tilePixels = processed.buffer.pixels
                 val tileWidth = processed.buffer.width
@@ -572,10 +594,12 @@ class EnhanceEngine(
     }
 
     interface ZeroDceModel {
+        val checksum: String
         suspend fun enhance(buffer: ImageBuffer, delegate: Delegate, iterations: Int): ModelResult
     }
 
     interface RestormerModel {
+        val checksum: String
         suspend fun denoise(tile: ImageBuffer, delegate: Delegate): ModelResult
     }
 
