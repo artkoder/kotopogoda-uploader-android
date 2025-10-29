@@ -1027,6 +1027,8 @@ class UploadWorker @AssistedInject constructor(
         uploadApi.upload(
             idempotencyKey = idempotencyKey,
             contentSha256Header = payload.requestSha256Hex,
+            hasGpsHeader = payload.gpsState.headerValue,
+            exifSourceHeader = payload.exifSource.headerValue,
             body = requestBody,
         )
     }

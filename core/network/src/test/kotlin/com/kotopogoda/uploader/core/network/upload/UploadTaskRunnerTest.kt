@@ -25,6 +25,7 @@ class UploadTaskRunnerTest {
         every { resolver.openAssetFileDescriptor(uri, any()) } returns null
         every { resolver.openInputStream(uri) } answers { streamFactory.nextStream() }
         every { resolver.getType(uri) } returns "image/jpeg"
+        every { resolver.persistedUriPermissions } returns emptyList()
 
         val payload = prepareUploadRequestPayload(
             resolver = resolver,
@@ -41,6 +42,8 @@ class UploadTaskRunnerTest {
             .joinToString(separator = "") { byte -> "%02x".format(byte) }
         assertEquals(data.size.toLong(), payload.fileSize)
         assertEquals(expectedFileSha, payload.fileSha256Hex)
+        assertEquals(UploadGpsState.UNKNOWN, payload.gpsState)
+        assertEquals(UploadExifSource.ORIGINAL, payload.exifSource)
 
         val requestBody = payload.createRequestBody(null)
         val sink = Buffer()
@@ -66,6 +69,7 @@ class UploadTaskRunnerTest {
         val resolver = mockk<ContentResolver>()
         every { resolver.openAssetFileDescriptor(uri, any()) } returns null
         every { resolver.openInputStream(uri) } returns null
+        every { resolver.persistedUriPermissions } returns emptyList()
 
         prepareUploadRequestPayload(
             resolver = resolver,

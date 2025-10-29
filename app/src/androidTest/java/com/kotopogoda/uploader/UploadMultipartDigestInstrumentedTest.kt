@@ -65,6 +65,8 @@ class UploadMultipartDigestInstrumentedTest {
             .post(requestBody)
             .header("Idempotency-Key", "instrumented-key")
             .header("X-Content-SHA256", payload.requestSha256Hex)
+            .header("X-Has-GPS", payload.gpsState.headerValue)
+            .header("X-EXIF-Source", payload.exifSource.headerValue)
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -75,6 +77,8 @@ class UploadMultipartDigestInstrumentedTest {
         val recordedBytes = recorded.body.readByteArray()
         val recordedDigest = recordedBytes.sha256Hex()
         assertEquals(payload.requestSha256Hex, recorded.getHeader("X-Content-SHA256"))
+        assertEquals(payload.gpsState.headerValue, recorded.getHeader("X-Has-GPS"))
+        assertEquals(payload.exifSource.headerValue, recorded.getHeader("X-EXIF-Source"))
         assertEquals(payload.requestSha256Hex, recordedDigest)
 
         val boundary = recorded.getHeader("Content-Type")?.substringAfter("boundary=")?.trim()

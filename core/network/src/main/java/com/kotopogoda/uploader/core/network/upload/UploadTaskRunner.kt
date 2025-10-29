@@ -56,13 +56,15 @@ class UploadTaskRunner @Inject constructor(
                 boundarySeed = params.idempotencyKey,
             )
             val requestBody = payload.createRequestBody(null)
-            val response = try {
-                uploadApi.upload(
-                    idempotencyKey = params.idempotencyKey,
-                    contentSha256Header = payload.requestSha256Hex,
-                    body = requestBody,
-                )
-            } catch (unknown: UnknownHostException) {
+                val response = try {
+                    uploadApi.upload(
+                        idempotencyKey = params.idempotencyKey,
+                        contentSha256Header = payload.requestSha256Hex,
+                        hasGpsHeader = payload.gpsState.headerValue,
+                        exifSourceHeader = payload.exifSource.headerValue,
+                        body = requestBody,
+                    )
+                } catch (unknown: UnknownHostException) {
                 return@withContext Failure(UploadErrorKind.NETWORK, httpCode = null, retryable = true)
             } catch (io: IOException) {
                 return@withContext Failure(UploadErrorKind.NETWORK, httpCode = null, retryable = true)
