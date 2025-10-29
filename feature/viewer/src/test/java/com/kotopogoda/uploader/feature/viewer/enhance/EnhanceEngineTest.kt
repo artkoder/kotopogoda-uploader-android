@@ -198,6 +198,7 @@ class EnhanceEngineTest {
     private class TrackingZeroDce : EnhanceEngine.ZeroDceModel {
         data class Call(val delegate: EnhanceEngine.Delegate, val iterations: Int)
         val calls = mutableListOf<Call>()
+        override val checksum: String = "zero-dce-test"
         override suspend fun enhance(
             buffer: EnhanceEngine.ImageBuffer,
             delegate: EnhanceEngine.Delegate,
@@ -214,6 +215,7 @@ class EnhanceEngineTest {
 
     private class TrackingRestormer : EnhanceEngine.RestormerModel {
         var calls: Int = 0
+        override val checksum: String = "restormer-test"
         override suspend fun denoise(
             tile: EnhanceEngine.ImageBuffer,
             delegate: EnhanceEngine.Delegate,
