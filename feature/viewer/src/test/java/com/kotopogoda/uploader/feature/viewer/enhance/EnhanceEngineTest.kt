@@ -165,6 +165,18 @@ class EnhanceEngineTest {
         assertEquals("restormer should not run on clean image", callsAfterNoisy, restormer.calls)
     }
 
+    @Test
+    fun `hann window tapers to zero at edges`() {
+        assertClose(0f, hannWeight(position = 0, size = 512, overlap = 64), 1e-6f)
+        assertClose(0.5f, hannWeight(position = 32, size = 512, overlap = 64), 1e-3f)
+        assertClose(1f, hannWeight(position = 128, size = 512, overlap = 64), 1e-6f)
+        assertClose(
+            hannWeight(position = 1, size = 33, overlap = 32),
+            hannWeight(position = 31, size = 33, overlap = 32),
+            1e-6f,
+        )
+    }
+
     private fun argb(r: Int, g: Int, b: Int): Int {
         val rr = (r and 0xFF)
         val gg = (g and 0xFF)
