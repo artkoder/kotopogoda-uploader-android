@@ -21,7 +21,8 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y git-lfs wget unzip ffmpeg
+          sudo apt-get install -y git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev
+          sudo ldconfig
 
           NCNN_VERSION=20240410
           wget -q https://github.com/Tencent/ncnn/releases/download/${NCNN_VERSION}/ncnn-${NCNN_VERSION}-ubuntu-2204.zip
