@@ -17,26 +17,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install system dependencies
+      - name: Install system dependencies and build NCNN tools
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y git-lfs wget unzip ffmpeg
+          sudo apt-get install -y git-lfs wget unzip ffmpeg \
+            libonnx-dev protobuf-compiler libprotobuf-dev \
+            cmake ninja-build build-essential
 
-          NCNN_VERSION=20240410
-          wget -q https://github.com/Tencent/ncnn/releases/download/${NCNN_VERSION}/ncnn-${NCNN_VERSION}-ubuntu-2204.zip
-          unzip -q ncnn-${NCNN_VERSION}-ubuntu-2204.zip
-          sudo install -m 0755 ncnn-${NCNN_VERSION}-ubuntu-2204/bin/onnx2ncnn /usr/local/bin/onnx2ncnn
-          sudo install -m 0755 ncnn-${NCNN_VERSION}-ubuntu-2204/bin/ncnnoptimize /usr/local/bin/ncnnoptimize
-          rm -rf ncnn-${NCNN_VERSION}-ubuntu-2204 ncnn-${NCNN_VERSION}-ubuntu-2204.zip
+          NCNN_REPO="https://github.com/Tencent/ncnn.git"
+          NCNN_REF="20240410"
+          git clone --depth 1 --branch "$NCNN_REF" "$NCNN_REPO" ncnn
+          cmake -S ncnn -B ncnn/build -G Ninja \
+            -DNCNN_BUILD_TOOLS=ON \
+            -DNCNN_BUILD_EXAMPLES=OFF \
+            -DNCNN_BUILD_BENCHMARK=OFF
+          cmake --build ncnn/build --target onnx2ncnn ncnnoptimize
+          sudo install -m 0755 ncnn/build/tools/onnx/onnx2ncnn /usr/local/bin/onnx2ncnn
+          sudo install -m 0755 ncnn/build/tools/ncnnoptimize /usr/local/bin/ncnnoptimize
+          sudo ldconfig
+          rm -rf ncnn
 
       - name: Verify NCNN tools availability
         run: |
           set -euxo pipefail
           command -v onnx2ncnn
-          onnx2ncnn -h > /dev/null
+          onnx2ncnn </dev/null >/dev/null 2>&1 || true
           command -v ncnnoptimize
-          ncnnoptimize -h > /dev/null
+          ncnnoptimize </dev/null >/dev/null 2>&1 || true
 
       - name: Install Python dependencies
         run: |
