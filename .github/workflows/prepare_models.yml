@@ -17,16 +17,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install system dependencies
+      - name: Install system dependencies and NCNN tools
         run: |
           set -euxo pipefail
           sudo apt-get update
-          APT_PACKAGES="git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev cmake ninja-build build-essential"
+          APT_PACKAGES="git-lfs wget unzip ffmpeg libonnx-dev protobuf-compiler libprotobuf-dev cmake ninja-build build-essential onnxruntime"
           sudo apt-get install -y ${APT_PACKAGES}
 
-          NCNN_VERSION=20240410
           NCNN_REPO=https://github.com/Tencent/ncnn.git
-          git clone --depth 1 --branch ${NCNN_VERSION} ${NCNN_REPO} ncnn
+          NCNN_COMMIT=56775de50990ab7f16627efdcf5529b49541206f
+          git clone ${NCNN_REPO} ncnn
+          git -C ncnn checkout ${NCNN_COMMIT}
           cmake -S ncnn -B ncnn/build -G Ninja \
             -DNCNN_VULKAN=OFF \
             -DNCNN_BUILD_TOOLS=ON \
@@ -35,7 +36,9 @@ jobs:
           cmake --build ncnn/build --target onnx2ncnn ncnnoptimize
           sudo install -m 0755 ncnn/build/tools/onnx/onnx2ncnn /usr/local/bin/onnx2ncnn
           sudo install -m 0755 ncnn/build/tools/onnx/ncnnoptimize /usr/local/bin/ncnnoptimize
+          sudo ldconfig
           onnx2ncnn -h > /dev/null
+          ncnnoptimize -h > /dev/null
           rm -rf ncnn
 
       - name: Verify NCNN tools availability
