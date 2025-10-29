@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.feature.queue
 import android.content.res.Resources
 import android.text.format.Formatter
 import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,9 +58,23 @@ fun QueueRoute(
     viewModel: QueueViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         viewModel.ensureSummaryRunning()
         viewModel.startUploadProcessing()
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                QueueEvent.ShowLocationHiddenMessage -> {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.queue_location_hidden_by_system),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
     }
     QueueScreen(
         state = state,

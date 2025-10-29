@@ -290,6 +290,53 @@ class QueueViewModelTest {
     }
 
     @Test
+    fun locationHiddenEventEmittedOncePerAppearance() = runTest(dispatcherRule.dispatcher) {
+        val entity = UploadItemEntity(
+            id = 77L,
+            photoId = "photo-location",
+            uri = "content://photos/location",
+            displayName = "location.jpg",
+            size = 1_024L,
+            state = UploadItemState.QUEUED.rawValue,
+            createdAt = 0L,
+            updatedAt = 0L,
+            locationHiddenBySystem = true,
+        )
+        val entry = UploadQueueEntry(
+            entity = entity,
+            uri = null,
+            state = UploadItemState.QUEUED,
+            lastErrorKind = null,
+            lastErrorHttpCode = null,
+            lastErrorMessage = null,
+            locationHiddenBySystem = true,
+        )
+
+        val viewModel = QueueViewModel(
+            uploadQueueRepository = repository,
+            uploadEnqueuer = enqueuer,
+            summaryStarter = summaryStarter,
+            workManagerProvider = workManagerProvider,
+            workInfoMapper = workInfoMapper,
+        )
+
+        val received = mutableListOf<QueueEvent>()
+        val job = launch { viewModel.events.collect { received += it } }
+
+        queueFlow.value = listOf(entry)
+        advanceUntilIdle()
+
+        assertEquals(listOf(QueueEvent.ShowLocationHiddenMessage), received)
+
+        queueFlow.value = listOf(entry)
+        advanceUntilIdle()
+
+        assertEquals(listOf(QueueEvent.ShowLocationHiddenMessage), received)
+
+        job.cancel()
+    }
+
+    @Test
     fun succeededItemsOlderThanRetentionAreNotShown() = runTest(dispatcherRule.dispatcher) {
         val daoFlow = MutableSharedFlow<List<UploadItemEntity>>(replay = 1)
         val dao = FlowOnlyUploadItemDao(daoFlow)
@@ -413,6 +460,9 @@ private class FlowOnlyUploadItemDao(
         lastErrorMessage: String?,
         updatedAt: Long,
     ) = error("Not needed")
+
+    override suspend fun updateLocationHiddenBySystem(id: Long, hidden: Boolean, updatedAt: Long) =
+        error("Not needed")
 
     override suspend fun countByState(state: String): Int = error("Not needed")
 

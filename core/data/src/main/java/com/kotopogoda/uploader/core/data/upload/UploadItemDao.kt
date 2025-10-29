@@ -53,7 +53,7 @@ interface UploadItemDao {
             "idempotency_key = :idempotencyKey, enhanced = :enhanced, enhance_strength = :enhanceStrength, " +
             "enhance_delegate = :enhanceDelegate, enhance_metrics_l_mean = :enhanceMetricsLMean, " +
             "enhance_metrics_p_dark = :enhanceMetricsPDark, enhance_metrics_b_sharpness = :enhanceMetricsBSharpness, " +
-            "enhance_metrics_n_noise = :enhanceMetricsNNoise, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE id = :id"
+            "enhance_metrics_n_noise = :enhanceMetricsNNoise, location_hidden_by_system = :locationHiddenBySystem, last_error_kind = NULL, http_code = NULL, last_error_message = NULL, updated_at = :updatedAt WHERE id = :id"
     )
     suspend fun updateStateWithMetadata(
         id: Long,
@@ -69,6 +69,7 @@ interface UploadItemDao {
         enhanceMetricsPDark: Float?,
         enhanceMetricsBSharpness: Float?,
         enhanceMetricsNNoise: Float?,
+        locationHiddenBySystem: Boolean,
         updatedAt: Long,
     )
 
@@ -107,6 +108,15 @@ interface UploadItemDao {
         lastErrorKind: String?,
         httpCode: Int?,
         lastErrorMessage: String?,
+        updatedAt: Long,
+    )
+
+    @Query(
+        "UPDATE upload_items SET location_hidden_by_system = :hidden, updated_at = :updatedAt WHERE id = :id"
+    )
+    suspend fun updateLocationHiddenBySystem(
+        id: Long,
+        hidden: Boolean,
         updatedAt: Long,
     )
 

@@ -44,6 +44,7 @@ class UploadQueueRepository @Inject constructor(
                             lastErrorKind = UploadErrorKind.fromRawValue(entity.lastErrorKind),
                             lastErrorHttpCode = entity.httpCode,
                             lastErrorMessage = entity.lastErrorMessage,
+                            locationHiddenBySystem = entity.locationHiddenBySystem,
                         )
                     }
                     .toList()
@@ -162,6 +163,7 @@ class UploadQueueRepository @Inject constructor(
                 enhanceMetricsPDark = enhancement?.metrics?.pDark,
                 enhanceMetricsBSharpness = enhancement?.metrics?.bSharpness,
                 enhanceMetricsNNoise = enhancement?.metrics?.nNoise,
+                locationHiddenBySystem = false,
                 updatedAt = now,
             )
             Timber.tag("Queue").i(
@@ -519,6 +521,17 @@ class UploadQueueRepository @Inject constructor(
         UploadItemState.fromRawValue(entity.state)
     }
 
+    suspend fun setLocationHiddenBySystem(
+        id: Long,
+        hidden: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        uploadItemDao.updateLocationHiddenBySystem(
+            id = id,
+            hidden = hidden,
+            updatedAt = currentTimeMillis(),
+        )
+    }
+
     suspend fun requeueAllProcessing(): Int = withContext(Dispatchers.IO) {
         val now = currentTimeMillis()
         val requeued = uploadItemDao.requeueAllProcessingToQueued(
@@ -668,6 +681,7 @@ data class UploadQueueEntry(
     val lastErrorKind: UploadErrorKind?,
     val lastErrorHttpCode: Int?,
     val lastErrorMessage: String? = null,
+    val locationHiddenBySystem: Boolean = false,
 )
 
 private fun UploadItemEntity.isExpiredSucceeded(cutoff: Long): Boolean {

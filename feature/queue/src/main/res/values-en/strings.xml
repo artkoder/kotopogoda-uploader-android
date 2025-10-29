@@ -1,0 +1,3 @@
+<resources>
+    <string name="queue_location_hidden_by_system">System hides the location. Check original access and the location permission.</string>
+</resources>
