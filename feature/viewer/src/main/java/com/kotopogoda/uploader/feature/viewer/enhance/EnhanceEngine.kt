@@ -92,8 +92,24 @@ class EnhanceEngine(
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
         val strength = request.strength.coerceIn(0f, 1f)
 
-        zeroDce?.let { Timber.tag(LOG_TAG).i("ZeroDCE model checksum: %s", it.checksum) }
-        restormer?.let { Timber.tag(LOG_TAG).i("Restormer model checksum: %s", it.checksum) }
+        zeroDce?.let { model ->
+            runCatching { model.checksum }
+                .onSuccess { checksum ->
+                    Timber.tag(LOG_TAG).i("ZeroDCE model checksum: %s", checksum)
+                }
+                .onFailure {
+                    Timber.tag(LOG_TAG).w(it, "ZeroDCE model checksum read failed")
+                }
+        }
+        restormer?.let { model ->
+            runCatching { model.checksum }
+                .onSuccess { checksum ->
+                    Timber.tag(LOG_TAG).i("Restormer model checksum: %s", checksum)
+                }
+                .onFailure {
+                    Timber.tag(LOG_TAG).w(it, "Restormer model checksum read failed")
+                }
+        }
 
         lateinit var buffer: ImageBuffer
         lateinit var metrics: Metrics
