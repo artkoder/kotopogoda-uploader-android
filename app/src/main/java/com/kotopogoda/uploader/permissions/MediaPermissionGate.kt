@@ -40,20 +40,20 @@ fun MediaPermissionGate(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val permission = remember { mediaReadPermissionFor(Build.VERSION.SDK_INT) }
-    var hasPermission by remember { mutableStateOf(isPermissionGranted(context, permission)) }
+    val permissions = remember { mediaPermissionsFor(Build.VERSION.SDK_INT) }
+    var hasPermission by remember { mutableStateOf(arePermissionsGranted(context, permissions)) }
     var permissionRequested by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasPermission = granted
-        if (!granted) {
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grantedMap ->
+        hasPermission = arePermissionsGranted(context, permissions)
+        if (!hasPermission && permissions.any { grantedMap[it] == false }) {
             permissionRequested = true
         }
     }
 
-    LaunchedEffect(permission) {
-        hasPermission = isPermissionGranted(context, permission)
+    LaunchedEffect(permissions) {
+        hasPermission = arePermissionsGranted(context, permissions)
     }
 
     if (hasPermission) {
@@ -64,7 +64,7 @@ fun MediaPermissionGate(
             modifier = modifier,
             onGrant = {
                 permissionRequested = true
-                launcher.launch(permission)
+                launcher.launch(permissions.toTypedArray())
             },
             onOpenSettings = {
                 context.startActivity(settingsIntent)
@@ -113,6 +113,10 @@ private fun isPermissionGranted(context: Context, permission: String): Boolean {
     return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
 
+private fun arePermissionsGranted(context: Context, permissions: List<String>): Boolean {
+    return permissions.all { permission -> isPermissionGranted(context, permission) }
+}
+
 private fun buildSettingsIntent(context: Context): Intent {
     return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = Uri.fromParts("package", context.packageName, null)
@@ -121,10 +125,17 @@ private fun buildSettingsIntent(context: Context): Intent {
 }
 
 @VisibleForTesting
-internal fun mediaReadPermissionFor(apiLevel: Int): String {
-    return if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+internal fun mediaPermissionsFor(apiLevel: Int): List<String> {
+    val readPermission = if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    return buildList {
+        add(readPermission)
+        if (apiLevel >= Build.VERSION_CODES.Q) {
+            add(Manifest.permission.ACCESS_MEDIA_LOCATION)
+        }
     }
 }
