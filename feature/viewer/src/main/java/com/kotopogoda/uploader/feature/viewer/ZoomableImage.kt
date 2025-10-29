@@ -30,6 +30,8 @@ import coil.request.ImageRequest
 import coil.size.Size
 import androidx.exifinterface.media.ExifInterface
 import androidx.compose.ui.geometry.Offset
+import com.kotopogoda.uploader.core.data.util.logUriReadDebug
+import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 
 @Composable
 fun ZoomableImage(
@@ -137,7 +139,10 @@ fun ZoomableImage(
 data class FlipFlags(val flipX: Boolean, val flipY: Boolean)
 
 private fun resolveFlipFlags(context: Context, uri: Uri): FlipFlags = runCatching {
-    context.contentResolver.openInputStream(uri)?.use { input ->
+    val resolver = context.contentResolver
+    val normalizedUri = resolver.requireOriginalIfNeeded(uri)
+    resolver.logUriReadDebug("ZoomableImage.flip", uri, normalizedUri)
+    resolver.openInputStream(normalizedUri)?.use { input ->
         val exif = ExifInterface(input)
         when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
             ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> FlipFlags(flipX = true, flipY = false)

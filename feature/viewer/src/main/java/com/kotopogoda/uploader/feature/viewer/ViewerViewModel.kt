@@ -32,6 +32,8 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.contentSha256FromIdempotencyKey
 import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
 import com.kotopogoda.uploader.core.data.util.Hashing
+import com.kotopogoda.uploader.core.data.util.logUriReadDebug
+import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
@@ -1279,7 +1281,9 @@ class ViewerViewModel @Inject constructor(
         withContext(Dispatchers.IO) {
             runCatching {
                 val resolver = context.contentResolver
-                val inputStream = resolver.openInputStream(info.uri) ?: return@runCatching null
+                val normalizedUri = resolver.requireOriginalIfNeeded(info.uri)
+                resolver.logUriReadDebug("ViewerViewModel.backup", info.uri, normalizedUri)
+                val inputStream = resolver.openInputStream(normalizedUri) ?: return@runCatching null
                 val directory = File(context.cacheDir, "viewer-delete-backups")
                 if (!directory.exists() && !directory.mkdirs()) {
                     inputStream.close()
@@ -1855,9 +1859,12 @@ class ViewerViewModel @Inject constructor(
                 throw IOException("Unable to create enhancement cache directory at ${directory.absolutePath}")
             }
             val source = File.createTempFile("src_", ".jpg", directory)
-            context.contentResolver.openInputStream(photo.uri)?.use { input ->
+            val resolver = context.contentResolver
+            val normalizedUri = resolver.requireOriginalIfNeeded(photo.uri)
+            resolver.logUriReadDebug("ViewerViewModel.enhance", photo.uri, normalizedUri)
+            resolver.openInputStream(normalizedUri)?.use { input ->
                 source.outputStream().use { output -> input.copyTo(output) }
-            } ?: throw IOException("Unable to open input stream for ${photo.uri}")
+            } ?: throw IOException("Unable to open input stream for $normalizedUri")
             val exif = runCatching { ExifInterface(source) }.getOrNull()
             val output = File(directory, "${source.nameWithoutExtension}_out.jpg")
             EnhancementWorkspace(source = source, output = output, exif = exif)
