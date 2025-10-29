@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover - поддержка старых Python
     import importlib_metadata as importlib_metadata  # type: ignore
 
 
-def pip_install(requirement: str) -> None:
+def pip_install(requirement: str) -> bool:
     """Устанавливает указанный Python-пакет через pip."""
 
     log(f"Устанавливаем пакет {requirement}")
@@ -45,9 +45,22 @@ def pip_install(requirement: str) -> None:
     ]
     try:
         subprocess.run(upgrade_cmd, check=True)
-    except subprocess.CalledProcessError:
+        return True
+    except subprocess.CalledProcessError as upgrade_error:
         log("Повторная попытка установки без --upgrade")
-        subprocess.run(base_cmd, check=True)
+        try:
+            subprocess.run(base_cmd, check=True)
+            return True
+        except subprocess.CalledProcessError as base_error:
+            log(
+                "Не удалось установить пакет "
+                f"{requirement}: {base_error}; пропускаем"
+            )
+            if upgrade_error.stderr:
+                log(upgrade_error.stderr.decode(errors="ignore"))
+            if base_error.stderr:
+                log(base_error.stderr.decode(errors="ignore"))
+            return False
 
 
 def _tensorflow_requires_legacy_ml_dtypes() -> bool:
@@ -95,7 +108,7 @@ def ensure_ml_dtypes_float4() -> None:
 
     last_error: Optional[BaseException] = None
     for requirement in requirements:
-        pip_install(requirement)
+        installed = pip_install(requirement)
         importlib.invalidate_caches()
         sys.modules.pop("ml_dtypes", None)
         try:
@@ -103,6 +116,8 @@ def ensure_ml_dtypes_float4() -> None:
         except ImportError as exc:
             last_error = exc
             if "float4_e2m1fn" in str(exc) and requirement != legacy_requirement:
+                continue
+            if not installed and requirement != legacy_requirement:
                 continue
             break
 
