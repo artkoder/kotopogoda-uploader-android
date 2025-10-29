@@ -348,18 +348,57 @@ def process_model(key: str, cfg: dict) -> dict:
     staging_models_dir = staging_dir / "models"
     staging_models_dir.mkdir(parents=True, exist_ok=True)
 
-    file_entries = []
+    staged_entries = []
+    staged_paths = []
     for descriptor in files:
         src = descriptor["path"]
         relative = descriptor["relative"]
-        dest = staging_dir / relative
+        relative_path = Path(relative)
+        dest = staging_dir / relative_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
-        file_entries.append(
+        staged_paths.append(relative_path)
+        staged_entries.append(
             {
-                "path": relative,
+                "path": relative_path,
                 "sha256": sha256_of(dest),
                 "min_mb": format_mib(dest.stat().st_size),
+            }
+        )
+
+    def find_common_prefix(paths: List[Path]) -> Path:
+        if not paths:
+            return Path(".")
+        prefix_parts: List[str] = list(paths[0].parent.parts)
+        for current in paths[1:]:
+            current_parts = list(current.parent.parts)
+            new_prefix: List[str] = []
+            for index, part in enumerate(prefix_parts):
+                if index < len(current_parts) and current_parts[index] == part:
+                    new_prefix.append(part)
+                else:
+                    break
+            prefix_parts = new_prefix
+            if not prefix_parts:
+                break
+        if not prefix_parts:
+            return Path(".")
+        return Path(*prefix_parts)
+
+    unzipped_root = find_common_prefix(staged_paths)
+
+    file_entries = []
+    for entry in staged_entries:
+        relative_path: Path = entry["path"]
+        if unzipped_root == Path("."):
+            visible_path = relative_path
+        else:
+            visible_path = relative_path.relative_to(unzipped_root)
+        file_entries.append(
+            {
+                "path": visible_path.as_posix(),
+                "sha256": entry["sha256"],
+                "min_mb": entry["min_mb"],
             }
         )
 
@@ -368,9 +407,9 @@ def process_model(key: str, cfg: dict) -> dict:
     if zip_path.exists():
         zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for entry in file_entries:
-            absolute = staging_dir / entry["path"]
-            zf.write(absolute, arcname=entry["path"])
+        for relative_path in staged_paths:
+            absolute = staging_dir / relative_path
+            zf.write(absolute, arcname=relative_path.as_posix())
 
     artifact_sha = sha256_of(zip_path)
     artifact_size = format_mib(zip_path.stat().st_size)
@@ -383,6 +422,7 @@ def process_model(key: str, cfg: dict) -> dict:
         "artifact_sha": artifact_sha,
         "artifact_size": artifact_size,
         "backend": backend,
+        "unzipped_root": unzipped_root.as_posix() if unzipped_root != Path(".") else ".",
         "files": file_entries,
     }
 
@@ -427,6 +467,7 @@ def write_models_lock(results: List[dict]) -> None:
         models_payload[result["key"]] = {
             "release": RELEASE_TAG,
             "asset": result["artifact_name"],
+            "unzipped": result.get("unzipped_root", "."),
             "sha256": result["artifact_sha"],
             "backend": result["backend"],
             "min_mb": result["artifact_size"],
