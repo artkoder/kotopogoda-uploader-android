@@ -134,16 +134,16 @@ fun OnboardingRoute(
         }
     }
 
-    val mediaPermission = remember { mediaReadPermissionFor(Build.VERSION.SDK_INT) }
-    var hasMediaPermission by remember { mutableStateOf(isPermissionGranted(context, mediaPermission)) }
+    val mediaPermissions = remember { mediaReadPermissionFor(Build.VERSION.SDK_INT) }
+    var hasMediaPermission by remember { mutableStateOf(isPermissionGranted(context, mediaPermissions)) }
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasMediaPermission = granted
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasMediaPermission = isPermissionGranted(context, mediaPermissions)
     }
 
-    LaunchedEffect(mediaPermission, context) {
-        hasMediaPermission = isPermissionGranted(context, mediaPermission)
+    LaunchedEffect(mediaPermissions, context) {
+        hasMediaPermission = isPermissionGranted(context, mediaPermissions)
     }
 
     var autoRequestKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -190,7 +190,9 @@ fun OnboardingRoute(
         )
     } else {
         MediaPermissionMissingContent(
-            onRequestPermission = { permissionLauncher.launch(mediaPermission) },
+            onRequestPermission = {
+                permissionLauncher.launch(mediaPermissions.allPermissions.toTypedArray())
+            },
             onSelectFolder = { launchFolderPicker(currentFolderUri?.let(Uri::parse)) }
         )
     }
@@ -234,16 +236,37 @@ internal fun MediaPermissionMissingContent(
     }
 }
 
-private fun mediaReadPermissionFor(apiLevel: Int): String {
-    return if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+private fun mediaReadPermissionFor(apiLevel: Int): MediaPermissions {
+    val readPermission = if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
+    val additionalPermissions = if (apiLevel >= Build.VERSION_CODES.Q) {
+        setOf(Manifest.permission.ACCESS_MEDIA_LOCATION)
+    } else {
+        emptySet()
+    }
+    return MediaPermissions(
+        readPermission = readPermission,
+        additionalPermissions = additionalPermissions
+    )
 }
 
-private fun isPermissionGranted(context: Context, permission: String): Boolean {
-    return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+private fun isPermissionGranted(context: Context, permissions: MediaPermissions): Boolean {
+    return permissions.allPermissions.all { permission ->
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    }
+}
+
+private data class MediaPermissions(
+    val readPermission: String,
+    val additionalPermissions: Set<String>
+) {
+    val allPermissions: Set<String> = buildSet {
+        add(readPermission)
+        addAll(additionalPermissions)
+    }
 }
 
 private fun maskPersistableFlags(flags: Int): Int {
