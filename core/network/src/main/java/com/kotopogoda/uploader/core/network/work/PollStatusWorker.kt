@@ -183,7 +183,8 @@ class PollStatusWorker @AssistedInject constructor(
                                 uploadId = uploadId,
                                 displayName = displayName,
                                 uriString = uriString,
-                                errorKind = UploadErrorKind.REMOTE_FAILURE
+                                errorKind = UploadErrorKind.REMOTE_FAILURE,
+                                errorMessage = body.error,
                             )
                         }
                     }
@@ -514,9 +515,27 @@ class PollStatusWorker @AssistedInject constructor(
         displayName: String,
         uriString: String,
         errorKind: UploadErrorKind,
-        httpCode: Int? = null
+        httpCode: Int? = null,
+        errorMessage: String? = null,
     ): Result {
         recordError(displayName, errorKind, httpCode)
+        val locationHidden = LocationHiddenDetector.isLocationHidden(errorMessage)
+        runCatching {
+            uploadQueueRepository.setLocationHiddenBySystem(
+                id = itemId,
+                hidden = locationHidden,
+            )
+        }.onFailure { error ->
+            Timber.tag("WorkManager").w(
+                error,
+                pollLogMessage(
+                    action = "set_location_hidden_failed",
+                    itemId = itemId,
+                    uploadId = uploadId,
+                    uri = runCatching { Uri.parse(uriString) }.getOrNull(),
+                ),
+            )
+        }
         uploadQueueRepository.markFailed(
             id = itemId,
             errorKind = errorKind,
