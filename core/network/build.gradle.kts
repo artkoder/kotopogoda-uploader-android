@@ -126,6 +126,7 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     kapt(libs.androidx.hilt.compiler)
     implementation(libs.androidx.documentfile)
+    implementation(libs.exif)
 
     testImplementation(libs.junit)
     testImplementation("com.squareup.okhttp3:mockwebserver:${libs.versions.okhttp.get()}")
