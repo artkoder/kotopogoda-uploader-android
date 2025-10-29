@@ -225,7 +225,14 @@ def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pa
 
     convert_dir.mkdir(parents=True, exist_ok=True)
 
-    sys.path.insert(0, str(repo_root))
+    repo_path = repo_root
+    if not (repo_root / "basicsr").exists():
+        for candidate in repo_root.iterdir():
+            if candidate.is_dir() and (candidate / "basicsr").exists():
+                repo_path = candidate
+                break
+
+    sys.path.insert(0, str(repo_path))
     try:
         from basicsr.models.archs.restormer_arch import Restormer  # type: ignore
     finally:
