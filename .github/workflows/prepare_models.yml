@@ -36,7 +36,7 @@ jobs:
           cmake --build ncnn/build --target onnx2ncnn ncnnoptimize
           ls -l ncnn/build/tools
           sudo install -m 0755 ncnn/build/tools/onnx/onnx2ncnn /usr/local/bin/onnx2ncnn
-          sudo install -m 0755 ncnn/build/tools/ncnnoptimize /usr/local/bin/ncnnoptimize
+          sudo install -m 0755 ncnn/build/tools/ncnnoptimize/ncnnoptimize /usr/local/bin/ncnnoptimize
           sudo ldconfig
           onnx2ncnn -h > /dev/null
           ncnnoptimize -h > /dev/null
