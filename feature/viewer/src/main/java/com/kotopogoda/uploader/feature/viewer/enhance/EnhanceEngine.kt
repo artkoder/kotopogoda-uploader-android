@@ -240,6 +240,16 @@ class EnhanceEngine(
 
         val zeroDelegateFallback = profile.isLowLight && profile.kDce > 1e-3f && zeroResult.delegate != request.delegate
         val pipeline = buildPipeline(profile, request, restReport, zeroDelegateFallback)
+        Timber.tag(LOG_TAG).i(
+            "Restormer tiling: tile_used=%s tiles=%d tile_size=%d overlap_requested=%d overlap_actual=%d mixing_window=%d seam_max_delta=%.3f",
+            pipeline.tileUsed,
+            pipeline.tileCount,
+            pipeline.tileSizeActual,
+            pipeline.overlap,
+            pipeline.overlapActual,
+            pipeline.mixingWindow,
+            pipeline.seamMaxDelta,
+        )
         val timings = Timings(
             decode = decodeDuration,
             metrics = metricsDuration,
@@ -343,24 +353,24 @@ class EnhanceEngine(
         val model = restormer
         val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
         val safeOverlap = overlap.coerceAtLeast(0)
-        val effectiveOverlap = min(safeOverlap, safeTile / 2)
-        val mixingWindow = effectiveOverlap * 2
+        val actualOverlap = min(safeOverlap, safeTile / 2)
+        val step = max(1, safeTile - actualOverlap)
+        val mixingWindow = actualOverlap * 2
         if (mix <= 1e-3f || model == null) {
-            val totalTiles = computeTileCount(buffer.width, buffer.height, safeTile, effectiveOverlap)
+            val totalTiles = computeTileCount(buffer.width, buffer.height, safeTile, actualOverlap)
             repeat(totalTiles) { onTileProgress(it, totalTiles, 1f) }
             return RestormerReport(
                 result = null,
                 delegate = delegate,
                 tileCount = totalTiles,
-                seamFixApplied = effectiveOverlap > 0,
+                seamFixApplied = actualOverlap > 0,
                 seamMetrics = SeamMetrics(),
                 tileSize = safeTile,
-                overlap = effectiveOverlap,
+                overlap = actualOverlap,
                 mixingWindow = mixingWindow,
                 delegateFallback = false,
             )
         }
-        val step = max(1, safeTile - effectiveOverlap * 2)
         val width = buffer.width
         val height = buffer.height
         val tilesX = ceil(width / step.toDouble()).toInt()
@@ -373,8 +383,8 @@ class EnhanceEngine(
         val hannCache = mutableMapOf<Pair<Int, Int>, FloatArray>()
 
         fun hannWindow(size: Int): FloatArray {
-            return hannCache.getOrPut(size to effectiveOverlap) {
-                buildHannWindow(size, effectiveOverlap)
+            return hannCache.getOrPut(size to actualOverlap) {
+                buildHannWindow(size, actualOverlap)
             }
         }
         var index = 0
@@ -481,10 +491,10 @@ class EnhanceEngine(
             result = ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate),
             delegate = currentDelegate,
             tileCount = totalTiles,
-            seamFixApplied = effectiveOverlap > 0 && totalTiles > 0,
+            seamFixApplied = actualOverlap > 0 && totalTiles > 0,
             seamMetrics = seamMetrics,
             tileSize = safeTile,
-            overlap = effectiveOverlap,
+            overlap = actualOverlap,
             mixingWindow = mixingWindow,
             delegateFallback = delegateFallback,
         )
@@ -550,7 +560,7 @@ class EnhanceEngine(
         }
         val safeTile = tileSize.coerceAtLeast(1)
         val safeOverlap = overlap.coerceAtLeast(0)
-        val step = max(1, safeTile - safeOverlap * 2)
+        val step = max(1, safeTile - min(safeOverlap, safeTile / 2))
         val tilesX = ceil(width / step.toDouble()).toInt()
         val tilesY = ceil(height / step.toDouble()).toInt()
         return tilesX * tilesY
