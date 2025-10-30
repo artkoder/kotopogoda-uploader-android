@@ -15,6 +15,7 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -847,7 +848,7 @@ class EnhanceEngine(
 
             var laplacianSum = 0.0
             var laplacianSqSum = 0.0
-            var noiseSum = 0.0
+            var noiseSqSum = 0.0
             for (y in 0 until height) {
                 val base = y * width
                 for (x in 0 until width) {
@@ -856,7 +857,8 @@ class EnhanceEngine(
                     laplacianSum += laplacian
                     laplacianSqSum += laplacian * laplacian
                     val blurred = gaussianBlurAt(luminances, width, height, x, y)
-                    noiseSum += abs(luminances[index] - blurred)
+                    val diff = luminances[index] - blurred
+                    noiseSqSum += diff * diff
                 }
             }
 
@@ -868,13 +870,13 @@ class EnhanceEngine(
             val bSharpness = if (laplacianVariance <= 0.0) {
                 0.0
             } else {
-                (laplacianVariance / (laplacianVariance + LAPLACIAN_EPSILON)).coerceIn(0.0, 1.0)
+                (laplacianVariance / MAX_LAPLACIAN_VARIANCE).coerceIn(0.0, 1.0)
             }
-            val meanNoise = noiseSum / norm
-            val nNoise = if (meanNoise <= 0.0) {
-                0.0
-            } else {
-                (meanNoise / (meanNoise + NOISE_EPSILON)).coerceIn(0.0, 1.0)
+            val noiseStd = sqrt(noiseSqSum / norm)
+            val nNoise = when {
+                noiseStd <= NOISE_FLOOR -> 0.0
+                noiseStd >= NOISE_CEIL -> 1.0
+                else -> (noiseStd - NOISE_FLOOR) / (NOISE_CEIL - NOISE_FLOOR)
             }
             return Metrics(lMean, pDark, bSharpness, nNoise)
         }
@@ -890,30 +892,37 @@ class EnhanceEngine(
             val sharpness = metrics.bSharpness.toFloat()
             val noise = metrics.nNoise.toFloat()
 
-            val lowLightByLuma = mapLow(lMean, 0.53f, 0.27f)
-            val lowLightByDark = mapLow(darkness, 0.6f, 0.3f)
-            val lowLightScore = clamp01(lowLightByLuma * 0.6f + lowLightByDark * 0.4f)
-            val isLowLight = lowLightScore >= 0.2f
-            val kDce = clamp(lowLightScore * (0.35f + 0.65f * t), 0f, 1f)
+            val lowLightByLuma = mapLow(lMean, 0.58f, 0.26f)
+            val lowLightByDark = mapLow(darkness, 0.55f, 0.28f)
+            val lowLightScore = clamp01(0.65f * lowLightByLuma + 0.35f * lowLightByDark)
+            val isLowLight = lowLightScore >= 0.25f
+            val kDce = if (!isLowLight) {
+                0f
+            } else {
+                clamp(lowLightScore * (0.32f + 0.68f * eased), 0f, 1f)
+            }
 
-            val restormerMix = clamp(noise * (0.4f + 0.6f * eased), 0f, 1f)
+            val restormerMix = clamp(noise * (0.3f + 0.7f * eased), 0f, 1f)
 
-            val detailDemand = mapLow(sharpness, 0.6f, 0.3f)
-            val alphaDetail = clamp(restormerMix * detailDemand * clamp(1f - noise * 1.1f, 0f, 1f), 0f, 1f)
+            val detailDemand = mapLow(sharpness, 0.62f, 0.28f)
+            val noisePenalty = clamp01(noise * 1.2f)
+            val alphaDetail = clamp(detailDemand * (0.35f + 0.65f * eased) * (1f - 0.65f * noisePenalty), 0f, 1f)
 
-            val detailBoost = mapLow(sharpness, 0.55f, 0.25f)
-            var sharpenAmount = clamp(0.16f + 0.58f * detailBoost - 0.38f * noise, 0f, 0.75f) * (0.45f + 0.55f * eased)
-            val sharpenRadius = clamp(1.0f + 2.6f * mapLow(sharpness, 0.46f, 0.2f), 0.75f, 3.4f)
-            val sharpenThreshold = clamp(0.014f + 0.18f * mapLow(noise, 0.28f, 0.3f), 0.01f, 0.12f)
+            val detailBoost = mapLow(sharpness, 0.56f, 0.24f)
+            var sharpenAmount = clamp(0.12f + 0.52f * detailBoost, 0f, 0.72f)
+            sharpenAmount *= (0.4f + 0.6f * eased)
+            sharpenAmount = clamp(sharpenAmount - 0.3f * noise, 0f, 0.72f)
+            val sharpenRadius = clamp(1.1f + 2.4f * mapLow(sharpness, 0.48f, 0.22f), 0.8f, 3.2f)
+            val sharpenThreshold = clamp(0.012f + 0.17f * mapLow(noise, 0.27f, 0.32f), 0.01f, 0.12f)
             if (noise > 0.6f && t < 0.4f) {
                 sharpenAmount = 0f
             }
 
-            val vibranceBase = mapLow(lMean, 0.55f, 0.28f)
-            val vibranceGain = clamp(vibranceBase * (0.3f + 0.7f * eased) * (1f - 0.55f * noise), 0f, 1.1f)
+            val vibranceBase = mapLow(lMean, 0.57f, 0.27f)
+            val vibranceGain = clamp(vibranceBase * (0.28f + 0.72f * eased) * (1f - 0.5f * noise), 0f, 1.1f)
 
-            val saturationBase = mapLow(lMean, 0.63f, 0.32f)
-            val saturationGain = clamp(1f + (0.2f + 0.34f * saturationBase) * eased - 0.22f * noise, 0.85f, 1.55f)
+            val saturationBase = mapLow(lMean, 0.65f, 0.31f)
+            val saturationGain = clamp(1f + (0.18f + 0.32f * saturationBase) * eased - 0.2f * noise, 0.86f, 1.52f)
             
             return Profile(
                 isLowLight = isLowLight,
@@ -967,8 +976,9 @@ class EnhanceEngine(
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
         private const val OUTPUT_JPEG_QUALITY = 92
         private const val DARK_LUMINANCE_THRESHOLD = 0.22
-        private const val LAPLACIAN_EPSILON = 0.02
-        private const val NOISE_EPSILON = 0.12
+        private const val MAX_LAPLACIAN_VARIANCE = 16.0
+        private const val NOISE_FLOOR = 0.01
+        private const val NOISE_CEIL = 0.14
 
         private val EXIF_TAGS = arrayOf(
             ExifInterface.TAG_DATETIME,
