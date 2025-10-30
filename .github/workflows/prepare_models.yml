@@ -66,10 +66,41 @@ jobs:
         run: |
           set -euxo pipefail
           python3 -m pip install --upgrade pip
-          python3 -m pip install "numpy<2" torch torchvision "onnx<1.19" onnxsim onnxruntime \
-            "tensorflow==2.13.1" "tensorflow-addons==0.22.*" "tensorflow-probability==0.21.*" \
-            "onnx-tf==1.10.0" tf2onnx einops "opencv-python-headless<5" lmdb tqdm pyyaml \
-            "scipy<1.14" "scikit-image<0.23"
+          python3 -m pip install \
+            "numpy<=1.26.4" \
+            torch torchvision \
+            "onnx==1.14.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" "onnx2tf==1.24.1" \
+            "tensorflow==2.13.1" "tf-keras==2.13.*" "tensorflow-addons==0.22.*" "onnx-tf==1.10.0" \
+            einops "opencv-python-headless<5" lmdb tqdm pyyaml "scipy<1.14" "scikit-image<0.23"
+          python3 - <<'PY'
+import importlib.metadata as metadata
+packages = [
+    "numpy",
+    "torch",
+    "torchvision",
+    "onnx",
+    "onnxruntime",
+    "onnxsim",
+    "onnx2tf",
+    "tensorflow",
+    "tf-keras",
+    "tensorflow-addons",
+    "onnx-tf",
+    "einops",
+    "opencv-python-headless",
+    "lmdb",
+    "tqdm",
+    "pyyaml",
+    "scipy",
+    "scikit-image",
+]
+for pkg in packages:
+    try:
+        version = metadata.version(pkg)
+    except metadata.PackageNotFoundError:
+        version = "не установлен"
+    print(f"{pkg}: {version}")
+PY
 
       - name: Prepare model artifacts
         env:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import platform
 import shutil
@@ -15,8 +14,7 @@ import urllib.request
 import zipfile
 from hashlib import sha256
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from types import ModuleType
+from typing import Any, Dict, List, Optional, Tuple
 
 
 os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
@@ -107,85 +105,6 @@ def _tensorflow_version() -> Optional[str]:
         except importlib_metadata.PackageNotFoundError:
             continue
     return None
-
-
-def _tensorflow_requires_legacy_ml_dtypes() -> bool:
-    version = _tensorflow_version()
-    if version is None:
-        return False
-
-    parts: List[int] = []
-    for piece in version.split("."):
-        if not piece.isdigit():
-            break
-        parts.append(int(piece))
-        if len(parts) >= 2:
-            break
-    if len(parts) < 2:
-        return False
-    major, minor = parts[0], parts[1]
-    return (major, minor) < (2, 19)
-
-
-def ensure_ml_dtypes_float4() -> None:
-    """Гарантирует наличие поддержки float4_e2m1fn в ml_dtypes."""
-
-    import importlib
-
-    def load_module() -> object:
-        return importlib.import_module("ml_dtypes")
-
-    def ensure_stub_module(reason: str, module: Optional[ModuleType] = None) -> None:
-        log(f"{reason}; добавляем заглушку float4_e2m1fn")
-        if module is None:
-            module = ModuleType("ml_dtypes")
-            sys.modules["ml_dtypes"] = module
-        module.float4_e2m1fn = object()  # type: ignore[attr-defined]
-
-    try:
-        ml_dtypes = load_module()
-    except ImportError:
-        ml_dtypes = None
-    else:
-        if hasattr(ml_dtypes, "float4_e2m1fn"):
-            return
-
-    tf_requires_legacy = _tensorflow_requires_legacy_ml_dtypes()
-    legacy_requirement = "ml-dtypes>=0.4.0,<0.5.0"
-    requirements: List[str] = []
-    if tf_requires_legacy:
-        requirements.append(legacy_requirement)
-    else:
-        requirements.append("ml-dtypes>=0.5.0")
-    requirements.append("ml-dtypes>=0.3.2")
-
-    last_error: Optional[BaseException] = None
-    for requirement in requirements:
-        installed = pip_install(requirement)
-        importlib.invalidate_caches()
-        sys.modules.pop("ml_dtypes", None)
-        try:
-            ml_dtypes = load_module()
-        except ImportError as exc:
-            last_error = exc
-            if not installed:
-                continue
-            break
-
-        if hasattr(ml_dtypes, "float4_e2m1fn"):
-            return
-
-        ensure_stub_module("ml-dtypes установлен без float4_e2m1fn", ml_dtypes)
-        return
-
-    if not tf_requires_legacy:
-        ensure_stub_module("ml-dtypes недоступен в среде исполнения")
-        return
-
-    if last_error is not None:
-        raise RuntimeError("Не удалось подготовить ml-dtypes") from last_error
-
-    raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
 
 
 def _version_tuple(version: str) -> Tuple[int, ...]:
@@ -337,54 +256,124 @@ def format_mib(size_bytes: int) -> float:
     return round(size_bytes / (1024 ** 2), 4)
 
 
+def collect_onnx_operator_types(onnx_path: Path) -> List[str]:
+    try:
+        import onnx
+
+        model = onnx.load(str(onnx_path))
+    except Exception as exc:
+        log(f"Не удалось загрузить ONNX-модель {onnx_path}: {exc}")
+        return []
+
+    return sorted({node.op_type for node in model.graph.node})
+
+
+def _create_tflite_interpreter(tflite_path: Path):
+    try:
+        import tensorflow as tf  # type: ignore[import-not-found]
+
+        return tf.lite.Interpreter(model_path=str(tflite_path))
+    except Exception as primary_error:
+        try:
+            from tflite_runtime.interpreter import Interpreter  # type: ignore[import-not-found]
+        except Exception as fallback_error:  # pragma: no cover - редкий случай
+            raise RuntimeError(
+                "Не удалось создать TFLite Interpreter: отсутствуют tensorflow и tflite_runtime"
+            ) from fallback_error
+
+        try:
+            return Interpreter(model_path=str(tflite_path))
+        except Exception as runtime_error:
+            raise RuntimeError(
+                f"Не удалось инициализировать tflite_runtime.Interpreter: {runtime_error}"
+            ) from primary_error
+
+
+def run_tflite_smoke_test(tflite_path: Path) -> dict:
+    import numpy as np  # type: ignore[import-not-found]
+
+    min_size_bytes = 1 * 1024 * 1024
+    size_bytes = tflite_path.stat().st_size
+    if size_bytes <= min_size_bytes:
+        raise RuntimeError(
+            f"Размер модели {format_mib(size_bytes)} MiB ≤ 1 MiB: вероятно, экспорт выполнен некорректно"
+        )
+
+    interpreter = _create_tflite_interpreter(tflite_path)
+    input_details = interpreter.get_input_details()
+    if not input_details:
+        raise RuntimeError("TFLite-модель не содержит входных тензоров")
+
+    input_detail = input_details[0]
+    requested_shape = [int(dim) for dim in input_detail["shape"]]
+    for index, dim in enumerate(requested_shape):
+        if dim > 0:
+            continue
+        if index == 0:
+            requested_shape[index] = 1
+        elif index in (1, 2):
+            requested_shape[index] = 256
+        elif index == 3:
+            requested_shape[index] = 3
+        else:
+            requested_shape[index] = 1
+
+    if requested_shape != list(input_detail["shape"]):
+        interpreter.resize_tensor_input(input_detail["index"], requested_shape, strict=False)
+
+    interpreter.allocate_tensors()
+    input_detail = interpreter.get_input_details()[0]
+    output_details = interpreter.get_output_details()
+    if not output_details:
+        raise RuntimeError("TFLite-модель не содержит выходных тензоров")
+
+    output_detail = output_details[0]
+    rng = np.random.default_rng(seed=42)
+    synthetic = rng.random(requested_shape, dtype=np.float32)
+    synthetic = synthetic.astype(input_detail["dtype"], copy=False)
+    interpreter.set_tensor(input_detail["index"], synthetic)
+    interpreter.invoke()
+    output = interpreter.get_tensor(output_detail["index"])
+
+    if output.shape != tuple(requested_shape):
+        raise RuntimeError(
+            f"Форма выхода {output.shape} не совпадает с входом {tuple(requested_shape)}"
+        )
+
+    diff = float(
+        np.mean(
+            np.abs(output.astype(np.float32, copy=False) - synthetic.astype(np.float32, copy=False))
+        )
+    )
+    if diff <= 1e-5:
+        raise RuntimeError(
+            f"Smoke-тест провален: среднее абсолютное отклонение {diff:.6e} ≤ 1e-5"
+        )
+
+    try:
+        op_count = len(interpreter._get_ops_details())  # type: ignore[attr-defined]
+    except AttributeError:
+        op_count = len(interpreter.get_tensor_details())
+
+    return {
+        "status": "OK",
+        "size_bytes": size_bytes,
+        "size_mib": format_mib(size_bytes),
+        "sha256": sha256_of(tflite_path),
+        "op_count": op_count,
+        "mean_abs_diff": diff,
+    }
+
+
 def _tensorflow_requirements() -> List[str]:
     global _TF_REQUIREMENTS_CACHE
-    if _TF_REQUIREMENTS_CACHE is not None:
-        return list(_TF_REQUIREMENTS_CACHE)
-
-    # onnx-tf 1.10 + addons 0.22 проверены с TensorFlow 2.13.x
-    default_requirements = ["tensorflow==2.13.1", "tf2onnx"]
-    libc, version = platform.libc_ver()
-    selected = default_requirements
-
-    if libc == "glibc" and version:
-        components: List[int] = []
-        for piece in version.split("."):
-            if not piece.isdigit():
-                break
-            components.append(int(piece))
-        while len(components) < 2:
-            components.append(0)
-        if components and tuple(components[:2]) < (2, 31):
-            selected = ["tensorflow-cpu==2.10.1", "tf2onnx"]
-            log(
-                "Обнаружена glibc %s; используем совместимый tensorflow-cpu 2.10.1"
-                % version
-            )
-
-    _TF_REQUIREMENTS_CACHE = selected
-    return list(selected)
-
-
-def _tensorflow_probability_requirements() -> List[str]:
-    version = _tensorflow_version()
-    if not version:
-        return ["tensorflow-probability"]
-
-    parts = _version_tuple(version)
-    if len(parts) < 2 or parts[0] != 2 or parts[1] < 10:
-        return ["tensorflow-probability"]
-
-    minor = parts[1]
-    base_minor = minor + 8
-    candidates: List[str] = []
-    for current in range(base_minor, 17, -1):
-        requirement = f"tensorflow-probability==0.{current}.0"
-        if requirement not in candidates:
-            candidates.append(requirement)
-
-    candidates.append("tensorflow-probability")
-    return candidates
+    if _TF_REQUIREMENTS_CACHE is None:
+        _TF_REQUIREMENTS_CACHE = [
+            "tensorflow==2.13.1",
+            "tf-keras==2.13.*",
+            "tensorflow-addons==0.22.*",
+        ]
+    return list(_TF_REQUIREMENTS_CACHE)
 
 
 def _onnx_tf_requirements() -> List[str]:
@@ -403,14 +392,15 @@ def _onnx_tf_requirements() -> List[str]:
 
 MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
-    "onnx": ["onnx<1.19", "onnxsim", "onnxruntime"],
+    "onnx": ["onnx==1.14.*"],
+    "onnxsim": ["onnxsim==0.4.*"],
+    "onnxruntime": ["onnxruntime==1.16.*"],
+    "onnx2tf": ["onnx2tf==1.24.*"],
     "onnx_tf": _onnx_tf_requirements,
     "keras": ["keras>=3.0.0"],
-    "keras.src.engine": ["tf-keras", "keras>=3.0.0"],
+    "keras.src.engine": ["tf-keras==2.13.*", "keras>=3.0.0"],
     "tensorflow": _tensorflow_requirements,
-    "tensorflow_addons": ["tensorflow-addons; python_version<'3.12'"],
-    "tensorflow_probability": _tensorflow_probability_requirements,
-    "tf_keras": ["tf-keras"],
+    "tf_keras": ["tf-keras==2.13.*"],
     "einops": ["einops"],
 }
 
@@ -526,14 +516,31 @@ def ensure_python_modules(modules: List[str]) -> None:
             )
 
 
-def convert_zero_dce(model_cfg: dict, sources: Dict[str, Path], convert_dir: Path) -> Tuple[str, List[Dict[str, Path]]]:
-    ensure_ml_dtypes_float4()
-    ensure_python_modules(["torch", "onnx", "onnx_tf", "tensorflow", "cv2", "lmdb"])
+def convert_zero_dce(
+    model_cfg: dict, sources: Dict[str, Path], convert_dir: Path
+) -> Tuple[str, List[Dict[str, Any]], Dict[str, object]]:
+    ensure_python_modules(
+        [
+            "torch",
+            "onnx",
+            "onnxsim",
+            "onnxruntime",
+            "onnx2tf",
+            "tensorflow",
+            "tf_keras",
+            "cv2",
+            "lmdb",
+        ]
+    )
+
     import importlib.util
+    import traceback
+
     import torch
-    from onnx_tf.backend import prepare
     import onnx
     import tensorflow as tf
+    from onnxsim import simplify
+    from onnx2tf import convert as onnx2tf_convert
 
     weights_path = sources["weights"]
     model_py = sources["model"]
@@ -544,7 +551,7 @@ def convert_zero_dce(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pat
     assert spec.loader is not None
     spec.loader.exec_module(module)
 
-    net = module.enhance_net_nopool(scale_factor=1)
+    base_model = module.enhance_net_nopool(scale_factor=1)
     state = torch.load(weights_path, map_location="cpu")
     if isinstance(state, dict):
         for key in ("state_dict", "model", "net", "params"):
@@ -559,51 +566,145 @@ def convert_zero_dce(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pat
             else:
                 cleaned[key] = value
         state = cleaned
-    net.load_state_dict(state, strict=False)
-    net.eval()
+    base_model.load_state_dict(state, strict=False)
+    base_model.eval()
     torch.set_grad_enabled(False)
+
+    class _ZeroDCEWrapper(torch.nn.Module):
+        def __init__(self, inner: torch.nn.Module) -> None:
+            super().__init__()
+            self.inner = inner
+
+        def forward(self, x):  # type: ignore[override]
+            result = self.inner(x)
+            if isinstance(result, (tuple, list)):
+                return result[0]
+            return result
+
+    model = _ZeroDCEWrapper(base_model)
+    model.eval()
 
     dummy_input = torch.rand(1, 3, 256, 256)
     onnx_path = convert_dir / "zerodcepp.onnx"
     torch.onnx.export(
-        net,
+        model,
         dummy_input,
         onnx_path,
         input_names=["input"],
-        output_names=["enhanced", "curve"],
+        output_names=["output"],
         dynamic_axes={
-            "input": {2: "height", 3: "width"},
-            "enhanced": {2: "height", 3: "width"},
-            "curve": {2: "height", 3: "width"},
+            "input": {0: "batch", 2: "height", 3: "width"},
+            "output": {0: "batch", 2: "height", 3: "width"},
         },
-        opset_version=12,
+        opset_version=13,
     )
 
-    onnx_model = onnx.load(onnx_path)
-    saved_model_dir = convert_dir / "zerodcepp_saved_model"
-    if saved_model_dir.exists():
-        shutil.rmtree(saved_model_dir)
-    tf_rep = prepare(onnx_model)
-    tf_rep.export_graph(str(saved_model_dir))
+    simplified_path = convert_dir / "zerodcepp_simplified.onnx"
+    try:
+        simplified_model, check = simplify(str(onnx_path), dynamic_input_shape=True)
+    except Exception as exc:
+        log(f"Не удалось упростить ONNX: {exc}; используется исходная модель")
+        simplified_path = onnx_path
+    else:
+        if check:
+            onnx.save(simplified_model, simplified_path.as_posix())
+        else:
+            log("onnxsim не подтвердил корректность модели; используется исходный ONNX")
+            simplified_path = onnx_path
+
+    export_dir = convert_dir / "onnx2tf_export"
+    if export_dir.exists():
+        shutil.rmtree(export_dir)
+
+    try:
+        onnx2tf_convert(
+            input_onnx_file_path=str(simplified_path),
+            output_folder_path=str(export_dir),
+            copy_onnx_input_output_names_to_tflite=True,
+            not_use_onnxsim=True,
+        )
+    except Exception as exc:
+        log(f"onnx2tf завершился с ошибкой: {exc}")
+        for line in traceback.format_exc().splitlines()[:200]:
+            log(line)
+        ops = collect_onnx_operator_types(simplified_path)
+        if ops:
+            log("Операторы ONNX: " + ", ".join(ops))
+        raise
+
+    saved_model_dir: Optional[Path] = None
+    for candidate in export_dir.rglob("saved_model.pb"):
+        saved_model_dir = candidate.parent
+        break
+    if saved_model_dir is None:
+        raise RuntimeError("Не удалось найти saved_model.pb после работы onnx2tf")
 
     converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
+    converter.allow_custom_ops = True
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS,
+        tf.lite.OpsSet.SELECT_TF_OPS,
+    ]
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.target_spec.supported_types = [tf.float16]
     converter.experimental_new_converter = True
-    tflite_data = converter.convert()
+
+    try:
+        tflite_data = converter.convert()
+    except Exception as exc:
+        log("Конвертация в TFLite завершилась с ошибкой")
+        log(
+            "Параметры: supported_ops=%s, supported_types=%s, optimizations=%s"
+            % (converter.target_spec.supported_ops, converter.target_spec.supported_types, converter.optimizations)
+        )
+        log(
+            "Среда: TensorFlow=%s, Python=%s, Платформа=%s"
+            % (
+                getattr(tf, "__version__", "?"),
+                platform.python_version(),
+                platform.platform(),
+            )
+        )
+        for line in traceback.format_exc().splitlines()[:200]:
+            log(line)
+        raise
+
     tflite_path = convert_dir / "zerodcepp_fp16.tflite"
     tflite_path.write_bytes(tflite_data)
 
-    return "tflite", [
+    smoke = run_tflite_smoke_test(tflite_path)
+
+    metadata: Dict[str, object] = {
+        "tflite": smoke,
+        "onnx": {
+            "path": str(simplified_path),
+            "sha256": sha256_of(simplified_path),
+            "size_mib": format_mib(simplified_path.stat().st_size),
+            "operators": collect_onnx_operator_types(simplified_path),
+        },
+    }
+
+    files = [
         {
             "path": tflite_path,
-            "relative": "models/zerodcepp_fp16.tflite",
-        }
+            "relative": Path("zerodcepp_fp16.tflite"),
+            "include": True,
+            "label": "tflite",
+        },
+        {
+            "path": simplified_path,
+            "relative": Path("zerodcepp_fp16.onnx"),
+            "include": False,
+            "label": "onnx",
+        },
     ]
 
+    return "tflite", files, metadata
 
-def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Path) -> Tuple[str, List[Dict[str, Path]]]:
-    ensure_ml_dtypes_float4()
+
+def convert_restormer(
+    model_cfg: dict, sources: Dict[str, Path], convert_dir: Path
+) -> Tuple[str, List[Dict[str, Any]], Dict[str, object]]:
     ensure_python_modules([
         "torch",
         "onnx",
@@ -696,12 +797,21 @@ def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pa
         tflite_data = converter.convert()
         tflite_path = convert_dir / "restormer_fp16.tflite"
         tflite_path.write_bytes(tflite_data)
+        metadata: Dict[str, object] = {
+            "tflite": {
+                "size_bytes": tflite_path.stat().st_size,
+                "size_mib": format_mib(tflite_path.stat().st_size),
+                "sha256": sha256_of(tflite_path),
+            }
+        }
         return "tflite", [
             {
                 "path": tflite_path,
-                "relative": "models/restormer_fp16.tflite",
+                "relative": Path("models/restormer_fp16.tflite"),
+                "include": True,
+                "label": "tflite",
             }
-        ]
+        ], metadata
     except Exception as exc:
         log(f"Не удалось получить Restormer TFLite, fallback на NCNN: {exc}")
         onnx2ncnn = shutil.which("onnx2ncnn")
@@ -722,16 +832,21 @@ def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pa
             bin_path.unlink()
             opt_param.rename(param_path)
             opt_bin.rename(bin_path)
+        metadata = {"tflite": None}
         return "ncnn", [
             {
                 "path": param_path,
-                "relative": "models/restormer_fp16.param",
+                "relative": Path("models/restormer_fp16.param"),
+                "include": True,
+                "label": "param",
             },
             {
                 "path": bin_path,
-                "relative": "models/restormer_fp16.bin",
+                "relative": Path("models/restormer_fp16.bin"),
+                "include": True,
+                "label": "bin",
             },
-        ]
+        ], metadata
 
 
 def process_model(key: str, cfg: dict) -> dict:
@@ -752,9 +867,9 @@ def process_model(key: str, cfg: dict) -> dict:
     convert_dir.mkdir(parents=True, exist_ok=True)
 
     if key == "zerodcepp_fp16":
-        backend, files = convert_zero_dce(cfg, sources, convert_dir)
+        backend, files, metadata = convert_zero_dce(cfg, sources, convert_dir)
     elif key == "restormer_fp16":
-        backend, files = convert_restormer(cfg, sources, convert_dir)
+        backend, files, metadata = convert_restormer(cfg, sources, convert_dir)
     else:
         raise RuntimeError(f"Неизвестная модель: {key}")
 
@@ -766,21 +881,49 @@ def process_model(key: str, cfg: dict) -> dict:
 
     staged_entries = []
     staged_paths = []
+    hash_entries: List[Dict[str, Any]] = []
     for descriptor in files:
-        src = descriptor["path"]
-        relative = descriptor["relative"]
-        relative_path = Path(relative)
-        dest = staging_dir / relative_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
-        staged_paths.append(relative_path)
-        staged_entries.append(
-            {
-                "path": relative_path,
-                "sha256": sha256_of(dest),
-                "min_mb": format_mib(dest.stat().st_size),
-            }
-        )
+        src = Path(descriptor["path"])
+        relative_path = Path(descriptor.get("relative", src.name))
+        include = bool(descriptor.get("include", True))
+        label = descriptor.get("label")
+
+        if include:
+            dest = staging_dir / relative_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            staged_paths.append(relative_path)
+            size_mb = format_mib(dest.stat().st_size)
+            sha_value = sha256_of(dest)
+            staged_entries.append(
+                {
+                    "path": relative_path,
+                    "sha256": sha_value,
+                    "min_mb": size_mb,
+                    "label": label,
+                }
+            )
+            hash_entries.append(
+                {
+                    "path": relative_path.as_posix(),
+                    "sha256": sha_value,
+                    "size_mb": size_mb,
+                    "label": label,
+                    "included": True,
+                }
+            )
+        else:
+            size_mb = format_mib(src.stat().st_size)
+            sha_value = sha256_of(src)
+            hash_entries.append(
+                {
+                    "path": relative_path.as_posix(),
+                    "sha256": sha_value,
+                    "size_mb": size_mb,
+                    "label": label,
+                    "included": False,
+                }
+            )
 
     def find_common_prefix(paths: List[Path]) -> Path:
         if not paths:
@@ -815,6 +958,7 @@ def process_model(key: str, cfg: dict) -> dict:
                 "path": visible_path.as_posix(),
                 "sha256": entry["sha256"],
                 "min_mb": entry["min_mb"],
+                "label": entry.get("label"),
             }
         )
 
@@ -840,6 +984,8 @@ def process_model(key: str, cfg: dict) -> dict:
         "backend": backend,
         "unzipped_root": unzipped_root.as_posix() if unzipped_root != Path(".") else ".",
         "files": file_entries,
+        "hash_entries": hash_entries,
+        "metadata": metadata,
     }
 
 
@@ -847,20 +993,63 @@ def write_sha_sums(results: List[dict]) -> None:
     sha_path = DIST_DIR / "SHA256SUMS.txt"
     with sha_path.open("w", encoding="utf-8") as fp:
         for result in results:
-            fp.write(f"{result['artifact_sha']}  {result['artifact_name']}\n")
+            fp.write(f"# {result['display']}\n")
+            for entry in result.get("hash_entries", []):
+                fp.write(f"{entry['sha256']}  {entry['path']}\n")
+            fp.write("\n")
     log(f"SHA256SUMS.txt обновлён: {sha_path}")
 
 
 def write_summary(results: List[dict]) -> None:
     SUMMARY_FILE.parent.mkdir(parents=True, exist_ok=True)
     lines = [
-        "| Модель | Backend | Размер (MiB) | SHA-256 |",
-        "| --- | --- | --- | --- |",
+        "| Модель | Backend | Размер TFLite (MiB) | SHA-256 (TFLite) | Операторов | Smoke-тест |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for result in results:
+        metadata = result.get("metadata", {})
+        tflite_info = metadata.get("tflite") if isinstance(metadata, dict) else None
+        if isinstance(tflite_info, dict):
+            size_value = tflite_info.get("size_mib")
+            size_text = f"{float(size_value):.2f}" if size_value is not None else "—"
+            sha_value = tflite_info.get("sha256", "—")
+            op_count = tflite_info.get("op_count", "—")
+            smoke_status = tflite_info.get("status", "—")
+        else:
+            size_text = "—"
+            sha_value = "—"
+            op_count = "—"
+            smoke_status = "—"
+
         lines.append(
-            f"| {result['display']} | {result['backend']} | {result['artifact_size']:.2f} | {result['artifact_sha']} |"
+            "| {model} | {backend} | {size} | {sha} | {ops} | {smoke} |".format(
+                model=result["display"],
+                backend=result["backend"],
+                size=size_text,
+                sha=sha_value,
+                ops=op_count,
+                smoke=smoke_status,
+            )
         )
+    lines.append("")
+    lines.append("### Контрольные суммы")
+    for result in results:
+        lines.append(f"- **{result['display']}**:")
+        for entry in result.get("hash_entries", []):
+            suffix = " (в артефакте)" if entry.get("included") else " (не упакован)"
+            lines.append(
+                "  - `{path}` — `{sha}` ({size:.2f} MiB){suffix}".format(
+                    path=entry["path"],
+                    sha=entry["sha256"],
+                    size=float(entry.get("size_mb", 0.0)),
+                    suffix=suffix,
+                )
+            )
+        onnx_meta = result.get("metadata", {}).get("onnx") if isinstance(result.get("metadata"), dict) else None
+        if isinstance(onnx_meta, dict):
+            operators = onnx_meta.get("operators")
+            if operators:
+                lines.append("  - Операторы ONNX: " + ", ".join(operators))
     lines.append("")
     lines.append("Файл `SHA256SUMS.txt` записан в `dist/`.")
     SUMMARY_FILE.write_text("\n".join(lines), encoding="utf-8")
@@ -888,6 +1077,8 @@ def write_models_lock(results: List[dict]) -> None:
             "backend": result["backend"],
             "min_mb": result["artifact_size"],
             "files": result["files"],
+            "hashes": result.get("hash_entries", []),
+            "metadata": result.get("metadata", {}),
         }
     payload = {
         "repository": repository,
