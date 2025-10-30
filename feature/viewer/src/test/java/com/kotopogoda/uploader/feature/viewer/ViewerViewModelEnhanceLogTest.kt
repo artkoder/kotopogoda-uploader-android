@@ -160,6 +160,7 @@ class ViewerViewModelEnhanceLogTest {
         assertEquals("480", loggedDetails["tile_size_actual"])
         assertEquals("48", loggedDetails["tile_overlap_actual"])
         assertEquals("96", loggedDetails["mixing_window"])
+        assertEquals("96", loggedDetails["mixing_window_actual"])
         assertEquals("4", loggedDetails["tiles_completed"])
         assertEquals("1.000", loggedDetails["tile_progress"])
         assertEquals("true", loggedDetails["zero_dce_delegate_fallback"])
