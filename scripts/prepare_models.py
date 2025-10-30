@@ -183,6 +183,46 @@ def ensure_ml_dtypes_float4() -> None:
 
     raise RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
 
+
+def _version_tuple(version: str) -> Tuple[int, ...]:
+    parts: List[int] = []
+    for piece in version.split("."):
+        if not piece.isdigit():
+            break
+        parts.append(int(piece))
+    return tuple(parts)
+
+
+def ensure_numpy_legacy_cap() -> None:
+    """Гарантирует использование numpy с мажорной версией < 2."""
+
+    import importlib
+
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+    except Exception:
+        np = None  # type: ignore[assignment]
+    else:
+        if _version_tuple(getattr(np, "__version__", "0")) < (2, 0):
+            return
+
+    log("Устанавливаем numpy<2.0 для совместимости с TensorFlow")
+    if not pip_install("numpy<2.0"):
+        raise RuntimeError("Не удалось установить numpy<2.0")
+
+    importlib.invalidate_caches()
+    for module_name in list(sys.modules):
+        if module_name == "numpy" or module_name.startswith("numpy."):
+            sys.modules.pop(module_name, None)
+
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover - защита от редких ошибок импорта
+        raise RuntimeError("Не удалось переустановить совместимую версию numpy") from exc
+
+    if _version_tuple(getattr(np, "__version__", "0")) >= (2, 0):
+        raise RuntimeError("numpy>=2.0 не совместим с текущим процессом конвертации")
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = ROOT_DIR / ".work" / "models"
 MODEL_SOURCES_FILE = ROOT_DIR / "scripts" / "model_sources.lock.json"
@@ -330,6 +370,9 @@ MODULE_INSTALL_MAP = {
 
 
 def ensure_python_modules(modules: List[str]) -> None:
+    if any(module in ("tensorflow", "onnx_tf") for module in modules):
+        ensure_numpy_legacy_cap()
+
     missing: List[str] = []
     for module in modules:
         try:
