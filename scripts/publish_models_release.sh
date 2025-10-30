@@ -38,6 +38,49 @@ if [[ ! -f "$SHA_FILE" ]]; then
   fatal "Файл контрольных сумм '$SHA_FILE' не найден."
 fi
 
+log INFO "Проверяем артефакт Zero-DCE++"
+python3 - <<'PY'
+import json
+import zipfile
+from pathlib import Path
+
+dist_dir = Path("dist")
+models_lock = Path("models.lock.json")
+if not models_lock.exists():
+    raise SystemExit("models.lock.json не найден, повторите подготовку моделей")
+
+data = json.loads(models_lock.read_text(encoding="utf-8"))
+models = data.get("models", {})
+zero = models.get("zerodcepp_fp16")
+if zero is None:
+    raise SystemExit("В models.lock.json отсутствует запись zerodcepp_fp16")
+
+metadata = zero.get("metadata") or {}
+tflite_meta = metadata.get("tflite") or {}
+status = tflite_meta.get("status")
+if status != "OK":
+    raise SystemExit(f"Smoke-тест zerodcepp_fp16.tflite не подтверждён: статус {status}")
+
+asset_name = zero.get("asset")
+if not asset_name:
+    raise SystemExit("В записи zerodcepp_fp16 отсутствует имя артефакта")
+
+zip_path = dist_dir / asset_name
+if not zip_path.exists():
+    raise SystemExit(f"Архив {zip_path} не найден")
+
+with zipfile.ZipFile(zip_path, "r") as archive:
+    file_names = [info.filename for info in archive.infolist() if not info.is_dir()]
+
+expected = ["zerodcepp_fp16.tflite"]
+if file_names != expected:
+    raise SystemExit(
+        f"Архив {asset_name} должен содержать {expected}, найдено: {file_names}"
+    )
+
+print("Zero-DCE++: архив и smoke-тест в норме")
+PY
+
 log INFO "Используем тег релиза: $RELEASE_TAG"
 log INFO "Проверяем наличие релиза $RELEASE_TAG..."
 if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
