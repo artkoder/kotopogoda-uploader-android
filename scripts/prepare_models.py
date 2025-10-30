@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from types import ModuleType
 
+
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
+os.environ.setdefault("KERAS_BACKEND", "tensorflow")
+
 try:
     from importlib import metadata as importlib_metadata
 except ImportError:  # pragma: no cover - поддержка старых Python
