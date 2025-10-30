@@ -58,7 +58,7 @@ class EnhanceEngine(
         val exif: ExifInterface? = null,
         val outputFile: File? = null,
         val zeroDceIterations: Int = DEFAULT_ZERO_DCE_ITERATIONS,
-        val onTileProgress: (tileIndex: Int, total: Int, progress: Float) -> Unit = { _, _, _ -> },
+        val onTileProgress: (TileProgress) -> Unit = {},
     )
 
     data class Result(
@@ -128,6 +128,13 @@ class EnhanceEngine(
     data class ModelsTelemetry(
         val zeroDce: ModelUsage?,
         val restormer: ModelUsage?,
+    )
+
+    data class TileProgress(
+        val index: Int,
+        val total: Int,
+        val progress: Float,
+        val pipeline: Pipeline?,
     )
 
     data class ExpectedChecksums(
@@ -423,7 +430,7 @@ class EnhanceEngine(
         tileSize: Int,
         overlap: Int,
         delegate: Delegate,
-        onTileProgress: (tileIndex: Int, total: Int, progress: Float) -> Unit,
+        onTileProgress: (TileProgress) -> Unit,
     ): RestormerReport {
         val model = restormer
         val safeTile = if (tileSize <= 0) DEFAULT_TILE_SIZE else tileSize
@@ -431,9 +438,68 @@ class EnhanceEngine(
         val actualOverlap = min(safeOverlap, safeTile / 2)
         val step = max(1, safeTile - actualOverlap)
         val mixingWindow = actualOverlap * 2
-        if (mix <= 1e-3f || model == null) {
-            val totalTiles = computeTileCount(buffer.width, buffer.height, safeTile, actualOverlap)
-            repeat(totalTiles) { onTileProgress(it, totalTiles, 1f) }
+        val totalTiles = computeTileCount(buffer.width, buffer.height, safeTile, actualOverlap)
+        val restormerActive = mix > 1e-3f && model != null && totalTiles > 0
+
+        fun notifyProgress(
+            index: Int,
+            progress: Float,
+            tilesCompleted: Int,
+            seamMetrics: SeamMetrics = SeamMetrics(),
+            delegateFallback: Boolean = false,
+        ) {
+            val safeTotal = totalTiles.coerceAtLeast(0)
+            val completedClamped = tilesCompleted.coerceIn(0, safeTotal)
+            val overallProgress = if (safeTotal > 0) {
+                val partial = (completedClamped + progress.coerceIn(0f, 1f)).coerceIn(0f, safeTotal.toFloat())
+                (partial / safeTotal).coerceIn(0f, 1f)
+            } else {
+                progress.coerceIn(0f, 1f)
+            }
+            val pipeline = Pipeline(
+                stages = emptyList(),
+                tileSize = tileSize,
+                overlap = overlap,
+                tileSizeActual = safeTile,
+                overlapActual = actualOverlap,
+                mixingWindow = mixingWindow,
+                mixingWindowActual = mixingWindow,
+                tileCount = safeTotal,
+                tilesCompleted = completedClamped,
+                tileProgress = overallProgress,
+                tileUsed = restormerActive,
+                zeroDceIterations = 0,
+                zeroDceApplied = false,
+                zeroDceDelegateFallback = false,
+                restormerMix = mix,
+                restormerApplied = restormerActive,
+                restormerDelegateFallback = delegateFallback && restormerActive,
+                hasSeamFix = (actualOverlap > 0) && restormerActive,
+                seamMaxDelta = seamMetrics.maxDelta,
+                seamMeanDelta = seamMetrics.meanDelta,
+                seamArea = seamMetrics.area,
+                seamZeroArea = seamMetrics.zeroArea,
+                seamMinWeight = seamMetrics.minWeight,
+                seamMaxWeight = seamMetrics.maxWeight,
+            )
+            onTileProgress(
+                TileProgress(
+                    index = index,
+                    total = safeTotal,
+                    progress = progress.coerceIn(0f, 1f),
+                    pipeline = pipeline,
+                ),
+            )
+        }
+
+        if (!restormerActive) {
+            repeat(totalTiles) { index ->
+                notifyProgress(
+                    index = index,
+                    progress = 1f,
+                    tilesCompleted = index + 1,
+                )
+            }
             return RestormerReport(
                 result = null,
                 delegate = delegate,
@@ -450,7 +516,6 @@ class EnhanceEngine(
         val height = buffer.height
         val tilesX = ceil(width / step.toDouble()).toInt()
         val tilesY = ceil(height / step.toDouble()).toInt()
-        val totalTiles = max(1, tilesX * tilesY)
         val accR = FloatArray(width * height)
         val accG = FloatArray(width * height)
         val accB = FloatArray(width * height)
@@ -473,7 +538,12 @@ class EnhanceEngine(
                 val innerX = tx * step
                 val innerWidth = min(safeTile, width - innerX)
                 if (innerWidth <= 0) continue
-                onTileProgress(index, totalTiles, 0f)
+                notifyProgress(
+                    index = index,
+                    progress = 0f,
+                    tilesCompleted = index,
+                    delegateFallback = delegateFallback,
+                )
                 val tile = buffer.subRegion(innerX, innerY, innerWidth, innerHeight)
                 val requestedDelegate = currentDelegate
                 val processed = try {
@@ -517,7 +587,12 @@ class EnhanceEngine(
                         accWeight[idx] += weight
                     }
                 }
-                onTileProgress(index, totalTiles, 1f)
+                notifyProgress(
+                    index = index,
+                    progress = 1f,
+                    tilesCompleted = index + 1,
+                    delegateFallback = delegateFallback,
+                )
                 index++
             }
         }
@@ -562,6 +637,14 @@ class EnhanceEngine(
             minWeight = if (seamMinWeight.isFinite()) seamMinWeight else 0f,
             maxWeight = seamMaxWeight,
         )
+        notifyProgress(
+            index = max(0, totalTiles - 1),
+            progress = 1f,
+            tilesCompleted = totalTiles,
+            seamMetrics = seamMetrics,
+            delegateFallback = delegateFallback,
+        )
+
         return RestormerReport(
             result = ModelResult(ImageBuffer(buffer.width, buffer.height, resultPixels), currentDelegate),
             delegate = currentDelegate,
