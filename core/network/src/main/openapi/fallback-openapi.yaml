@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: Kotopogoda Uploader API (Fallback)
+  version: 1.0.0
+  description: |
+    Fallback OpenAPI contract used when the real contract submodule is unavailable.
+servers:
+  - url: https://api.example.com
+    description: Placeholder server for local development builds.
+paths:
+  /uploads:
+    get:
+      summary: List uploads
+      operationId: listUploads
+      responses:
+        '200':
+          description: A successful response containing uploads.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+    post:
+      summary: Create an upload record
+      operationId: createUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Name of the upload.
+              required:
+                - name
+      responses:
+        '204':
+          description: Upload recorded successfully.
+components: {}
