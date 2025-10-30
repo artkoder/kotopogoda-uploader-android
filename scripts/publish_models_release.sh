@@ -79,6 +79,30 @@ else
   } >> "$SUMMARY_FILE"
 fi
 
+log INFO "Проверяем настройки Git пользователя..."
+
+ensure_git_user_config() {
+  local current_name current_email desired_name desired_email
+
+  current_name="$(git config --get user.name || true)"
+  current_email="$(git config --get user.email || true)"
+
+  desired_name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-Kotopogoda Bot}}"
+  desired_email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-bot@kotopogoda.ru}}"
+
+  if [[ -z "$current_name" ]]; then
+    log INFO "Git user.name не задан, устанавливаем '$desired_name'."
+    git config user.name "$desired_name"
+  fi
+
+  if [[ -z "$current_email" ]]; then
+    log INFO "Git user.email не задан, устанавливаем '$desired_email'."
+    git config user.email "$desired_email"
+  fi
+}
+
+ensure_git_user_config
+
 log INFO "Коммитим обновлённый models.lock.json..."
 if git diff --quiet -- "models.lock.json"; then
   fatal "Файл models.lock.json не изменён, нечего коммитить."
