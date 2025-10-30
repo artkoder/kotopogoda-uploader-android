@@ -35,7 +35,7 @@ class EnhanceEngineTest {
         assertTrue(metrics.lMean in 0.4..0.7)
         assertTrue(metrics.pDark in 0.25..0.75)
         assertTrue("sharpness must stay high", metrics.bSharpness in 0.75..1.0)
-        assertTrue("noise must be within calibrated range", metrics.nNoise in 0.45..0.95)
+        assertTrue("noise must be within calibrated range", metrics.nNoise in 0.9..1.0)
     }
 
     @Test
@@ -58,6 +58,87 @@ class EnhanceEngineTest {
         assertTrue(profiles.all { (_, profile) -> profile.sharpenThreshold in 0.01f..0.12f })
         assertNonDecreasing(profiles.map { it.second.vibranceGain }, "vibranceGain")
         assertNonDecreasing(profiles.map { it.second.saturationGain }, "saturationGain")
+    }
+
+    @Test
+    fun `profile matches specification samples`() {
+        val metrics = EnhanceEngine.Metrics(
+            lMean = 0.32,
+            pDark = 0.42,
+            bSharpness = 0.28,
+            nNoise = 0.48,
+        )
+
+        val expected = mapOf(
+            0 to EnhanceEngine.Profile(
+                isLowLight = true,
+                kDce = 0.24109091f,
+                restormerMix = 0.1344f,
+                alphaDetail = 0.2352f,
+                sharpenAmount = 0.19418f,
+                sharpenRadius = 3.1f,
+                sharpenThreshold = 0.012f,
+                vibranceGain = 0.20384f,
+                saturationGain = 1.0736f,
+            ),
+            25 to EnhanceEngine.Profile(
+                isLowLight = true,
+                kDce = 0.31421593f,
+                restormerMix = 0.1884f,
+                alphaDetail = 0.32095f,
+                sharpenAmount = 0.25052688f,
+                sharpenRadius = 3.1f,
+                sharpenThreshold = 0.012f,
+                vibranceGain = 0.29449f,
+                saturationGain = 1.120475f,
+            ),
+            50 to EnhanceEngine.Profile(
+                isLowLight = true,
+                kDce = 0.47509092f,
+                restormerMix = 0.3072f,
+                alphaDetail = 0.5096f,
+                sharpenAmount = 0.37449f,
+                sharpenRadius = 3.1f,
+                sharpenThreshold = 0.012f,
+                vibranceGain = 0.49392f,
+                saturationGain = 1.2236f,
+            ),
+            75 to EnhanceEngine.Profile(
+                isLowLight = true,
+                kDce = 0.63596594f,
+                restormerMix = 0.426f,
+                alphaDetail = 0.69825f,
+                sharpenAmount = 0.49845314f,
+                sharpenRadius = 3.1f,
+                sharpenThreshold = 0.012f,
+                vibranceGain = 0.69335f,
+                saturationGain = 1.326725f,
+            ),
+            100 to EnhanceEngine.Profile(
+                isLowLight = true,
+                kDce = 0.7090909f,
+                restormerMix = 0.48f,
+                alphaDetail = 0.784f,
+                sharpenAmount = 0.5548f,
+                sharpenRadius = 3.1f,
+                sharpenThreshold = 0.012f,
+                vibranceGain = 0.784f,
+                saturationGain = 1.3736f,
+            ),
+        )
+
+        expected.forEach { (strength, expectedProfile) ->
+            val actual = EnhanceEngine.ProfileCalculator.calculate(metrics, strength / 100f)
+            assertEquals("isLowLight mismatch for strength=$strength", expectedProfile.isLowLight, actual.isLowLight)
+            assertEquals("kDce mismatch for strength=$strength", expectedProfile.kDce, actual.kDce, 1e-6f)
+            assertEquals("restormerMix mismatch for strength=$strength", expectedProfile.restormerMix, actual.restormerMix, 1e-6f)
+            assertEquals("alphaDetail mismatch for strength=$strength", expectedProfile.alphaDetail, actual.alphaDetail, 1e-6f)
+            assertEquals("sharpenAmount mismatch for strength=$strength", expectedProfile.sharpenAmount, actual.sharpenAmount, 1e-6f)
+            assertEquals("sharpenRadius mismatch for strength=$strength", expectedProfile.sharpenRadius, actual.sharpenRadius, 1e-6f)
+            assertEquals("sharpenThreshold mismatch for strength=$strength", expectedProfile.sharpenThreshold, actual.sharpenThreshold, 1e-6f)
+            assertEquals("vibranceGain mismatch for strength=$strength", expectedProfile.vibranceGain, actual.vibranceGain, 1e-6f)
+            assertEquals("saturationGain mismatch for strength=$strength", expectedProfile.saturationGain, actual.saturationGain, 1e-6f)
+        }
     }
 
     @Test
