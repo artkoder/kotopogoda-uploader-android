@@ -341,7 +341,8 @@ def _tensorflow_requirements() -> List[str]:
     if _TF_REQUIREMENTS_CACHE is not None:
         return list(_TF_REQUIREMENTS_CACHE)
 
-    default_requirements = ["tensorflow==2.20.0", "tf2onnx"]
+    # onnx-tf 1.10 + addons 0.22 проверены с TensorFlow 2.13.x
+    default_requirements = ["tensorflow==2.13.1", "tf2onnx"]
     libc, version = platform.libc_ver()
     selected = default_requirements
 
@@ -386,13 +387,15 @@ def _tensorflow_probability_requirements() -> List[str]:
 
 
 def _onnx_tf_requirements() -> List[str]:
-    requirements = ["onnx<1.19", "onnx-tf"]
+    requirements = ["onnx<1.19", "onnx-tf==1.10.0"]
 
     if sys.version_info < (3, 12):
         version = _tensorflow_version()
         parts = _version_tuple(version) if version else ()
-        if parts and parts < (2, 16):
-            requirements.append("tensorflow-addons<0.23.0")
+        if parts and parts < (2, 14):
+            requirements.append("tensorflow-addons==0.22.*")
+        elif parts and parts < (2, 16):
+            requirements.append("tensorflow-addons==0.23.*")
 
     return requirements
 
