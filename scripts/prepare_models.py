@@ -614,6 +614,8 @@ def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pa
         "lmdb",
         "tqdm",
         "yaml",
+        "scipy",
+        "skimage",
     ])
     import torch
     from onnx_tf.backend import prepare
