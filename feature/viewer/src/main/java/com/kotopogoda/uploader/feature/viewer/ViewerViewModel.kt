@@ -592,11 +592,6 @@ class ViewerViewModel @Inject constructor(
                     "cleanup_strategy" to "post_upload",
                 )
                 enhancementResult?.let { publishDetails += "delegate" to it.delegate.name.lowercase() }
-                logEnhancement(
-                    action = "publish_click",
-                    photo = current,
-                    *publishDetails.filterNot { it.second == null }.toTypedArray(),
-                )
 
                 val enqueueUri: Uri
                 val idempotencyKey: String
@@ -644,6 +639,13 @@ class ViewerViewModel @Inject constructor(
                         overrideSize = documentInfo.size,
                     )
                 }
+                val sourceSameAsUpload = enqueueUri == current.uri
+                publishDetails += "source_same_as_upload" to sourceSameAsUpload
+                logEnhancement(
+                    action = "publish_click",
+                    photo = current,
+                    *publishDetails.filterNot { it.second == null }.toTypedArray(),
+                )
                 uploadEnqueuer.enqueue(
                     uri = enqueueUri,
                     idempotencyKey = idempotencyKey,
@@ -678,6 +680,7 @@ class ViewerViewModel @Inject constructor(
                     disposeEnhancementResult(
                         enhancementResult,
                         EnhancementResultDisposition.Enqueued,
+                        deleteResultFile = false,
                     )
                     _enhancementState.update { state ->
                         state.copy(
@@ -1999,26 +2002,31 @@ class ViewerViewModel @Inject constructor(
     private fun disposeEnhancementResult(
         result: EnhancementResult?,
         disposition: EnhancementResultDisposition = EnhancementResultDisposition.DISCARD,
+        deleteResultFile: Boolean = true,
     ) {
         val target = result ?: return
-        when (disposition) {
-            EnhancementResultDisposition.DISCARD -> {
-                runCatching { if (target.file.exists()) target.file.delete() }
-                runCatching { if (target.sourceFile.exists()) target.sourceFile.delete() }
-            }
-            EnhancementResultDisposition.ENQUEUED -> {
-                runCatching { if (target.sourceFile.exists()) target.sourceFile.delete() }
-            }
-            EnhancementResultDisposition.UPLOADED -> {
-                runCatching { if (target.file.exists()) target.file.delete() }
-                runCatching { if (target.sourceFile.exists()) target.sourceFile.delete() }
-            }
+        val shouldDeleteResult = when (disposition) {
+            EnhancementResultDisposition.UPLOADED -> true
+            EnhancementResultDisposition.ENQUEUED -> deleteResultFile
+            EnhancementResultDisposition.DISCARD -> deleteResultFile
+        }
+        val shouldDeleteSource = when (disposition) {
+            EnhancementResultDisposition.DISCARD,
+            EnhancementResultDisposition.ENQUEUED,
+            EnhancementResultDisposition.UPLOADED -> true
+        }
+        if (shouldDeleteResult) {
+            runCatching { if (target.file.exists()) target.file.delete() }
+        }
+        if (shouldDeleteSource) {
+            runCatching { if (target.sourceFile.exists()) target.sourceFile.delete() }
         }
     }
 
     private fun scheduleUploadCleanup(data: PendingUploadCleanup) {
         pendingCleanupJobs.remove(data.idempotencyKey)?.cancel()
         val job = viewModelScope.launch {
+            val sourceSameAsUpload = data.enqueueUri == data.photo.uri
             try {
                 val finalState = awaitUploadCompletion(data)
                 if (finalState == UploadItemState.FAILED) {
@@ -2029,6 +2037,7 @@ class ViewerViewModel @Inject constructor(
                         "upload_state" to finalState.name.lowercase(),
                         "cleanup_result" to data.useEnhancedResult,
                         "cleanup_strategy" to "post_upload",
+                        "source_same_as_upload" to sourceSameAsUpload,
                     )
                     return@launch
                 }
@@ -2042,6 +2051,7 @@ class ViewerViewModel @Inject constructor(
                     "upload_state" to (finalState?.name?.lowercase() ?: "unknown"),
                     "cleanup_result" to data.useEnhancedResult,
                     "cleanup_strategy" to "post_upload",
+                    "source_same_as_upload" to sourceSameAsUpload,
                 )
                 outcome.source.lastError?.let { cleanupDetails += "source_error" to it }
                 outcome.result.lastError?.let { cleanupDetails += "result_error" to it }
@@ -2058,6 +2068,7 @@ class ViewerViewModel @Inject constructor(
                     "result_present" to (data.enhancementResult != null),
                     "upload_state" to (finalState?.name?.lowercase() ?: "unknown"),
                     "cleanup_strategy" to "post_upload",
+                    "source_same_as_upload" to sourceSameAsUpload,
                 )
                 logEnhancement(
                     action = "enhance_cleanup",
@@ -2071,6 +2082,7 @@ class ViewerViewModel @Inject constructor(
                     "reason" to (error.message ?: error::class.simpleName?.lowercase()),
                     "cleanup_result" to data.useEnhancedResult,
                     "cleanup_strategy" to "post_upload",
+                    "source_same_as_upload" to sourceSameAsUpload,
                 )
             } finally {
                 pendingCleanupJobs.remove(data.idempotencyKey)
