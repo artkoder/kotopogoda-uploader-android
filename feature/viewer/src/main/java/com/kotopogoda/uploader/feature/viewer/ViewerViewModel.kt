@@ -587,6 +587,7 @@ class ViewerViewModel @Inject constructor(
                     "strength" to "%.2f".format(normalizedStrength),
                     "cleanup_source" to true,
                     "cleanup_result" to useEnhancedResult,
+                    "cleanup_strategy" to "post_upload",
                 )
                 enhancementResult?.let { publishDetails += "delegate" to it.delegate.name.lowercase() }
                 logEnhancement(
@@ -1988,6 +1989,7 @@ class ViewerViewModel @Inject constructor(
                         "reason" to "upload_failed",
                         "upload_state" to finalState.name.lowercase(),
                         "cleanup_result" to data.useEnhancedResult,
+                        "cleanup_strategy" to "post_upload",
                     )
                     return@launch
                 }
@@ -2000,6 +2002,7 @@ class ViewerViewModel @Inject constructor(
                     "result_attempts" to outcome.result.attempts,
                     "upload_state" to (finalState?.name?.lowercase() ?: "unknown"),
                     "cleanup_result" to data.useEnhancedResult,
+                    "cleanup_strategy" to "post_upload",
                 )
                 outcome.source.lastError?.let { cleanupDetails += "source_error" to it }
                 outcome.result.lastError?.let { cleanupDetails += "result_error" to it }
@@ -2015,6 +2018,7 @@ class ViewerViewModel @Inject constructor(
                     "cleanup_attempts_result" to outcome.result.attempts,
                     "result_present" to (data.enhancementResult != null),
                     "upload_state" to (finalState?.name?.lowercase() ?: "unknown"),
+                    "cleanup_strategy" to "post_upload",
                 )
                 logEnhancement(
                     action = "enhance_cleanup",
@@ -2027,6 +2031,7 @@ class ViewerViewModel @Inject constructor(
                     photo = data.photo,
                     "reason" to (error.message ?: error::class.simpleName?.lowercase()),
                     "cleanup_result" to data.useEnhancedResult,
+                    "cleanup_strategy" to "post_upload",
                 )
             } finally {
                 pendingCleanupJobs.remove(data.idempotencyKey)

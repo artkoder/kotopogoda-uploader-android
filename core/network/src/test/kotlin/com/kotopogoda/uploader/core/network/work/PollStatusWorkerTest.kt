@@ -18,6 +18,7 @@ import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.work.UploadErrorKind
@@ -39,6 +40,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import io.mockk.coEvery
 import io.mockk.mockk
 import androidx.work.ForegroundUpdater
 import org.robolectric.RobolectricTestRunner
@@ -64,6 +66,7 @@ class PollStatusWorkerTest {
         TestForegroundDelegate.ensureChannel(context)
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
+        coEvery { uploadQueueRepository.findSourceForItem(any()) } returns null
         mediaStoreDeleteLauncher = TestMediaStoreDeleteLauncher()
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
@@ -169,6 +172,34 @@ class PollStatusWorkerTest {
             result.outputData.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
         )
         assertFalse(file.exists())
+    }
+
+    @Test
+    fun doneStatusDeletesSourceFileWhenDifferent() = runBlocking {
+        val uploadFile = createTempFile()
+        val sourceFile = createTempFile()
+        val inputData = pollInputData(uploadFile)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"status":"done"}""")
+        )
+
+        coEvery { uploadQueueRepository.findSourceForItem(1L) } returnsMany listOf(
+            UploadSourceInfo(
+                photoId = "photo-id",
+                uri = Uri.fromFile(sourceFile),
+            ),
+            null,
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        assertFalse(sourceFile.exists())
     }
 
     @Test

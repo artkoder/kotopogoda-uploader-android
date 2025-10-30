@@ -445,6 +445,16 @@ class UploadQueueRepository @Inject constructor(
         )
     }
 
+    suspend fun findSourceForItem(id: Long): UploadSourceInfo? = withContext(Dispatchers.IO) {
+        val entity = uploadItemDao.getById(id) ?: return@withContext null
+        val photo = photoDao.getById(entity.photoId) ?: return@withContext null
+        val uri = photo.uri.toUriOrNull() ?: return@withContext null
+        UploadSourceInfo(
+            photoId = photo.id,
+            uri = uri,
+        )
+    }
+
     suspend fun updateProcessingHeartbeat(id: Long) = withContext(Dispatchers.IO) {
         val updatedRows = uploadItemDao.touchProcessing(
             id = id,
@@ -709,4 +719,9 @@ data class UploadQueueItem(
     val lastErrorKind: UploadErrorKind? = null,
     val lastErrorHttpCode: Int? = null,
     val lastErrorMessage: String? = null,
+)
+
+data class UploadSourceInfo(
+    val photoId: String,
+    val uri: Uri,
 )
