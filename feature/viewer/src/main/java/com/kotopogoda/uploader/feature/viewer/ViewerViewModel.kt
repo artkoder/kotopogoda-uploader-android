@@ -1726,6 +1726,7 @@ class ViewerViewModel @Inject constructor(
                 var lastEmitElapsed = startElapsed
                 var lastEmitProgress = 0f
                 var latestResult: EnhancementResult? = null
+                var pipelineSnapshot: EnhanceEngine.Pipeline? = null
                 val predictedProfile = EnhanceEngine.ProfileCalculator.calculate(metrics, normalized)
                 if (totalTiles > 0) {
                     _enhancementState.update { state ->
@@ -1779,46 +1780,46 @@ class ViewerViewModel @Inject constructor(
                     val queueStats = uploadQueueRepository.getQueueStats()
                     val queueLength = queueStats.queued + queueStats.processing
                     val currentResult = latestResult
-                    val pipelineBase = currentResult?.pipeline ?: EnhanceEngine.Pipeline(
-                        tileSize = tileSize,
-                        overlap = tileOverlap,
-                        tileCount = totalTiles,
-                    )
-                    val pipeline = if (currentResult != null) {
-                        pipelineBase.copy(
-                            tileCount = if (pipelineBase.tileCount > 0) pipelineBase.tileCount else totalTiles,
-                            tilesCompleted = tilesCompleted.coerceAtMost(
-                                max(pipelineBase.tileCount, totalTiles)
-                            ),
-                            tileProgress = progress,
+                    val pipelineSource = currentResult?.pipeline
+                        ?: pipelineSnapshot
+                        ?: EnhanceEngine.Pipeline(
+                            tileSize = tileSize,
+                            overlap = tileOverlap,
+                            tileCount = totalTiles,
                         )
+                    val tileCountSource = if (pipelineSource.tileCount > 0) {
+                        pipelineSource.tileCount
                     } else {
-                        val tileCountActual = if (pipelineBase.tileCount > 0) pipelineBase.tileCount else totalTiles
-                        val overlapActual = if (pipelineBase.tileSizeActual > 0) {
-                            min(pipelineBase.overlapActual, pipelineBase.tileSizeActual / 2)
-                        } else {
-                            0
-                        }
-                        val mixingWindowActual = if (pipelineBase.mixingWindowActual > 0) {
-                            pipelineBase.mixingWindowActual
-                        } else {
-                            overlapActual * 2
-                        }
-                        pipelineBase.copy(
-                            tileCount = tileCountActual,
-                            tilesCompleted = tilesCompleted.coerceAtMost(
-                                max(tileCountActual, totalTiles)
-                            ),
-                            tileProgress = progress,
-                            overlapActual = overlapActual,
-                            mixingWindow = if (pipelineBase.mixingWindow > 0) {
-                                pipelineBase.mixingWindow
-                            } else {
-                                mixingWindowActual
-                            },
-                            mixingWindowActual = mixingWindowActual,
-                        )
+                        totalTiles
                     }
+                    val overlapActual = when {
+                        pipelineSource.tileSizeActual > 0 -> min(
+                            pipelineSource.overlapActual,
+                            pipelineSource.tileSizeActual / 2,
+                        )
+                        pipelineSource.overlapActual > 0 -> pipelineSource.overlapActual
+                        else -> min(tileOverlap, tileSize / 2)
+                    }
+                    val mixingWindowActual = when {
+                        pipelineSource.mixingWindowActual > 0 -> pipelineSource.mixingWindowActual
+                        overlapActual > 0 -> overlapActual * 2
+                        else -> pipelineSource.mixingWindowActual
+                    }
+                    val mixingWindow = if (pipelineSource.mixingWindow > 0) {
+                        pipelineSource.mixingWindow
+                    } else {
+                        mixingWindowActual
+                    }
+                    val pipeline = pipelineSource.copy(
+                        tileCount = tileCountSource,
+                        tilesCompleted = tilesCompleted.coerceAtMost(
+                            max(tileCountSource, totalTiles)
+                        ),
+                        tileProgress = progress,
+                        overlapActual = overlapActual,
+                        mixingWindow = mixingWindow,
+                        mixingWindowActual = mixingWindowActual,
+                    )
                     val delegate = currentResult?.delegate ?: delegatePlan.delegateType
                     val engineDelegate = currentResult?.engineDelegate ?: delegatePlan.engineDelegate
                     val models = currentResult?.models
@@ -1845,16 +1846,24 @@ class ViewerViewModel @Inject constructor(
                     )
                 }
                 viewModelScope.launch { emitEnhancementMetrics(force = true) }
-                val progressCallback: (Int, Int, Float) -> Unit = { index, _, progress ->
+                val progressCallback: (EnhanceEngine.TileProgress) -> Unit = { tileProgress ->
+                    val index = tileProgress.index
+                    val progress = tileProgress.progress
                     viewModelScope.launch {
                         _enhancementState.update { state ->
+                            if (index < 0) {
+                                return@update state
+                            }
                             val updated = state.progressByTile.toMutableMap()
-                            updated[index] = progress
+                            if (index < totalTiles) {
+                                updated[index] = progress
+                            }
                             state.copy(progressByTile = updated)
                         }
                         if (index in progressSamples.indices) {
                             progressSamples[index] = progress.coerceIn(0f, 1f)
                         }
+                        tileProgress.pipeline?.let { pipelineSnapshot = it }
                         emitEnhancementMetrics()
                     }
                 }
