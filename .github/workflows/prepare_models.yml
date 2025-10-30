@@ -75,7 +75,7 @@ jobs:
           python3 -m pip install \
             "numpy<=1.26.4" \
             torch torchvision \
-            "onnx==1.16.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" "onnx2tf>=1.24,<1.25" \
+            "onnx==1.16.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" "onnx2tf>=1.24,<1.25" sng4onnx \
             "tensorflow==2.14.1" "keras==2.14.*" "tensorflow-addons==0.23.*" "tensorflow-probability==0.23.*" "onnx-tf==1.10.0" \
             "tf-keras==2.14.*" onnx-graphsurgeon \
             einops "opencv-python-headless<5" lmdb tqdm pyyaml "scipy<1.14" "scikit-image<0.23" \
