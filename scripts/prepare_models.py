@@ -604,7 +604,17 @@ def convert_zero_dce(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pat
 
 def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Path) -> Tuple[str, List[Dict[str, Path]]]:
     ensure_ml_dtypes_float4()
-    ensure_python_modules(["torch", "onnx", "onnx_tf", "tensorflow", "einops", "cv2"])
+    ensure_python_modules([
+        "torch",
+        "onnx",
+        "onnx_tf",
+        "tensorflow",
+        "einops",
+        "cv2",
+        "lmdb",
+        "tqdm",
+        "yaml",
+    ])
     import torch
     from onnx_tf.backend import prepare
     import onnx
