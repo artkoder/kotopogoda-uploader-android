@@ -103,19 +103,12 @@ ensure_git_user_config() {
 
 ensure_git_user_config
 
-log INFO "Коммитим обновлённый models.lock.json..."
+log INFO "Проверяем изменения models.lock.json перед подготовкой PR..."
 if git diff --quiet -- "models.lock.json"; then
-  fatal "Файл models.lock.json не изменён, нечего коммитить."
+  fatal "Файл models.lock.json не изменён, нечего публиковать."
 fi
 
+log INFO "Добавляем models.lock.json в индекс для последующего PR..."
 git add models.lock.json || fatal "Не удалось подготовить models.lock.json к коммиту."
-if ! git commit -m "Update models.lock for models-v1 release"; then
-  fatal "Не удалось создать коммит с обновлённым models.lock.json."
-fi
 
-log INFO "Отправляем коммит в удалённый репозиторий..."
-if ! git push; then
-  fatal "Не удалось выполнить git push. Проверьте права доступа и состояние удалённого репозитория."
-fi
-
-log INFO "Скрипт успешно завершён."
+log INFO "Скрипт успешно завершён: артефакты загружены, изменения подготовлены."

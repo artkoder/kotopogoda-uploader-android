@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   prepare:
@@ -89,3 +90,13 @@ jobs:
         run: |
           set -euxo pipefail
           bash scripts/publish_models_release.sh
+      - name: Create PR with updated model artifacts
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: bot/models-release-${{ github.run_id }}
+          base: main
+          title: "chore(models): update model lock & checksums"
+          commit-message: "chore(models): update model lock & checksums"
+          body: "Автоматическое обновление артефактов моделей."
+          labels: automated, models
