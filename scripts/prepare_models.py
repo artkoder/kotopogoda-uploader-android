@@ -386,13 +386,46 @@ MODULE_INSTALL_MAP = {
     "onnx": ["onnx<1.19", "onnxsim", "onnxruntime"],
     "onnx_tf": ["onnx<1.19", "onnx-tf", "tensorflow-addons; python_version<'3.12'"],
     "keras": ["keras>=3.0.0"],
-    "keras.src.engine": ["keras>=3.0.0"],
+    "keras.src.engine": ["tf-keras", "keras>=3.0.0"],
     "tensorflow": _tensorflow_requirements,
     "tensorflow_addons": ["tensorflow-addons; python_version<'3.12'"],
     "tensorflow_probability": _tensorflow_probability_requirements,
     "tf_keras": ["tf-keras"],
     "einops": ["einops"],
 }
+
+
+def _ensure_keras_src_engine_alias() -> bool:
+    """Гарантирует доступность keras.src.engine, используя tf_keras при необходимости."""
+
+    import importlib
+    import sys
+
+    try:
+        keras_src = importlib.import_module("keras.src")
+    except ModuleNotFoundError:
+        return False
+
+    try:
+        importlib.import_module("keras.src.engine")
+    except ModuleNotFoundError as exc:
+        if getattr(exc, "name", None) != "keras.src.engine":
+            return False
+    else:
+        return True
+
+    try:
+        tf_engine = importlib.import_module("tf_keras.src.engine")
+    except ModuleNotFoundError:
+        return False
+
+    sys.modules["keras.src.engine"] = tf_engine
+    try:
+        setattr(keras_src, "engine", tf_engine)
+    except Exception:
+        pass
+
+    return True
 
 
 def _collect_missing_modules(modules: List[str]) -> Tuple[List[str], Dict[str, ImportError]]:
@@ -438,6 +471,9 @@ def ensure_python_modules(modules: List[str]) -> None:
 
         progress = False
         for module in missing:
+            if module == "keras.src.engine" and _ensure_keras_src_engine_alias():
+                progress = True
+                continue
             requirements = MODULE_INSTALL_MAP.get(module, [])
             if callable(requirements):  # type: ignore[callable-impl]
                 requirements = requirements()
