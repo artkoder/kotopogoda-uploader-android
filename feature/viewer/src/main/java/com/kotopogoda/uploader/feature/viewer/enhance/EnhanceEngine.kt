@@ -364,6 +364,13 @@ class EnhanceEngine(
         val accG = FloatArray(width * height)
         val accB = FloatArray(width * height)
         val accWeight = FloatArray(width * height)
+        val hannCache = mutableMapOf<Pair<Int, Int>, FloatArray>()
+
+        fun hannWindow(size: Int): FloatArray {
+            return hannCache.getOrPut(size to effectiveOverlap) {
+                buildHannWindow(size, effectiveOverlap)
+            }
+        }
         var index = 0
         var currentDelegate = delegate
         var delegateFallback = false
@@ -397,17 +404,19 @@ class EnhanceEngine(
                 val tilePixels = processed.buffer.pixels
                 val tileWidth = processed.buffer.width
                 val tileHeight = processed.buffer.height
+                val weightY = hannWindow(tileHeight)
+                val weightX = hannWindow(tileWidth)
                 for (py in 0 until tileHeight) {
                     val globalY = innerY + py
                     if (globalY >= height) continue
-                    val weightY = hannWeight(py, tileHeight, effectiveOverlap)
+                    val weightYValue = weightY[py]
                     val base = globalY * width
                     val tileBase = py * tileWidth
                     for (px in 0 until tileWidth) {
                         val globalX = innerX + px
                         if (globalX >= width) continue
-                        val weightX = hannWeight(px, tileWidth, effectiveOverlap)
-                        val weight = weightX * weightY
+                        val weightXValue = weightX[px]
+                        val weight = weightXValue * weightYValue
                         if (weight <= 0f) continue
                         val color = tilePixels[tileBase + px]
                         val idx = base + globalX
@@ -1078,6 +1087,16 @@ internal fun hannWeight(position: Int, size: Int, overlap: Int): Float {
     val normalized = (distanceToEdge.toFloat() / effectiveOverlap.toFloat()).coerceIn(0f, 1f)
     val window = 0.5 * (1 - cos(PI * normalized))
     return clamp01(window.toFloat())
+}
+
+private fun buildHannWindow(size: Int, overlap: Int): FloatArray {
+    if (size <= 0) return FloatArray(0)
+    if (size == 1) return floatArrayOf(1f)
+    val result = FloatArray(size)
+    for (index in 0 until size) {
+        result[index] = hannWeight(index, size, overlap)
+    }
+    return result
 }
 
 private fun laplacianAt(luma: DoubleArray, width: Int, height: Int, x: Int, y: Int): Double {
