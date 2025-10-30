@@ -994,6 +994,10 @@ def write_sha_sums(results: List[dict]) -> None:
     with sha_path.open("w", encoding="utf-8") as fp:
         for result in results:
             fp.write(f"# {result['display']}\n")
+            artifact_name = result.get("artifact_name")
+            artifact_sha = result.get("artifact_sha")
+            if artifact_name and artifact_sha:
+                fp.write(f"{artifact_sha}  {artifact_name}\n")
             for entry in result.get("hash_entries", []):
                 fp.write(f"{entry['sha256']}  {entry['path']}\n")
             fp.write("\n")
