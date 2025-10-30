@@ -15,6 +15,7 @@ import zipfile
 from hashlib import sha256
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from types import ModuleType
 
 try:
     from importlib import metadata as importlib_metadata
@@ -22,9 +23,39 @@ except ImportError:  # pragma: no cover - поддержка старых Python
     import importlib_metadata as importlib_metadata  # type: ignore
 
 
+_PIP_BOOTSTRAPPED = False
+
+
+def _ensure_pip_bootstrapped() -> None:
+    """Гарантирует доступность внутренних зависимостей pip."""
+
+    global _PIP_BOOTSTRAPPED
+    if _PIP_BOOTSTRAPPED:
+        return
+
+    try:
+        import pip._vendor.pkg_resources  # type: ignore  # noqa: F401
+    except ModuleNotFoundError:
+        log("pkg_resources отсутствует; пытаемся выполнить ensurepip")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "ensurepip", "--upgrade"],
+                check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as ensure_error:
+            log(
+                "ensurepip завершился с ошибкой; pip может остаться "
+                f"недоступным: {ensure_error}"
+            )
+        else:
+            log("ensurepip успешно восстановил окружение pip")
+    _PIP_BOOTSTRAPPED = True
+
+
 def pip_install(requirement: str) -> bool:
     """Устанавливает указанный Python-пакет через pip."""
 
+    _ensure_pip_bootstrapped()
     log(f"Устанавливаем пакет {requirement}")
     upgrade_cmd = [
         sys.executable,
@@ -90,6 +121,13 @@ def ensure_ml_dtypes_float4() -> None:
     def load_module() -> object:
         return importlib.import_module("ml_dtypes")
 
+    def ensure_stub_module(reason: str, module: Optional[ModuleType] = None) -> None:
+        log(f"{reason}; добавляем заглушку float4_e2m1fn")
+        if module is None:
+            module = ModuleType("ml_dtypes")
+            sys.modules["ml_dtypes"] = module
+        module.float4_e2m1fn = object()  # type: ignore[attr-defined]
+
     try:
         ml_dtypes = load_module()
     except ImportError:
@@ -100,11 +138,12 @@ def ensure_ml_dtypes_float4() -> None:
 
     tf_requires_legacy = _tensorflow_requires_legacy_ml_dtypes()
     legacy_requirement = "ml-dtypes>=0.4.0,<0.5.0"
-    requirements = ["ml-dtypes>=0.3.2"]
+    requirements: List[str] = []
     if tf_requires_legacy:
-        requirements = [legacy_requirement]
-    else:
         requirements.append(legacy_requirement)
+    else:
+        requirements.append("ml-dtypes>=0.5.0")
+    requirements.append("ml-dtypes>=0.3.2")
 
     last_error: Optional[BaseException] = None
     for requirement in requirements:
@@ -115,25 +154,19 @@ def ensure_ml_dtypes_float4() -> None:
             ml_dtypes = load_module()
         except ImportError as exc:
             last_error = exc
-            if "float4_e2m1fn" in str(exc) and requirement != legacy_requirement:
-                continue
-            if not installed and requirement != legacy_requirement:
+            if not installed:
                 continue
             break
 
         if hasattr(ml_dtypes, "float4_e2m1fn"):
             return
 
-        if requirement == legacy_requirement:
-            if tf_requires_legacy:
-                reason = "TensorFlow ограничивает версию ml-dtypes"
-            else:
-                reason = "ml-dtypes>=0.5.0 недоступен в среде исполнения"
-            log(f"{reason}; добавляем заглушку float4_e2m1fn")
-            setattr(ml_dtypes, "float4_e2m1fn", object())
-            return
+        ensure_stub_module("ml-dtypes установлен без float4_e2m1fn", ml_dtypes)
+        return
 
-        last_error = RuntimeError("ml-dtypes без поддержки float4_e2m1fn несовместим")
+    if not tf_requires_legacy:
+        ensure_stub_module("ml-dtypes недоступен в среде исполнения")
+        return
 
     if last_error is not None:
         raise RuntimeError("Не удалось подготовить ml-dtypes") from last_error
