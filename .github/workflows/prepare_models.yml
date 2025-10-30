@@ -7,6 +7,7 @@ on:
         description: "Бранч или тег, для которого нужно подготовить модели"
         default: main
         required: true
+        type: string
 
 permissions:
   contents: write
