@@ -295,35 +295,44 @@ class PollStatusWorker @AssistedInject constructor(
         displayName: String,
     ): Result {
         val completionState = deleteDocument(uri)
-        when (completionState) {
-            DeleteCompletionState.DELETED -> Timber.tag("WorkManager").i(
+        val sourceCleanup = cleanupSource(itemId, uri, completionState)
+        val cleanupAction = when {
+            completionState == DeleteCompletionState.AWAITING_MANUAL_DELETE ||
+                sourceCleanup.state == DeleteCompletionState.AWAITING_MANUAL_DELETE -> "cleanup_pending"
+            completionState == DeleteCompletionState.DELETED && sourceCleanup.state == DeleteCompletionState.DELETED ->
+                "cleanup_ok"
+            else -> "cleanup_error"
+        }
+        val cleanupDetails = mutableListOf(
+            "upload_state" to completionState.name.lowercase(Locale.US),
+            "source_state" to sourceCleanup.state.name.lowercase(Locale.US),
+            "source_present" to sourceCleanup.present,
+            "source_same_as_upload" to sourceCleanup.sameAsUpload,
+            "cleanup_strategy" to "post_upload",
+        )
+        if (cleanupAction == "cleanup_pending") {
+            cleanupDetails += "reason" to "awaiting_manual_delete"
+        } else if (cleanupAction == "cleanup_error") {
+            cleanupDetails += "reason" to "partial_cleanup"
+        }
+        sourceCleanup.photoId?.let { cleanupDetails += "source_photo_id" to it }
+        when (cleanupAction) {
+            "cleanup_error" -> Timber.tag("WorkManager").w(
                 pollLogMessage(
-                    action = "cleanup_ok",
+                    action = cleanupAction,
                     itemId = itemId,
                     uploadId = uploadId,
                     uri = uri,
+                    details = cleanupDetails.toTypedArray(),
                 ),
             )
-            DeleteCompletionState.AWAITING_MANUAL_DELETE -> Timber.tag("WorkManager").i(
+            else -> Timber.tag("WorkManager").i(
                 pollLogMessage(
-                    action = "cleanup_pending",
+                    action = cleanupAction,
                     itemId = itemId,
                     uploadId = uploadId,
                     uri = uri,
-                    details = arrayOf(
-                        "reason" to "awaiting_manual_delete",
-                    ),
-                ),
-            )
-            DeleteCompletionState.UNKNOWN -> Timber.tag("WorkManager").w(
-                pollLogMessage(
-                    action = "cleanup_failed",
-                    itemId = itemId,
-                    uploadId = uploadId,
-                    uri = uri,
-                    details = arrayOf(
-                        "reason" to "unknown_state",
-                    ),
+                    details = cleanupDetails.toTypedArray(),
                 ),
             )
         }
@@ -353,21 +362,53 @@ class PollStatusWorker @AssistedInject constructor(
         return Result.success(output.build())
     }
 
+    private suspend fun cleanupSource(
+        itemId: Long,
+        uploadUri: Uri,
+        uploadState: DeleteCompletionState,
+    ): SourceCleanupResult {
+        val sourceInfo = runCatching { uploadQueueRepository.findSourceForItem(itemId) }.getOrNull()
+            ?: return SourceCleanupResult(
+                state = DeleteCompletionState.DELETED,
+                present = false,
+                sameAsUpload = false,
+            )
+        val sameAsUpload = sourceInfo.uri == uploadUri
+        val state = if (sameAsUpload) {
+            uploadState
+        } else {
+            deleteDocument(sourceInfo.uri)
+        }
+        return SourceCleanupResult(
+            state = state,
+            present = true,
+            sameAsUpload = sameAsUpload,
+            photoId = sourceInfo.photoId,
+        )
+    }
+
     private suspend fun deleteDocument(uri: Uri): DeleteCompletionState {
         if (uri.scheme == ContentResolver.SCHEME_FILE) {
             val path = uri.path ?: return DeleteCompletionState.UNKNOWN
-            val deleted = runCatching { File(path).delete() }.getOrDefault(false)
-            return if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN
+            val file = File(path)
+            if (!file.exists()) {
+                return DeleteCompletionState.DELETED
+            }
+            val deleted = runCatching { file.delete() }.getOrDefault(false)
+            return if (deleted || !file.exists()) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN
         }
 
         if (isMediaStoreUri(uri)) {
             return deleteMediaStoreDocument(uri)
         }
 
-        val deleted = runCatching {
-            DocumentFile.fromSingleUri(appContext, uri)?.delete() == true
-        }.getOrDefault(false)
-        return if (deleted) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN
+        val document = DocumentFile.fromSingleUri(appContext, uri)
+            ?: return DeleteCompletionState.DELETED
+        if (!document.exists()) {
+            return DeleteCompletionState.DELETED
+        }
+        val deleted = runCatching { document.delete() }.getOrDefault(false)
+        return if (deleted || !document.exists()) DeleteCompletionState.DELETED else DeleteCompletionState.UNKNOWN
     }
 
     private suspend fun deleteMediaStoreDocument(uri: Uri): DeleteCompletionState {
@@ -450,6 +491,13 @@ class PollStatusWorker @AssistedInject constructor(
             }
         }
     }
+
+    private data class SourceCleanupResult(
+        val state: DeleteCompletionState,
+        val present: Boolean,
+        val sameAsUpload: Boolean,
+        val photoId: String? = null,
+    )
 
     private fun mediaStoreEntryExists(resolver: ContentResolver, uri: Uri): Boolean {
         val projection = arrayOf(MediaStore.MediaColumns._ID)

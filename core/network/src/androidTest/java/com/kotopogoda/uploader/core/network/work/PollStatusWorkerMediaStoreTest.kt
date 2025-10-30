@@ -27,6 +27,7 @@ import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.api.UploadLookupDto
 import com.kotopogoda.uploader.core.network.api.UploadStatusDto
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import io.mockk.coEvery
 import io.mockk.mockk
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -63,6 +64,7 @@ class PollStatusWorkerMediaStoreTest {
         workerContext = ResolverContext(baseContext, resolver)
         TestForegroundDelegate.ensureChannel(workerContext)
         uploadQueueRepository = mockk(relaxed = true)
+        coEvery { uploadQueueRepository.findSourceForItem(any()) } returns null
         mediaStoreDeleteLauncher = RecordingDeleteLauncher(resolver)
         uploadApi = SuccessUploadApi()
         workerFactory = object : WorkerFactory() {
