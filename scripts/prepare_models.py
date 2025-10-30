@@ -385,6 +385,8 @@ MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
     "onnx": ["onnx<1.19", "onnxsim", "onnxruntime"],
     "onnx_tf": ["onnx<1.19", "onnx-tf", "tensorflow-addons; python_version<'3.12'"],
+    "keras": ["keras>=3.0.0"],
+    "keras.src.engine": ["keras>=3.0.0"],
     "tensorflow": _tensorflow_requirements,
     "tensorflow_addons": ["tensorflow-addons; python_version<'3.12'"],
     "tensorflow_probability": _tensorflow_probability_requirements,
