@@ -2232,7 +2232,7 @@ class ViewerViewModel @Inject constructor(
         }
         val safeTile = tileSize.coerceAtLeast(1)
         val safeOverlap = overlap.coerceAtLeast(0)
-        val step = max(1, safeTile - safeOverlap * 2)
+        val step = max(1, safeTile - min(safeOverlap, safeTile / 2))
         val tilesX = ceil(width / step.toDouble()).toInt()
         val tilesY = ceil(height / step.toDouble()).toInt()
         return (tilesX * tilesY).coerceAtLeast(0)
