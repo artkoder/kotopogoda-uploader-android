@@ -138,6 +138,20 @@ class EnhanceEngine(
     suspend fun enhance(request: Request): Result = withContext(dispatcher) {
         val strength = request.strength.coerceIn(0f, 1f)
 
+        EnhanceLogging.logEvent(
+            "enhance_start",
+            mapOf(
+                "strength" to strength,
+                "tile_size" to request.tileSize,
+                "tile_overlap" to request.overlap,
+                "delegate_requested" to request.delegate.name.lowercase(Locale.US),
+                "zero_dce_iterations" to request.zeroDceIterations,
+                "source_bytes" to request.source.length(),
+                "output_preallocated" to (request.outputFile != null),
+                "exif_present" to (request.exif != null),
+            ),
+        )
+
         zeroDce?.let {
             Timber.tag(LOG_TAG).i(
                 "ZeroDCE model backend=%s checksum=%s",

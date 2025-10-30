@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.LoggingWorkerFactory
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceLogging
+import com.kotopogoda.uploader.feature.viewer.enhance.logging.EnhanceFileLogger
 import com.kotopogoda.uploader.ml.EnhancerModelProbe
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
@@ -110,6 +111,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         super.onCreate()
         appLogger.setEnabled(true)
         EnhanceLogging.setVerboseLoggingEnabled(BuildConfig.DEBUG)
+        EnhanceLogging.setFileLogger(EnhanceFileLogger(this))
         runBlocking(Dispatchers.IO) {
             runCatching { EnhancerModelProbe.run(this@KotopogodaUploaderApp) }
                 .onFailure { error ->

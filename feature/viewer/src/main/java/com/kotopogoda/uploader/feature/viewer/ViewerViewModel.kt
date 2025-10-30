@@ -43,6 +43,7 @@ import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceLogging
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -52,6 +53,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.ArrayList
 import java.util.Locale
+import java.util.LinkedHashMap
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -1735,9 +1737,9 @@ class ViewerViewModel @Inject constructor(
                     action = "enhance_start",
                     photo = photo,
                     "strength" to "%.2f".format(normalized),
-                    "delegate" to delegatePlan.delegateType.name.lowercase(),
-                    "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
-                    "tiles" to totalTiles,
+                    "delegate_plan" to delegatePlan.delegateType.name.lowercase(),
+                    "engine_delegate_plan" to delegatePlan.engineDelegate.name.lowercase(),
+                    "tiles_total" to totalTiles,
                     "tile_size" to tileSize,
                     "tile_overlap" to tileOverlap,
                 )
@@ -2311,15 +2313,23 @@ class ViewerViewModel @Inject constructor(
     private fun Double.format1(): String = String.format(Locale.US, "%.1f", this)
 
     private fun logEnhancement(action: String, photo: PhotoItem, vararg details: Pair<String, Any?>) {
-        Timber.tag(ENHANCE_TAG).i(
-            UploadLog.message(
-                category = ENHANCE_CATEGORY,
-                action = action,
-                photoId = photo.id,
-                uri = photo.uri,
-                details = details,
-            )
+        val message = UploadLog.message(
+            category = ENHANCE_CATEGORY,
+            action = action,
+            photoId = photo.id,
+            uri = photo.uri,
+            details = details,
         )
+        Timber.tag(ENHANCE_TAG).i(message)
+        val payload = LinkedHashMap<String, Any?>(details.size + 4)
+        payload["photo_id"] = photo.id
+        payload["uri"] = photo.uri.toString()
+        details.forEach { (key, value) ->
+            if (key.isNotBlank()) {
+                payload[key] = value
+            }
+        }
+        EnhanceLogging.logEvent(action, payload)
     }
 
     private fun logEnhancementDecision(
