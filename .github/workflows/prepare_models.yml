@@ -79,34 +79,34 @@ jobs:
             "tensorflow==2.13.1" "tf-keras==2.13.*" "tensorflow-addons==0.22.*" "onnx-tf==1.10.0" \
             einops "opencv-python-headless<5" lmdb tqdm pyyaml "scipy<1.14" "scikit-image<0.23"
           python3 - <<'PY'
-import importlib.metadata as metadata
-packages = [
-    "numpy",
-    "torch",
-    "torchvision",
-    "onnx",
-    "onnxruntime",
-    "onnxsim",
-    "onnx2tf",
-    "tensorflow",
-    "tf-keras",
-    "tensorflow-addons",
-    "onnx-tf",
-    "einops",
-    "opencv-python-headless",
-    "lmdb",
-    "tqdm",
-    "pyyaml",
-    "scipy",
-    "scikit-image",
-]
-for pkg in packages:
-    try:
-        version = metadata.version(pkg)
-    except metadata.PackageNotFoundError:
-        version = "не установлен"
-    print(f"{pkg}: {version}")
-PY
+          import importlib.metadata as metadata
+          packages = [
+              "numpy",
+              "torch",
+              "torchvision",
+              "onnx",
+              "onnxruntime",
+              "onnxsim",
+              "onnx2tf",
+              "tensorflow",
+              "tf-keras",
+              "tensorflow-addons",
+              "onnx-tf",
+              "einops",
+              "opencv-python-headless",
+              "lmdb",
+              "tqdm",
+              "pyyaml",
+              "scipy",
+              "scikit-image",
+          ]
+          for pkg in packages:
+              try:
+                  version = metadata.version(pkg)
+              except metadata.PackageNotFoundError:
+                  version = "не установлен"
+              print(f"{pkg}: {version}")
+          PY
 
       - name: Prepare model artifacts
         env:
