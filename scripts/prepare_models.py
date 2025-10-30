@@ -23,9 +23,39 @@ except ImportError:  # pragma: no cover - поддержка старых Python
     import importlib_metadata as importlib_metadata  # type: ignore
 
 
+_PIP_BOOTSTRAPPED = False
+
+
+def _ensure_pip_bootstrapped() -> None:
+    """Гарантирует доступность внутренних зависимостей pip."""
+
+    global _PIP_BOOTSTRAPPED
+    if _PIP_BOOTSTRAPPED:
+        return
+
+    try:
+        import pip._vendor.pkg_resources  # type: ignore  # noqa: F401
+    except ModuleNotFoundError:
+        log("pkg_resources отсутствует; пытаемся выполнить ensurepip")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "ensurepip", "--upgrade"],
+                check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as ensure_error:
+            log(
+                "ensurepip завершился с ошибкой; pip может остаться "
+                f"недоступным: {ensure_error}"
+            )
+        else:
+            log("ensurepip успешно восстановил окружение pip")
+    _PIP_BOOTSTRAPPED = True
+
+
 def pip_install(requirement: str) -> bool:
     """Устанавливает указанный Python-пакет через pip."""
 
+    _ensure_pip_bootstrapped()
     log(f"Устанавливаем пакет {requirement}")
     upgrade_cmd = [
         sys.executable,
