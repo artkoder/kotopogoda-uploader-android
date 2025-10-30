@@ -20,6 +20,9 @@ import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.kotopogoda.uploader.core.data.upload.UploadLog
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import timber.log.Timber
 
 /**
@@ -286,6 +289,8 @@ class EnhanceEngine(
             },
         )
 
+        logModelsRuntimeInfoIfNeeded(request, pipeline, actualDelegate)
+
         Result(
             file = output,
             metrics = metrics,
@@ -295,6 +300,61 @@ class EnhanceEngine(
             timings = timings,
             models = models,
         )
+    }
+
+    private fun logModelsRuntimeInfoIfNeeded(
+        request: Request,
+        pipeline: Pipeline,
+        actualDelegate: Delegate,
+    ) {
+        if (!runtimeInfoLogged.compareAndSet(false, true)) {
+            return
+        }
+        val delegateKey = actualDelegate.toProbeDelegateKey()
+        val details = mutableListOf<Pair<String, Any?>>(
+            "delegate_actual" to delegateKey,
+            "tile_size_request" to request.tileSize,
+            "tile_size_actual" to pipeline.tileSizeActual,
+            "tile_overlap_request" to request.overlap,
+            "tile_overlap_actual" to pipeline.overlapActual,
+        )
+
+        zeroDce?.let { model ->
+            details += "zero_backend" to model.backend.name.lowercase(Locale.US)
+            details += "zero_sha256_short" to model.checksum.take(8)
+            lookupWarmup(model.checksum, delegateKey)?.let { warmup ->
+                details += "zero_warmup_ms" to warmup
+            }
+        }
+
+        restormer?.let { model ->
+            details += "rest_backend" to model.backend.name.lowercase(Locale.US)
+            details += "rest_sha256_short" to model.checksum.take(8)
+            lookupWarmup(model.checksum, delegateKey)?.let { warmup ->
+                details += "rest_warmup_ms" to warmup
+            }
+        }
+
+        Timber.tag(LOG_TAG).i(
+            UploadLog.message(
+                category = "ENHANCE/RUNTIME",
+                action = "models_runtime_info",
+                details = details.toTypedArray(),
+            ),
+        )
+    }
+
+    private fun lookupWarmup(checksum: String, delegateKey: String): Long? {
+        val summary = EnhanceLogging.probeSummary ?: return null
+        val modelSummary = summary.models.values.firstOrNull { model ->
+            model.files.any { file -> file.checksum.equals(checksum, ignoreCase = true) }
+        } ?: return null
+        return modelSummary.delegates[delegateKey]?.warmupMillis
+    }
+
+    private fun Delegate.toProbeDelegateKey(): String = when (this) {
+        Delegate.GPU -> "gpu"
+        Delegate.CPU -> "xnnpack"
     }
 
     private suspend fun applyZeroDce(
@@ -1002,6 +1062,8 @@ class EnhanceEngine(
         private const val NOISE_LUMA_EPSILON = 1e-3
         private const val NOISE_RELATIVE_FLOOR = 0.04
         private const val NOISE_RELATIVE_CEIL = 0.32
+
+        private val runtimeInfoLogged = AtomicBoolean(false)
 
         private val EXIF_TAGS = arrayOf(
             ExifInterface.TAG_DATETIME,
