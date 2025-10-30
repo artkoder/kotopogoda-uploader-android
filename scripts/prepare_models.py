@@ -362,8 +362,8 @@ def _tensorflow_requirements() -> List[str]:
 
 MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
-    "onnx": ["onnx", "onnxsim", "onnxruntime"],
-    "onnx_tf": ["onnx-tf"],
+    "onnx": ["onnx<1.19", "onnxsim", "onnxruntime"],
+    "onnx_tf": ["onnx-tf", "tensorflow-addons; python_version<'3.12'"],
     "tensorflow": _tensorflow_requirements,
     "einops": ["einops"],
 }
