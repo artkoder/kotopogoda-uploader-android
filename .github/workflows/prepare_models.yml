@@ -100,3 +100,5 @@ jobs:
           commit-message: "chore(models): update model lock & checksums"
           body: "Автоматическое обновление артефактов моделей."
           labels: automated, models
+          add-paths: |
+            models.lock.json

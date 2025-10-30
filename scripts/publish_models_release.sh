@@ -17,8 +17,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 DIST_DIR="dist"
-RELEASE_TAG="models-v1"
-RELEASE_TITLE="Models v1"
+RELEASE_TAG="${MODELS_RELEASE_TAG:-models-v1}"
+RELEASE_TITLE="${MODELS_RELEASE_TITLE:-Models release (${RELEASE_TAG})}"
+RELEASE_NOTES="${MODELS_RELEASE_NOTES:-Автоматический релиз моделей}"
 SHA_FILE="$DIST_DIR/SHA256SUMS.txt"
 
 command -v gh >/dev/null 2>&1 || fatal "CLI GitHub (gh) не найден. Установите его и выполните аутентификацию."
@@ -28,19 +29,20 @@ if [[ ! -d "$DIST_DIR" ]]; then
   fatal "Каталог '$DIST_DIR' не найден. Сначала соберите артефакты."
 fi
 
-mapfile -t ZIP_FILES < <(find "$DIST_DIR" -maxdepth 1 -type f -name '*_v1.zip' | sort)
+mapfile -t ZIP_FILES < <(find "$DIST_DIR" -maxdepth 1 -type f -name '*.zip' | sort)
 if [[ "${#ZIP_FILES[@]}" -eq 0 ]]; then
-  fatal "В каталоге '$DIST_DIR' отсутствуют файлы *_v1.zip."
+  fatal "В каталоге '$DIST_DIR' отсутствуют zip-артефакты."
 fi
 
 if [[ ! -f "$SHA_FILE" ]]; then
   fatal "Файл контрольных сумм '$SHA_FILE' не найден."
 fi
 
+log INFO "Используем тег релиза: $RELEASE_TAG"
 log INFO "Проверяем наличие релиза $RELEASE_TAG..."
 if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
   log INFO "Релиз отсутствует. Создаём $RELEASE_TAG."
-  gh release create "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes "Автоматический релиз моделей v1" || fatal "Не удалось создать релиз '$RELEASE_TAG'."
+  gh release create "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES" || fatal "Не удалось создать релиз '$RELEASE_TAG'."
 fi
 
 log INFO "Загружаем артефакты в релиз..."
@@ -64,7 +66,7 @@ else
   fi
 
   {
-    echo "## models-v1 релиз"
+    echo "## ${RELEASE_TAG} релиз"
     echo
     echo "| Файл | SHA256 |"
     echo "| --- | --- |"
@@ -79,36 +81,10 @@ else
   } >> "$SUMMARY_FILE"
 fi
 
-log INFO "Проверяем настройки Git пользователя..."
-
-ensure_git_user_config() {
-  local current_name current_email desired_name desired_email
-
-  current_name="$(git config --get user.name || true)"
-  current_email="$(git config --get user.email || true)"
-
-  desired_name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-Kotopogoda Bot}}"
-  desired_email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-bot@kotopogoda.ru}}"
-
-  if [[ -z "$current_name" ]]; then
-    log INFO "Git user.name не задан, устанавливаем '$desired_name'."
-    git config user.name "$desired_name"
-  fi
-
-  if [[ -z "$current_email" ]]; then
-    log INFO "Git user.email не задан, устанавливаем '$desired_email'."
-    git config user.email "$desired_email"
-  fi
-}
-
-ensure_git_user_config
-
-log INFO "Проверяем изменения models.lock.json перед подготовкой PR..."
-if git diff --quiet -- "models.lock.json"; then
-  fatal "Файл models.lock.json не изменён, нечего публиковать."
+if git status --short -- "models.lock.json" | grep -q "^ M"; then
+  log INFO "Файл models.lock.json изменён и готов к PR."
+else
+  log INFO "Файл models.lock.json не изменился в этом запуске."
 fi
 
-log INFO "Добавляем models.lock.json в индекс для последующего PR..."
-git add models.lock.json || fatal "Не удалось подготовить models.lock.json к коммиту."
-
-log INFO "Скрипт успешно завершён: артефакты загружены, изменения подготовлены."
+log INFO "Скрипт успешно завершён: артефакты загружены."

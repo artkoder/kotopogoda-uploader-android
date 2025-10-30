@@ -627,7 +627,21 @@ def convert_restormer(model_cfg: dict, sources: Dict[str, Path], convert_dir: Pa
 
     convert_dir.mkdir(parents=True, exist_ok=True)
 
-    sys.path.insert(0, str(repo_root))
+    restormer_import_root: Optional[Path] = None
+    direct_candidate = repo_root / "basicsr"
+    if direct_candidate.is_dir():
+        restormer_import_root = repo_root
+    else:
+        for candidate in sorted(repo_root.iterdir()):
+            if candidate.is_dir() and (candidate / "basicsr").is_dir():
+                restormer_import_root = candidate
+                break
+    if restormer_import_root is None:
+        raise RuntimeError(
+            "Не удалось найти директорию 'basicsr' в исходниках Restormer."
+        )
+
+    sys.path.insert(0, str(restormer_import_root))
     try:
         from basicsr.models.archs.restormer_arch import Restormer  # type: ignore
     finally:
