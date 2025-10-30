@@ -1782,13 +1782,41 @@ class ViewerViewModel @Inject constructor(
                         overlap = tileOverlap,
                         tileCount = totalTiles,
                     )
-                    val pipeline = pipelineBase.copy(
-                        tileCount = if (pipelineBase.tileCount > 0) pipelineBase.tileCount else totalTiles,
-                        tilesCompleted = tilesCompleted.coerceAtMost(
-                            max(pipelineBase.tileCount, totalTiles)
-                        ),
-                        tileProgress = progress,
-                    )
+                    val pipeline = if (currentResult != null) {
+                        pipelineBase.copy(
+                            tileCount = if (pipelineBase.tileCount > 0) pipelineBase.tileCount else totalTiles,
+                            tilesCompleted = tilesCompleted.coerceAtMost(
+                                max(pipelineBase.tileCount, totalTiles)
+                            ),
+                            tileProgress = progress,
+                        )
+                    } else {
+                        val tileCountActual = if (pipelineBase.tileCount > 0) pipelineBase.tileCount else totalTiles
+                        val overlapActual = if (pipelineBase.tileSizeActual > 0) {
+                            min(pipelineBase.overlapActual, pipelineBase.tileSizeActual / 2)
+                        } else {
+                            0
+                        }
+                        val mixingWindowActual = if (pipelineBase.mixingWindowActual > 0) {
+                            pipelineBase.mixingWindowActual
+                        } else {
+                            overlapActual * 2
+                        }
+                        pipelineBase.copy(
+                            tileCount = tileCountActual,
+                            tilesCompleted = tilesCompleted.coerceAtMost(
+                                max(tileCountActual, totalTiles)
+                            ),
+                            tileProgress = progress,
+                            overlapActual = overlapActual,
+                            mixingWindow = if (pipelineBase.mixingWindow > 0) {
+                                pipelineBase.mixingWindow
+                            } else {
+                                mixingWindowActual
+                            },
+                            mixingWindowActual = mixingWindowActual,
+                        )
+                    }
                     val delegate = currentResult?.delegate ?: delegatePlan.delegateType
                     val engineDelegate = currentResult?.engineDelegate ?: delegatePlan.engineDelegate
                     val models = currentResult?.models
@@ -2332,6 +2360,7 @@ class ViewerViewModel @Inject constructor(
             "tile_size_actual" to result.pipeline.tileSizeActual,
             "tile_overlap_actual" to result.pipeline.overlapActual,
             "mixing_window" to result.pipeline.mixingWindow,
+            "mixing_window_actual" to result.pipeline.mixingWindowActual,
             "tile_count" to result.pipeline.tileCount,
             "tiles_completed" to result.pipeline.tilesCompleted,
             "tile_progress" to result.pipeline.tileProgress.format3(),
@@ -2398,6 +2427,7 @@ class ViewerViewModel @Inject constructor(
             "tile_count" to pipeline.tileCount,
             "tiles_completed" to pipeline.tilesCompleted,
             "tile_progress" to pipeline.tileProgress.format3(),
+            "mixing_window_actual" to pipeline.mixingWindowActual,
             "zero_dce_iterations" to pipeline.zeroDceIterations,
             "zero_dce_applied" to pipeline.zeroDceApplied,
             "restormer_applied" to pipeline.restormerApplied,
@@ -2468,6 +2498,7 @@ class ViewerViewModel @Inject constructor(
             "tile_size_actual" to result.pipeline.tileSizeActual,
             "tile_overlap_actual" to result.pipeline.overlapActual,
             "mixing_window" to result.pipeline.mixingWindow,
+            "mixing_window_actual" to result.pipeline.mixingWindowActual,
             "tile_count" to result.pipeline.tileCount,
             "zero_dce_iterations" to result.pipeline.zeroDceIterations,
             "zero_dce_applied" to result.pipeline.zeroDceApplied,

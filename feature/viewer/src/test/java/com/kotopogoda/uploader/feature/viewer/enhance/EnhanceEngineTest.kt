@@ -295,6 +295,7 @@ class EnhanceEngineTest {
         assertEquals(256, pipeline.tileSizeActual)
         assertEquals(128, pipeline.overlapActual)
         assertEquals(256, pipeline.mixingWindow)
+        assertEquals(256, pipeline.mixingWindowActual)
         assertTrue("restormer should be used", pipeline.restormerApplied)
         assertTrue("restormer fallback must be recorded", pipeline.restormerDelegateFallback)
 
