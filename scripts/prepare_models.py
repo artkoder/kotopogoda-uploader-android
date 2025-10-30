@@ -360,12 +360,34 @@ def _tensorflow_requirements() -> List[str]:
     return list(selected)
 
 
+def _tensorflow_probability_requirements() -> List[str]:
+    version = _tensorflow_version()
+    if not version:
+        return ["tensorflow-probability"]
+
+    parts = _version_tuple(version)
+    if len(parts) < 2 or parts[0] != 2 or parts[1] < 10:
+        return ["tensorflow-probability"]
+
+    minor = parts[1]
+    base_minor = minor + 8
+    candidates: List[str] = []
+    for current in range(base_minor, 17, -1):
+        requirement = f"tensorflow-probability==0.{current}.0"
+        if requirement not in candidates:
+            candidates.append(requirement)
+
+    candidates.append("tensorflow-probability")
+    return candidates
+
+
 MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
     "onnx": ["onnx<1.19", "onnxsim", "onnxruntime"],
     "onnx_tf": ["onnx<1.19", "onnx-tf", "tensorflow-addons; python_version<'3.12'"],
     "tensorflow": _tensorflow_requirements,
     "tensorflow_addons": ["tensorflow-addons; python_version<'3.12'"],
+    "tensorflow_probability": _tensorflow_probability_requirements,
     "einops": ["einops"],
 }
 
