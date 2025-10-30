@@ -1,5 +1,7 @@
 package com.kotopogoda.uploader.feature.viewer.enhance
 
+import com.kotopogoda.uploader.feature.viewer.enhance.logging.EnhanceFileLogger
+import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -9,12 +11,44 @@ object EnhanceLogging {
 
     private val verboseEnabled = AtomicReference(false)
     private val probeSummaryRef = AtomicReference<ProbeSummary?>(null)
+    private val fileLoggerRef = AtomicReference<EnhanceFileLogger?>(null)
 
     fun setVerboseLoggingEnabled(enabled: Boolean) {
         verboseEnabled.set(enabled)
     }
 
     fun isVerboseLoggingEnabled(): Boolean = verboseEnabled.get()
+
+    fun setFileLogger(logger: EnhanceFileLogger?) {
+        val previous = fileLoggerRef.getAndSet(logger)
+        if (previous !== logger) {
+            previous?.shutdown()
+        }
+    }
+
+    fun logEvent(event: String, payload: Map<String, Any?>) {
+        if (!isVerboseLoggingEnabled()) {
+            return
+        }
+        val logger = fileLoggerRef.get() ?: return
+        val enriched = payload.toMutableMap()
+        enriched["category"] = "enhance"
+        logger.log(event, enriched)
+    }
+
+    fun logEvent(event: String, vararg details: Pair<String, Any?>) {
+        if (details.isEmpty()) {
+            logEvent(event, emptyMap())
+            return
+        }
+        val payload = LinkedHashMap<String, Any?>(details.size)
+        details.forEach { (key, value) ->
+            if (key.isNotBlank()) {
+                payload[key] = value
+            }
+        }
+        logEvent(event, payload)
+    }
 
     fun updateProbeSummary(summary: ProbeSummary) {
         probeSummaryRef.set(summary)
