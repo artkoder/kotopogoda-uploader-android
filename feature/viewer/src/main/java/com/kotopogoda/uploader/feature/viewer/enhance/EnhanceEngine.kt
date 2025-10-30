@@ -76,6 +76,8 @@ class EnhanceEngine(
         val overlapActual: Int = overlap,
         val mixingWindow: Int = 0,
         val tileCount: Int = 0,
+        val tilesCompleted: Int = 0,
+        val tileProgress: Float = 0f,
         val tileUsed: Boolean = false,
         val zeroDceIterations: Int = 0,
         val zeroDceApplied: Boolean = false,
@@ -103,6 +105,8 @@ class EnhanceEngine(
         val encode: Long = 0,
         val exif: Long = 0,
         val total: Long = 0,
+        val elapsed: Long = 0,
+        val eta: Long? = null,
     )
 
     data class ModelResult(
@@ -247,6 +251,7 @@ class EnhanceEngine(
             encode = encodeDuration,
             exif = exifDuration,
             total = totalDuration,
+            elapsed = totalDuration,
         )
 
         val models = ModelsTelemetry(
@@ -520,6 +525,8 @@ class EnhanceEngine(
             overlapActual = restReport.overlap,
             mixingWindow = restReport.mixingWindow,
             tileCount = restReport.tileCount,
+            tilesCompleted = restReport.tileCount,
+            tileProgress = if (restReport.tileCount > 0) 1f else 0f,
             tileUsed = tileUsed,
             zeroDceIterations = zeroIterations,
             zeroDceApplied = zeroApplied,

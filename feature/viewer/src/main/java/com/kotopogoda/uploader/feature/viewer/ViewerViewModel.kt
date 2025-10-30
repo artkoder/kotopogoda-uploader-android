@@ -1752,6 +1752,11 @@ class ViewerViewModel @Inject constructor(
                         }
                         if (limit == 0) 0f else (sum / limit)
                     }.coerceIn(0f, 1f)
+                    val tilesCompleted = if (totalTiles <= 0) {
+                        if (latestResult != null) totalTiles else 0
+                    } else {
+                        progressSamples.count { it >= 0.999f }
+                    }
                     if (!force) {
                         val elapsedSinceLast = now - lastEmitElapsed
                         val progressDelta = progress - lastEmitProgress
@@ -1771,27 +1776,38 @@ class ViewerViewModel @Inject constructor(
                     val queueStats = uploadQueueRepository.getQueueStats()
                     val queueLength = queueStats.queued + queueStats.processing
                     val currentResult = latestResult
-                    val pipeline = currentResult?.pipeline ?: EnhanceEngine.Pipeline(
+                    val pipelineBase = currentResult?.pipeline ?: EnhanceEngine.Pipeline(
                         tileSize = tileSize,
                         overlap = tileOverlap,
                         tileCount = totalTiles,
+                    )
+                    val pipeline = pipelineBase.copy(
+                        tileCount = if (pipelineBase.tileCount > 0) pipelineBase.tileCount else totalTiles,
+                        tilesCompleted = tilesCompleted.coerceAtMost(
+                            max(pipelineBase.tileCount, totalTiles)
+                        ),
+                        tileProgress = progress,
                     )
                     val delegate = currentResult?.delegate ?: delegatePlan.delegateType
                     val engineDelegate = currentResult?.engineDelegate ?: delegatePlan.engineDelegate
                     val models = currentResult?.models
                     val profile = currentResult?.profile ?: predictedProfile
                     val metricsForLog = currentResult?.metrics ?: metrics
+                    val timingsBase = currentResult?.timings ?: EnhanceEngine.Timings()
+                    val timings = timingsBase.copy(
+                        elapsed = elapsed,
+                        eta = eta,
+                    )
                     logEnhancementMetrics(
                         photo = photo,
                         delegate = delegate,
                         engineDelegate = engineDelegate,
                         pipeline = pipeline,
+                        timings = timings,
                         metrics = metricsForLog,
                         profile = profile,
                         models = models,
                         progress = progress,
-                        elapsedMs = elapsed,
-                        etaMs = eta,
                         ramMb = ramMb,
                         vramMb = vramMb,
                         queueLength = queueLength,
@@ -2192,6 +2208,8 @@ class ViewerViewModel @Inject constructor(
                 tileSize = 0,
                 overlap = 0,
                 tileCount = 0,
+                tilesCompleted = 0,
+                tileProgress = 0f,
                 zeroDceIterations = 0,
                 zeroDceApplied = false,
                 restormerMix = 0f,
@@ -2310,6 +2328,8 @@ class ViewerViewModel @Inject constructor(
             "tile_overlap_actual" to result.pipeline.overlapActual,
             "mixing_window" to result.pipeline.mixingWindow,
             "tile_count" to result.pipeline.tileCount,
+            "tiles_completed" to result.pipeline.tilesCompleted,
+            "tile_progress" to result.pipeline.tileProgress.format3(),
             "seam_max_delta" to result.pipeline.seamMaxDelta.format3(),
             "seam_mean_delta" to result.pipeline.seamMeanDelta.format3(),
             "seam_area" to result.pipeline.seamArea,
@@ -2334,12 +2354,11 @@ class ViewerViewModel @Inject constructor(
         delegate: EnhancementDelegateType,
         engineDelegate: EnhanceEngine.Delegate?,
         pipeline: EnhanceEngine.Pipeline,
+        timings: EnhanceEngine.Timings,
         metrics: EnhanceEngine.Metrics,
         profile: EnhanceEngine.Profile,
         models: EnhanceEngine.ModelsTelemetry?,
         progress: Float,
-        elapsedMs: Long,
-        etaMs: Long?,
         ramMb: Double,
         vramMb: Double?,
         queueLength: Int,
@@ -2372,6 +2391,8 @@ class ViewerViewModel @Inject constructor(
             "tile_size_actual" to pipeline.tileSizeActual,
             "tile_overlap_actual" to pipeline.overlapActual,
             "tile_count" to pipeline.tileCount,
+            "tiles_completed" to pipeline.tilesCompleted,
+            "tile_progress" to pipeline.tileProgress.format3(),
             "zero_dce_iterations" to pipeline.zeroDceIterations,
             "zero_dce_applied" to pipeline.zeroDceApplied,
             "restormer_applied" to pipeline.restormerApplied,
@@ -2389,8 +2410,8 @@ class ViewerViewModel @Inject constructor(
             "vibrance_gain" to profile.vibranceGain.format3(),
             "saturation_gain" to profile.saturationGain.format3(),
             "progress" to progress.format3(),
-            "elapsed_ms" to elapsedMs,
-            "eta_ms" to (etaMs ?: -1L),
+            "elapsed_ms" to timings.elapsed,
+            "eta_ms" to (timings.eta ?: -1L),
             "ram_mb" to ramMb.format1(),
             "vram_mb" to vramMb?.format1(),
             "queue_len" to queueLength,
