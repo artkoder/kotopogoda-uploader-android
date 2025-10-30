@@ -388,6 +388,7 @@ MODULE_INSTALL_MAP = {
     "tensorflow": _tensorflow_requirements,
     "tensorflow_addons": ["tensorflow-addons; python_version<'3.12'"],
     "tensorflow_probability": _tensorflow_probability_requirements,
+    "tf_keras": ["tf-keras"],
     "einops": ["einops"],
 }
 
