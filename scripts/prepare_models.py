@@ -316,7 +316,8 @@ def download_entry(entry: dict, base_dir: Path) -> Path:
         if not members:
             raise RuntimeError(f"Архив {url} не содержит директории")
         root_dir = members[0]
-        shutil.move(str(root_dir), target_root)
+        for item in root_dir.iterdir():
+            shutil.move(str(item), str(target_root / item.name))
         shutil.rmtree(extract_dir)
         archive_path.unlink(missing_ok=True)
         return target_root
