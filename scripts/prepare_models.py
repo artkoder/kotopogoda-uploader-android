@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,7 @@ except ImportError:  # pragma: no cover - поддержка старых Python
 
 
 _PIP_BOOTSTRAPPED = False
+_TF_REQUIREMENTS_CACHE: Optional[List[str]] = None
 
 
 def _ensure_pip_bootstrapped() -> None:
@@ -94,10 +96,18 @@ def pip_install(requirement: str) -> bool:
             return False
 
 
+def _tensorflow_version() -> Optional[str]:
+    for dist_name in ("tensorflow", "tensorflow-cpu"):
+        try:
+            return importlib_metadata.version(dist_name)
+        except importlib_metadata.PackageNotFoundError:
+            continue
+    return None
+
+
 def _tensorflow_requires_legacy_ml_dtypes() -> bool:
-    try:
-        version = importlib_metadata.version("tensorflow")
-    except importlib_metadata.PackageNotFoundError:
+    version = _tensorflow_version()
+    if version is None:
         return False
 
     parts: List[int] = []
@@ -282,11 +292,39 @@ def format_mib(size_bytes: int) -> float:
     return round(size_bytes / (1024 ** 2), 4)
 
 
+def _tensorflow_requirements() -> List[str]:
+    global _TF_REQUIREMENTS_CACHE
+    if _TF_REQUIREMENTS_CACHE is not None:
+        return list(_TF_REQUIREMENTS_CACHE)
+
+    default_requirements = ["tensorflow==2.20.0", "tf2onnx"]
+    libc, version = platform.libc_ver()
+    selected = default_requirements
+
+    if libc == "glibc" and version:
+        components: List[int] = []
+        for piece in version.split("."):
+            if not piece.isdigit():
+                break
+            components.append(int(piece))
+        while len(components) < 2:
+            components.append(0)
+        if components and tuple(components[:2]) < (2, 31):
+            selected = ["tensorflow-cpu==2.10.1", "tf2onnx"]
+            log(
+                "Обнаружена glibc %s; используем совместимый tensorflow-cpu 2.10.1"
+                % version
+            )
+
+    _TF_REQUIREMENTS_CACHE = selected
+    return list(selected)
+
+
 MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
     "onnx": ["onnx", "onnxsim", "onnxruntime"],
     "onnx_tf": ["onnx-tf"],
-    "tensorflow": ["tensorflow==2.20.0", "tf2onnx"],
+    "tensorflow": _tensorflow_requirements,
     "einops": ["einops"],
 }
 
@@ -305,6 +343,8 @@ def ensure_python_modules(modules: List[str]) -> None:
     attempted_requirements: set[str] = set()
     for module in missing:
         requirements = MODULE_INSTALL_MAP.get(module, [])
+        if callable(requirements):  # type: ignore[callable-impl]
+            requirements = requirements()
         if not requirements:
             continue
         for requirement in requirements:
