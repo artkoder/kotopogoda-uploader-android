@@ -80,7 +80,7 @@ jobs:
             "tensorflow==2.14.1" "keras==2.14.*" "tensorflow-addons==0.23.*" "tensorflow-probability==0.23.*" "onnx-tf==1.10.0" \
             "tf-keras==2.14.*" \
             einops "opencv-python-headless<5" lmdb tqdm pyyaml "scipy<1.14" "scikit-image<0.23" \
-            psutil>=5.9
+            psutil>=5.9 "ml_dtypes==0.2.*"
           python3 - <<'PY'
           import onnx
           import onnx2tf
@@ -112,6 +112,7 @@ jobs:
               "pyyaml",
               "scipy",
               "scikit-image",
+              "ml_dtypes",
           ]
           for pkg in packages:
               try:
