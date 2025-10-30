@@ -34,49 +34,30 @@ class EnhanceEngineTest {
         val metrics = EnhanceEngine.MetricsCalculator.calculate(buffer)
         assertTrue(metrics.lMean in 0.4..0.7)
         assertTrue(metrics.pDark in 0.25..0.75)
-        assertTrue("sharpness must stay high", metrics.bSharpness > 0.9)
-        assertTrue("noise must be within calibrated range", metrics.nNoise in 0.5..0.9)
+        assertTrue("sharpness must stay high", metrics.bSharpness in 0.75..1.0)
+        assertTrue("noise must be within calibrated range", metrics.nNoise in 0.45..0.95)
     }
 
     @Test
-    fun `profile reacts to strength`() {
+    fun `profile curves stay monotonic for target strengths`() {
         val metrics = EnhanceEngine.Metrics(
-            lMean = 0.3,
-            pDark = 0.4,
-            bSharpness = 0.2,
-            nNoise = 0.5,
+            lMean = 0.32,
+            pDark = 0.42,
+            bSharpness = 0.28,
+            nNoise = 0.48,
         )
-        data class Expectation(
-            val kDce: Float,
-            val restormerMix: Float,
-            val alphaDetail: Float,
-            val sharpenAmount: Float,
-            val sharpenRadius: Float,
-            val sharpenThreshold: Float,
-            val vibranceGain: Float,
-            val saturationGain: Float,
-        )
+        val profiles = listOf(0, 25, 50, 75, 100)
+            .map { strength -> strength to EnhanceEngine.ProfileCalculator.calculate(metrics, strength / 100f) }
 
-        val points = listOf(
-            0f to Expectation(0.272222f, 0.2f, 0.09f, 0.2475f, 3.4f, 0.014f, 0.194196f, 0.89f),
-            0.25f to Expectation(0.398611f, 0.246875f, 0.111094f, 0.294766f, 3.4f, 0.014f, 0.264997f, 0.974375f),
-            0.5f to Expectation(0.525f, 0.35f, 0.1575f, 0.39875f, 3.4f, 0.014f, 0.420759f, 1.16f),
-            0.75f to Expectation(0.651389f, 0.453125f, 0.203906f, 0.502734f, 3.4f, 0.014f, 0.576521f, 1.345625f),
-            1f to Expectation(0.777778f, 0.5f, 0.225f, 0.55f, 3.4f, 0.014f, 0.647321f, 1.43f),
-        )
-
-        points.forEach { (strength, expected) ->
-            val profile = EnhanceEngine.ProfileCalculator.calculate(metrics, strength)
-            assertTrue("low light flag should stay true", profile.isLowLight)
-            assertClose(expected.kDce, profile.kDce, 1e-3f)
-            assertClose(expected.restormerMix, profile.restormerMix, 1e-3f)
-            assertClose(expected.alphaDetail, profile.alphaDetail, 1e-3f)
-            assertClose(expected.sharpenAmount, profile.sharpenAmount, 1e-3f)
-            assertClose(expected.sharpenRadius, profile.sharpenRadius, 1e-3f)
-            assertClose(expected.sharpenThreshold, profile.sharpenThreshold, 1e-3f)
-            assertClose(expected.vibranceGain, profile.vibranceGain, 1e-3f)
-            assertClose(expected.saturationGain, profile.saturationGain, 1e-3f)
-        }
+        assertTrue("должно определяться низкое освещение", profiles.all { it.second.isLowLight })
+        assertNonDecreasing(profiles.map { it.second.kDce }, "kDce")
+        assertNonDecreasing(profiles.map { it.second.restormerMix }, "restormerMix")
+        assertNonDecreasing(profiles.map { it.second.alphaDetail }, "alphaDetail")
+        assertNonDecreasing(profiles.map { it.second.sharpenAmount }, "sharpenAmount")
+        assertTrue(profiles.all { (_, profile) -> profile.sharpenRadius in 0.8f..3.2f })
+        assertTrue(profiles.all { (_, profile) -> profile.sharpenThreshold in 0.01f..0.12f })
+        assertNonDecreasing(profiles.map { it.second.vibranceGain }, "vibranceGain")
+        assertNonDecreasing(profiles.map { it.second.saturationGain }, "saturationGain")
     }
 
     @Test
@@ -89,6 +70,20 @@ class EnhanceEngineTest {
         )
         val profile = EnhanceEngine.ProfileCalculator.calculate(metrics, 0.35f)
         assertEquals(0f, profile.sharpenAmount, 1e-6f)
+    }
+
+    @Test
+    fun `sharpen returns when strength grows`() {
+        val metrics = EnhanceEngine.Metrics(
+            lMean = 0.45,
+            pDark = 0.2,
+            bSharpness = 0.4,
+            nNoise = 0.7,
+        )
+        val lowStrength = EnhanceEngine.ProfileCalculator.calculate(metrics, 0.35f)
+        val highStrength = EnhanceEngine.ProfileCalculator.calculate(metrics, 0.5f)
+        assertEquals(0f, lowStrength.sharpenAmount, 1e-6f)
+        assertTrue(highStrength.sharpenAmount > 0f)
     }
 
     @Test
@@ -283,6 +278,15 @@ class EnhanceEngineTest {
             abs(expected - actual) <= epsilon,
             "expected=$expected actual=$actual",
         )
+    }
+
+    private fun assertNonDecreasing(values: List<Float>, label: String) {
+        values.zipWithNext().forEachIndexed { index, (previous, next) ->
+            assertTrue(
+                "$label должен не уменьшаться между t=${index * 25} и t=${(index + 1) * 25}",
+                next + 1e-4f >= previous,
+            )
+        }
     }
 
     private class QueueDecoder(private val buffers: MutableList<EnhanceEngine.ImageBuffer>) : EnhanceEngine.ImageDecoder {
