@@ -5,6 +5,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.work.Configuration
 import androidx.work.WorkManager
+import com.kotopogoda.uploader.BuildConfig
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.AppLogger
@@ -16,7 +17,8 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.LoggingWorkerFactory
-import com.kotopogoda.uploader.ml.ModelChecksumVerifier
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceLogging
+import com.kotopogoda.uploader.ml.EnhancerModelProbe
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
@@ -107,8 +109,12 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         appLogger.setEnabled(true)
+        EnhanceLogging.setVerboseLoggingEnabled(BuildConfig.DEBUG)
         runBlocking(Dispatchers.IO) {
-            ModelChecksumVerifier.verify(this@KotopogodaUploaderApp)
+            runCatching { EnhancerModelProbe.run(this@KotopogodaUploaderApp) }
+                .onFailure { error ->
+                    Timber.tag("Enhance/Probe").e(error, "EnhancerModelProbe завершился с ошибкой")
+                }
         }
         installCrashHandlers()
 
