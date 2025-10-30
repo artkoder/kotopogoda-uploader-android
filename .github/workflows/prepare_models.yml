@@ -75,8 +75,9 @@ jobs:
           python3 -m pip install \
             "numpy<=1.26.4" \
             torch torchvision \
-            "onnx==1.14.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" "onnx2tf==1.24.1" \
+            "onnx==1.14.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" "onnx2tf>=1.24,<1.25" \
             "tensorflow==2.13.1" "keras==2.13.*" "tensorflow-addons==0.22.*" "tensorflow-probability==0.21.*" "onnx-tf==1.10.0" \
+            "tf-keras>=2.14.1,<2.20" \
             einops "opencv-python-headless<5" lmdb tqdm pyyaml "scipy<1.14" "scikit-image<0.23"
           python3 - <<'PY'
           import importlib.metadata as metadata
@@ -88,6 +89,7 @@ jobs:
               "onnxruntime",
               "onnxsim",
               "onnx2tf",
+              "tf-keras",
               "tensorflow",
               "keras",
               "tensorflow-addons",
@@ -106,6 +108,11 @@ jobs:
               except metadata.PackageNotFoundError:
                   version = "не установлен"
               print(f"{pkg}: {version}")
+          PY
+          python3 - <<'PY'
+          import tf_keras
+          import onnx2tf
+          print("tf_keras:", tf_keras.__version__, "onnx2tf:", onnx2tf.__version__)
           PY
 
       - name: Prepare model artifacts
