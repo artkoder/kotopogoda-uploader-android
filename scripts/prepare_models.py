@@ -365,50 +365,84 @@ MODULE_INSTALL_MAP = {
     "onnx": ["onnx<1.19", "onnxsim", "onnxruntime"],
     "onnx_tf": ["onnx-tf", "tensorflow-addons; python_version<'3.12'"],
     "tensorflow": _tensorflow_requirements,
+    "tensorflow_addons": ["tensorflow-addons; python_version<'3.12'"],
     "einops": ["einops"],
 }
+
+
+def _collect_missing_modules(modules: List[str]) -> Tuple[List[str], Dict[str, ImportError]]:
+    """Возвращает список отсутствующих модулей с учётом вложенных зависимостей."""
+
+    seen: set[str] = set()
+    queue: List[str] = []
+    for module in modules:
+        if module not in seen:
+            seen.add(module)
+            queue.append(module)
+
+    missing: Dict[str, ImportError] = {}
+
+    while queue:
+        module = queue.pop(0)
+        try:
+            __import__(module)
+        except ImportError as exc:
+            if module in missing:
+                continue
+            missing[module] = exc
+            if isinstance(exc, ModuleNotFoundError):
+                dependency = getattr(exc, "name", None)
+                if dependency and dependency not in seen:
+                    seen.add(dependency)
+                    queue.append(dependency)
+
+    return list(missing.keys()), missing
 
 
 def ensure_python_modules(modules: List[str]) -> None:
     if any(module in ("tensorflow", "onnx_tf") for module in modules):
         ensure_numpy_legacy_cap()
 
-    missing: List[str] = []
-    for module in modules:
-        try:
-            __import__(module)
-        except ImportError:
-            missing.append(module)
-
-    if not missing:
-        return
-
+    requested_modules: List[str] = list(modules)
     attempted_requirements: set[str] = set()
-    for module in missing:
-        requirements = MODULE_INSTALL_MAP.get(module, [])
-        if callable(requirements):  # type: ignore[callable-impl]
-            requirements = requirements()
-        if not requirements:
-            continue
-        for requirement in requirements:
-            if requirement in attempted_requirements:
+
+    while True:
+        missing, missing_errors = _collect_missing_modules(requested_modules)
+        if not missing:
+            return
+
+        progress = False
+        for module in missing:
+            requirements = MODULE_INSTALL_MAP.get(module, [])
+            if callable(requirements):  # type: ignore[callable-impl]
+                requirements = requirements()
+            if not requirements:
                 continue
-            attempted_requirements.add(requirement)
-            pip_install(requirement)
+            for requirement in requirements:
+                if requirement in attempted_requirements:
+                    continue
+                attempted_requirements.add(requirement)
+                if pip_install(requirement):
+                    progress = True
 
-    if attempted_requirements:
-        missing_after_install: List[str] = []
-        for module in modules:
-            try:
-                __import__(module)
-            except ImportError:
-                missing_after_install.append(module)
-        missing = missing_after_install
+        for module in missing:
+            if module not in requested_modules:
+                requested_modules.append(module)
 
-    if missing:
-        raise RuntimeError(
-            "Требуются Python-модули: " + ", ".join(missing)
-        )
+        if not progress:
+            details: List[str] = []
+            for module in missing:
+                exc = missing_errors.get(module)
+                if exc is None:
+                    details.append(module)
+                    continue
+                if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None) != module:
+                    details.append(f"{module} (зависимость {exc.name} недоступна)")
+                else:
+                    details.append(f"{module} ({exc})")
+            raise RuntimeError(
+                "Требуются Python-модули: " + ", ".join(details)
+            )
 
 
 def convert_zero_dce(model_cfg: dict, sources: Dict[str, Path], convert_dir: Path) -> Tuple[str, List[Dict[str, Path]]]:
