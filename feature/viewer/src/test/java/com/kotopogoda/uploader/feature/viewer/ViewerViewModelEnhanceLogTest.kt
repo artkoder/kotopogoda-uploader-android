@@ -91,6 +91,8 @@ class ViewerViewModelEnhanceLogTest {
             overlapActual = 48,
             mixingWindow = 96,
             tileCount = 4,
+            tilesCompleted = 4,
+            tileProgress = 1f,
             tileUsed = true,
             restormerApplied = true,
             zeroDceDelegateFallback = true,
@@ -158,6 +160,8 @@ class ViewerViewModelEnhanceLogTest {
         assertEquals("480", loggedDetails["tile_size_actual"])
         assertEquals("48", loggedDetails["tile_overlap_actual"])
         assertEquals("96", loggedDetails["mixing_window"])
+        assertEquals("4", loggedDetails["tiles_completed"])
+        assertEquals("1.000", loggedDetails["tile_progress"])
         assertEquals("true", loggedDetails["zero_dce_delegate_fallback"])
         assertEquals("false", loggedDetails["restormer_delegate_fallback"])
         assertEquals("true", loggedDetails["sha256_ok_zero_dce"])
