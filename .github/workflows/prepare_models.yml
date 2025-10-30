@@ -67,7 +67,7 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install "numpy<2" torch torchvision "onnx<1.19" onnxsim onnxruntime \
             "tensorflow==2.13.1" "tensorflow-addons==0.22.*" "tensorflow-probability==0.21.*" \
-            "onnx-tf==1.10.0" tf2onnx einops "opencv-python-headless<5" lmdb
+            "onnx-tf==1.10.0" tf2onnx einops "opencv-python-headless<5" lmdb tqdm pyyaml
 
       - name: Prepare model artifacts
         env:
