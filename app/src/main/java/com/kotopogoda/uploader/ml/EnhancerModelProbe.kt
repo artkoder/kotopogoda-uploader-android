@@ -29,7 +29,7 @@ object EnhancerModelProbe {
     fun run(context: Context) {
         val start = SystemClock.elapsedRealtime()
         EnhanceLogging.clearProbeSummary()
-        runCatching {
+        val probeResult = runCatching {
             val modelsLock = ModelsLockParser.parse(BuildConfig.MODELS_LOCK_JSON)
             val assetManager = context.assets
             val results = mutableMapOf<String, EnhanceLogging.ModelSummary>()
@@ -40,18 +40,39 @@ object EnhancerModelProbe {
                 }
             }
             EnhanceLogging.updateProbeSummary(EnhanceLogging.ProbeSummary(results))
+            results
         }.onFailure { error ->
             Timber.tag(TAG).e(error, "Не удалось выполнить проверку моделей улучшения")
         }
+        val duration = SystemClock.elapsedRealtime() - start
         Timber.tag(TAG).i(
             UploadLog.message(
                 category = "ENHANCE/PROBE",
                 action = "enhancer_probe",
                 details = arrayOf(
-                    "duration_ms" to (SystemClock.elapsedRealtime() - start),
+                    "duration_ms" to duration,
                 ),
             ),
         )
+        probeResult.onSuccess { summaries ->
+            EnhanceLogging.logEvent(
+                "enhancer_probe",
+                mapOf(
+                    "duration_ms" to duration,
+                    "models_total" to summaries.size,
+                    "status" to "success",
+                ),
+            )
+        }.onFailure { error ->
+            EnhanceLogging.logEvent(
+                "enhancer_probe",
+                mapOf(
+                    "duration_ms" to duration,
+                    "status" to "failure",
+                    "error" to (error.message ?: error.javaClass.simpleName),
+                ),
+            )
+        }
     }
 
     private fun probeModel(

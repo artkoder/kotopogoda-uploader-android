@@ -29,7 +29,17 @@ class LogManager @Inject constructor(
 
     suspend fun writeLogsArchive(outputStream: OutputStream): Boolean = withContext(ioDispatcher) {
         val logs = listLogFilesInternal()
-        if (logs.isEmpty()) {
+        val readme = if (logs.isEmpty()) {
+            createEnhanceReadmePlaceholder(context)
+        } else {
+            null
+        }
+        val entries = if (logs.isNotEmpty()) {
+            logs
+        } else {
+            listOfNotNull(readme)
+        }
+        if (entries.isEmpty()) {
             return@withContext false
         }
         val diagnosticsFile = File(context.cacheDir, DIAGNOSTICS_FILE_NAME)
@@ -48,7 +58,7 @@ class LogManager @Inject constructor(
                 )
             }
             ZipOutputStream(BufferedOutputStream(outputStream)).use { zip ->
-                logs.forEach { file ->
+                entries.forEach { file ->
                     val entry = ZipEntry(file.name)
                     zip.putNextEntry(entry)
                     BufferedInputStream(FileInputStream(file)).use { input ->
@@ -67,6 +77,7 @@ class LogManager @Inject constructor(
             }
         } finally {
             diagnosticsFile.delete()
+            readme?.delete()
         }
         true
     }
@@ -87,6 +98,7 @@ class LogManager @Inject constructor(
 }
 
 private const val DIAGNOSTICS_FILE_NAME = "diagnostics.json"
+private const val ENHANCE_README_FILE_NAME = "README-enhance.txt"
 
 private fun String.escapeForJson(): String {
     return buildString(length) {
@@ -114,4 +126,19 @@ private fun Throwable?.toJsonError(): String {
             append(message)
         }
     }
+}
+
+private fun createEnhanceReadmePlaceholder(context: Context): File? {
+    return runCatching {
+        val target = File(context.cacheDir, ENHANCE_README_FILE_NAME)
+        target.writeText(
+            """
+                Нет логов улучшения изображений.
+                Файлы enhance*.log появляются после включения расширенного логирования и выполнения операций Enhance.
+                Повторите экспорт после того, как будут записаны новые события улучшения.
+            """
+                .trimIndent(),
+        )
+        target
+    }.getOrNull()
 }
