@@ -385,10 +385,22 @@ def _tensorflow_probability_requirements() -> List[str]:
     return candidates
 
 
+def _onnx_tf_requirements() -> List[str]:
+    requirements = ["onnx<1.19", "onnx-tf"]
+
+    if sys.version_info < (3, 12):
+        version = _tensorflow_version()
+        parts = _version_tuple(version) if version else ()
+        if parts and parts < (2, 16):
+            requirements.append("tensorflow-addons<0.23.0")
+
+    return requirements
+
+
 MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
     "onnx": ["onnx<1.19", "onnxsim", "onnxruntime"],
-    "onnx_tf": ["onnx<1.19", "onnx-tf", "tensorflow-addons; python_version<'3.12'"],
+    "onnx_tf": _onnx_tf_requirements,
     "keras": ["keras>=3.0.0"],
     "keras.src.engine": ["tf-keras", "keras>=3.0.0"],
     "tensorflow": _tensorflow_requirements,
