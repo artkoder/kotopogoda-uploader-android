@@ -164,6 +164,7 @@ jobs:
                   "float8_e5m2",
                   "float8_e5m2fnuz",
                   "float8_e4m3b11fnuz",
+                  "float8_e8m0fnu",
               )
               for _name in _aliases:
                   if not hasattr(_m, _name):
