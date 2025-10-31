@@ -923,6 +923,7 @@ def convert_restormer(
     
     tflite_size_mb = len(tflite_model) / 1024 / 1024
     log(f"TFLite FP16 создан: {tflite_size_mb:.1f} MB")
+    log(f"Входная форма: [1, {tile_size}, {tile_size}, 3] (NHWC), каналы в порядке RGB")
     
     log("Запускаем smoke-тест TFLite...")
     smoke_result = run_tflite_smoke_test(tflite_path)
