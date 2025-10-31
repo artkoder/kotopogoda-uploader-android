@@ -162,6 +162,7 @@ try:
 except Exception as _e:
     print("sitecustomize: ml_dtypes compat shim skipped:", _e)
 PY
+          export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}$(pwd)"
           # Небольшая проверка — не обязательна, но полезна в логах
           python3 - <<'PY'
 import ml_dtypes as m
