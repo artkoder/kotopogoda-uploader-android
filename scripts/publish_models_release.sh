@@ -56,10 +56,12 @@ if zero is None:
     raise SystemExit("В models.lock.json отсутствует запись zerodcepp_fp16")
 
 metadata = zero.get("metadata") or {}
-tflite_meta = metadata.get("tflite") or {}
-status = tflite_meta.get("status")
-if status != "OK":
-    raise SystemExit(f"Smoke-тест zerodcepp_fp16.tflite не подтверждён: статус {status}")
+ncnn_meta = metadata.get("ncnn") or {}
+bin_size_mib = ncnn_meta.get("bin_size_mib")
+if bin_size_mib is None or bin_size_mib < 1.0:
+    raise SystemExit(
+        f"NCNN .bin файл имеет недопустимый размер: {bin_size_mib} MiB (ожидается ≥1.0 MiB)"
+    )
 
 asset_name = zero.get("asset")
 if not asset_name:
@@ -70,15 +72,15 @@ if not zip_path.exists():
     raise SystemExit(f"Архив {zip_path} не найден")
 
 with zipfile.ZipFile(zip_path, "r") as archive:
-    file_names = [info.filename for info in archive.infolist() if not info.is_dir()]
+    file_names = sorted([info.filename for info in archive.infolist() if not info.is_dir()])
 
-expected = ["zerodcepp_fp16.tflite"]
+expected = ["models/zerodcepp_fp16.bin", "models/zerodcepp_fp16.param"]
 if file_names != expected:
     raise SystemExit(
         f"Архив {asset_name} должен содержать {expected}, найдено: {file_names}"
     )
 
-print("Zero-DCE++: архив и smoke-тест в норме")
+print(f"Zero-DCE++: архив NCNN в норме (размер .bin: {bin_size_mib:.2f} MiB)")
 PY
 
 log INFO "Используем тег релиза: $RELEASE_TAG"
