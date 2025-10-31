@@ -141,7 +141,35 @@ jobs:
           KERAS_BACKEND: "tensorflow"
         run: |
           set -euxo pipefail
+          # Шим совместимости: некоторые версии ml_dtypes в связке с TF/Keras 2.14
+          # не содержат новые float8-алиасы, которые импортирует Zero-DCE.
+          # sitecustomize.py автоматически импортируется интерпретатором.
+          cat > sitecustomize.py <<'PY'
+try:
+    import ml_dtypes as _m
+    import numpy as _np
+    # Набор алиасов, которые иногда отсутствуют
+    _aliases = (
+        "float8_e4m3fn",
+        "float8_e4m3fnuz",
+        "float8_e5m2",
+        "float8_e5m2fnuz",
+        "float8_e4m3b11fnuz",
+    )
+    for _name in _aliases:
+        if not hasattr(_m, _name):
+            setattr(_m, _name, _np.float16)
+except Exception as _e:
+    print("sitecustomize: ml_dtypes compat shim skipped:", _e)
+PY
+          # Небольшая проверка — не обязательна, но полезна в логах
+          python3 - <<'PY'
+import ml_dtypes as m
+print("ml_dtypes present float8 attrs:", [a for a in dir(m) if a.startswith("float8_")])
+PY
+
           bash scripts/prepare_models.sh
+
 
       - name: Configure Git user
         run: |
