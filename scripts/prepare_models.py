@@ -769,7 +769,9 @@ def convert_restormer(
         sys.path.pop(0)
 
     torch.set_grad_enabled(False)
-    model = Restormer()
+    model = Restormer(
+        bias=True,
+    )
     
     # Проверка существования файла весов
     if not weights_path.exists():
@@ -820,7 +822,6 @@ def convert_restormer(
         state_dict = cleaned
     
     # Используем strict=False, так как checkpoint может содержать дополнительные ключи
-    # (например, bias-слои), которые отсутствуют в нашей архитектуре
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     
     # Логируем для отладки
