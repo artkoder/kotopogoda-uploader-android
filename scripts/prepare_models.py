@@ -738,6 +738,8 @@ def convert_restormer(
         "onnx",
         "onnxsim",
         "einops",
+        "tensorflow",
+        "onnx2tf",
     ])
     import torch
     import onnx
@@ -773,26 +775,17 @@ def convert_restormer(
         bias=True,
     )
     
-    # Проверка существования файла весов
     if not weights_path.exists():
         raise FileNotFoundError(f"Веса не найдены: {weights_path}")
     
     log(f"Загружаем веса из {weights_path}")
     
-    # Загрузка checkpoint
     checkpoint = torch.load(weights_path, map_location="cpu")
     
-    # Restormer может хранить веса в разных форматах:
-    # - checkpoint['params_ema'] (предпочтительно для инференса)
-    # - checkpoint['params']
-    # - checkpoint['state_dict']
-    # - checkpoint['model'] или checkpoint['net']
-    # - напрямую в корне checkpoint
     state_dict = None
     used_key = None
     
     if isinstance(checkpoint, dict):
-        # Пробуем найти веса в известных ключах (params_ema первым!)
         for key in ("params_ema", "params", "state_dict", "model", "net"):
             if key in checkpoint:
                 state_dict = checkpoint[key]
@@ -800,18 +793,15 @@ def convert_restormer(
                 log(f"Используем '{key}' из checkpoint")
                 break
         
-        # Если не нашли известный ключ, используем весь checkpoint
         if state_dict is None:
             state_dict = checkpoint
             used_key = "checkpoint (прямой)"
             log("Используем checkpoint напрямую")
     else:
-        # Если checkpoint - не dict, используем как есть
         state_dict = checkpoint
         used_key = "checkpoint (не dict)"
         log("Используем checkpoint напрямую (не dict)")
     
-    # Очистка от префикса "module." (из DataParallel/DistributedDataParallel)
     if isinstance(state_dict, dict):
         cleaned = {}
         for key, value in state_dict.items():
@@ -821,13 +811,10 @@ def convert_restormer(
                 cleaned[key] = value
         state_dict = cleaned
     
-    # Используем strict=False, так как checkpoint может содержать дополнительные ключи
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     
-    # Логируем для отладки
     if missing_keys:
         log(f"⚠️  Missing keys (игнорируем): {len(missing_keys)} шт.")
-        # Показываем первые 5 для проверки
         for key in missing_keys[:5]:
             log(f"  - {key}")
         if len(missing_keys) > 5:
@@ -842,29 +829,26 @@ def convert_restormer(
     
     log("✅ Веса загружены (совместимые)")
     
-    # Перевод в режим inference (важно!)
     model.eval()
     
-    # Логирование для проверки
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     log(f"Веса загружены: {total_params:,} параметров (тренируемых: {trainable_params:,})")
 
-    dummy_input = torch.randn(1, 3, 256, 256)
+    tile_size = int(os.environ.get("TILE_SIZE", "512"))
+    log(f"Экспорт с фиксированным размером тайла: {tile_size}×{tile_size}")
+    
+    dummy_input = torch.randn(1, 3, tile_size, tile_size)
     onnx_path = convert_dir / "restormer.onnx"
     
-    log(f"Экспортируем PyTorch → ONNX (opset 18): {onnx_path}")
+    log(f"Экспортируем PyTorch → ONNX (opset 13, статический размер {tile_size}×{tile_size}): {onnx_path}")
     torch.onnx.export(
         model,
         dummy_input,
         str(onnx_path),
-        opset_version=18,
+        opset_version=13,
         input_names=['input'],
         output_names=['output'],
-        dynamic_axes={
-            'input': {0: 'batch', 2: 'height', 3: 'width'},
-            'output': {0: 'batch', 2: 'height', 3: 'width'}
-        },
         dynamo=False
     )
 
@@ -872,9 +856,7 @@ def convert_restormer(
     onnx_size_mb = onnx_size / 1024 / 1024
     log(f"ONNX создан: {onnx_size_mb:.1f} MB")
     
-    # Валидация размера ONNX
-    # Для Restormer (~26M параметров) ожидаем ~100 MB в FP32
-    MIN_EXPECTED_SIZE_MB = 80.0  # минимум 80 MB
+    MIN_EXPECTED_SIZE_MB = 80.0
     if onnx_size_mb < MIN_EXPECTED_SIZE_MB:
         raise ValueError(
             f"ONNX файл слишком маленький ({onnx_size_mb:.1f} MB), "
@@ -884,80 +866,77 @@ def convert_restormer(
     
     log(f"✅ ONNX размер валиден: {onnx_size_mb:.1f} MB")
 
+    log("Выполняем shape inference перед упрощением...")
+    model_onnx = onnx.load(str(onnx_path))
+    model_onnx = onnx.shape_inference.infer_shapes(model_onnx)
+    
     simp_path = convert_dir / "restormer_simplified.onnx"
     try:
         log("Упрощаем ONNX граф с помощью onnxsim...")
-        model_onnx = onnx.load(str(onnx_path))
         model_simp, check = simplify(model_onnx)
         if check:
+            log("Выполняем shape inference после упрощения...")
+            model_simp = onnx.shape_inference.infer_shapes(model_simp)
             onnx.save(model_simp, str(simp_path))
             simp_size = simp_path.stat().st_size
             log(f"ONNX упрощен: {simp_size / 1024 / 1024:.1f} MB")
         else:
             log("onnxsim не подтвердил корректность модели; используется исходный ONNX")
-            simp_path = onnx_path
+            onnx.save(model_onnx, str(simp_path))
     except Exception as exc:
         log(f"Не удалось упростить ONNX: {exc}; используется исходная модель")
-        simp_path = onnx_path
+        onnx.save(model_onnx, str(simp_path))
 
-    log("Конвертируем ONNX → NCNN...")
-    onnx2ncnn = shutil.which("onnx2ncnn")
-    if not onnx2ncnn:
-        raise RuntimeError("Команда onnx2ncnn не найдена в PATH")
+    log("Конвертируем ONNX → TensorFlow SavedModel...")
+    import tensorflow as tf  # type: ignore[import-not-found]
+    import onnx2tf  # type: ignore[import-not-found]
     
-    param_path = convert_dir / "restormer_fp16.param"
-    bin_path = convert_dir / "restormer_fp16.bin"
-
-    subprocess.run([
-        'onnx2ncnn',
-        str(simp_path),
-        str(param_path),
-        str(bin_path)
-    ], check=True)
-
-    if not param_path.exists() or not bin_path.exists():
-        raise RuntimeError("onnx2ncnn не создал .param/.bin файлы")
-
-    bin_size_mb = bin_path.stat().st_size / 1024 / 1024
-    log(f"NCNN создан: {bin_size_mb:.1f} MB")
-
-    if bin_size_mb < 20.0:
-        raise ValueError(f"NCNN bin слишком маленький: {bin_size_mb:.1f} MB")
-
-    opt_param = convert_dir / "restormer_fp16_opt.param"
-    opt_bin = convert_dir / "restormer_fp16_opt.bin"
-
-    try:
-        ncnnoptimize = shutil.which("ncnnoptimize")
-        if not ncnnoptimize:
-            raise FileNotFoundError("ncnnoptimize не найден в PATH")
-        
-        subprocess.run([
-            'ncnnoptimize',
-            str(param_path), str(bin_path),
-            str(opt_param), str(opt_bin),
-            '65536'
-        ], check=True, timeout=120)
-        
-        param_path.unlink()
-        bin_path.unlink()
-        opt_param.rename(param_path)
-        opt_bin.rename(bin_path)
-        log("✅ Оптимизирован")
-    except Exception as e:
-        log(f"⚠️ Оптимизация пропущена: {e}")
-        if opt_param.exists():
-            opt_param.unlink()
-        if opt_bin.exists():
-            opt_bin.unlink()
+    saved_model_dir = convert_dir / "restormer_saved_model"
+    if saved_model_dir.exists():
+        shutil.rmtree(saved_model_dir)
+    
+    onnx2tf.convert(
+        input_onnx_file_path=str(simp_path),
+        output_folder_path=str(saved_model_dir),
+        keep_shape_absolutely_input_names=["input"],
+        output_signaturedefs=True,
+        copy_onnx_input_output_names_to_tflite=True,
+        non_verbose=True,
+    )
+    
+    if not saved_model_dir.exists():
+        raise RuntimeError("onnx2tf не создал SavedModel")
+    
+    log("✅ SavedModel создан")
+    
+    log("Конвертируем SavedModel → TFLite FP16...")
+    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.target_spec.supported_types = [tf.float16]
+    
+    tflite_model = converter.convert()
+    
+    tflite_dir = convert_dir / "restormer_fp16"
+    tflite_dir.mkdir(parents=True, exist_ok=True)
+    tflite_path = tflite_dir / "restormer_fp16.tflite"
+    tflite_path.write_bytes(tflite_model)
+    
+    tflite_size_mb = len(tflite_model) / 1024 / 1024
+    log(f"TFLite FP16 создан: {tflite_size_mb:.1f} MB")
+    log(f"Входная форма: [1, {tile_size}, {tile_size}, 3] (NHWC), каналы в порядке RGB")
+    
+    log("Запускаем smoke-тест TFLite...")
+    smoke_result = run_tflite_smoke_test(tflite_path)
+    log(f"✅ Smoke-тест пройден: {smoke_result['status']}, размер: {smoke_result['size_mib']} MiB")
 
     metadata: Dict[str, object] = {
-        "ncnn": {
-            "param_size_bytes": param_path.stat().st_size,
-            "bin_size_bytes": bin_path.stat().st_size,
-            "bin_size_mib": format_mib(bin_path.stat().st_size),
-            "sha256_param": sha256_of(param_path),
-            "sha256_bin": sha256_of(bin_path),
+        "tflite": {
+            "size_bytes": smoke_result["size_bytes"],
+            "size_mib": smoke_result["size_mib"],
+            "sha256": smoke_result["sha256"],
+            "op_count": smoke_result["op_count"],
+            "status": smoke_result["status"],
+            "tile_size": tile_size,
         },
         "onnx": {
             "path": str(simp_path.name),
@@ -969,16 +948,10 @@ def convert_restormer(
 
     files = [
         {
-            "path": param_path,
-            "relative": Path("models/restormer_fp16.param"),
+            "path": tflite_path,
+            "relative": Path("models/restormer_fp16.tflite"),
             "include": True,
-            "label": "param",
-        },
-        {
-            "path": bin_path,
-            "relative": Path("models/restormer_fp16.bin"),
-            "include": True,
-            "label": "bin",
+            "label": "tflite",
         },
         {
             "path": simp_path,
@@ -988,7 +961,7 @@ def convert_restormer(
         },
     ]
 
-    return "ncnn", files, metadata
+    return "tflite", files, metadata
 
 
 def process_model(key: str, cfg: dict) -> dict:

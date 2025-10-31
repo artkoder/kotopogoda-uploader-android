@@ -38,7 +38,7 @@ if [[ ! -f "$SHA_FILE" ]]; then
   fatal "Файл контрольных сумм '$SHA_FILE' не найден."
 fi
 
-log INFO "Проверяем артефакт Zero-DCE++"
+log INFO "Проверяем артефакты моделей"
 python3 - <<'PY'
 import json
 import zipfile
@@ -51,6 +51,8 @@ if not models_lock.exists():
 
 data = json.loads(models_lock.read_text(encoding="utf-8"))
 models = data.get("models", {})
+
+# Проверяем Zero-DCE++
 zero = models.get("zerodcepp_fp16")
 if zero is None:
     raise SystemExit("В models.lock.json отсутствует запись zerodcepp_fp16")
@@ -58,9 +60,11 @@ if zero is None:
 metadata = zero.get("metadata") or {}
 ncnn_meta = metadata.get("ncnn") or {}
 bin_size_mib = ncnn_meta.get("bin_size_mib")
-if bin_size_mib is None or bin_size_mib < 1.0:
+MIN_ZERO_DCE_SIZE_MIB = 0.030
+if bin_size_mib is None or bin_size_mib < MIN_ZERO_DCE_SIZE_MIB:
     raise SystemExit(
-        f"NCNN .bin файл имеет недопустимый размер: {bin_size_mib} MiB (ожидается ≥1.0 MiB)"
+        f"Zero-DCE++ NCNN .bin файл имеет недопустимый размер: {bin_size_mib} MiB "
+        f"(ожидается ≥{MIN_ZERO_DCE_SIZE_MIB} MiB)"
     )
 
 asset_name = zero.get("asset")
@@ -80,7 +84,45 @@ if file_names != expected:
         f"Архив {asset_name} должен содержать {expected}, найдено: {file_names}"
     )
 
-print(f"Zero-DCE++: архив NCNN в норме (размер .bin: {bin_size_mib:.2f} MiB)")
+print(f"✅ Zero-DCE++: архив NCNN в норме (размер .bin: {bin_size_mib:.4f} MiB)")
+
+# Проверяем Restormer
+restormer = models.get("restormer_fp16")
+if restormer is None:
+    raise SystemExit("В models.lock.json отсутствует запись restormer_fp16")
+
+backend = restormer.get("backend")
+if backend != "tflite":
+    raise SystemExit(f"Restormer должен использовать backend=tflite, получен: {backend}")
+
+metadata = restormer.get("metadata") or {}
+tflite_meta = metadata.get("tflite") or {}
+tflite_size_mib = tflite_meta.get("size_mib")
+MIN_RESTORMER_SIZE_MIB = 1.0
+if tflite_size_mib is None or tflite_size_mib < MIN_RESTORMER_SIZE_MIB:
+    raise SystemExit(
+        f"Restormer TFLite файл имеет недопустимый размер: {tflite_size_mib} MiB "
+        f"(ожидается ≥{MIN_RESTORMER_SIZE_MIB} MiB)"
+    )
+
+asset_name = restormer.get("asset")
+if not asset_name:
+    raise SystemExit("В записи restormer_fp16 отсутствует имя артефакта")
+
+zip_path = dist_dir / asset_name
+if not zip_path.exists():
+    raise SystemExit(f"Архив {zip_path} не найден")
+
+with zipfile.ZipFile(zip_path, "r") as archive:
+    file_names = sorted([info.filename for info in archive.infolist() if not info.is_dir()])
+
+expected = ["models/restormer_fp16.tflite"]
+if file_names != expected:
+    raise SystemExit(
+        f"Архив {asset_name} должен содержать {expected}, найдено: {file_names}"
+    )
+
+print(f"✅ Restormer: архив TFLite в норме (размер: {tflite_size_mib:.4f} MiB)")
 PY
 
 log INFO "Используем тег релиза: $RELEASE_TAG"
