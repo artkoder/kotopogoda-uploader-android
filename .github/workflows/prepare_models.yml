@@ -84,18 +84,12 @@ jobs:
           python3 -m pip install \
             "numpy<2" \
             torch torchvision \
-            "onnx==1.16.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" onnx-graphsurgeon onnxscript sng4onnx \
-            "onnx2tf>=1.24,<1.25" \
-            "tensorflow==2.14.1" "keras==2.14.*" "tensorflow-addons==0.23.*" "tensorflow-probability==0.23.*" "onnx-tf==1.10.0" \
-            "tf-keras==2.14.*" \
-            einops "opencv-python-headless<5" lmdb tqdm pyyaml "scipy<1.14" "scikit-image<0.23" \
-            psutil>=5.9 "ml_dtypes<0.5"
+            "onnx==1.16.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" onnx-graphsurgeon onnxscript \
+            einops "opencv-python-headless<5" tqdm pyyaml "scipy<1.14" "scikit-image<0.23" \
+            psutil "ml_dtypes<0.5"
           python3 - <<'PY'
           import onnx
-          import onnx2tf
-          from onnx.serialization import ProtoSerializer
-
-          print("ONNX", onnx.__version__, "OK")
+          print(f"ONNX {onnx.__version__} OK")
           PY
           python3 - <<'PY'
           import importlib.metadata as metadata
@@ -106,17 +100,10 @@ jobs:
               "onnx",
               "onnxruntime",
               "onnxsim",
-              "onnx2tf",
-              "tf-keras",
               "onnx-graphsurgeon",
-              "tensorflow",
-              "keras",
-              "tensorflow-addons",
-              "onnx-tf",
               "psutil",
               "einops",
               "opencv-python-headless",
-              "lmdb",
               "tqdm",
               "pyyaml",
               "scipy",
@@ -130,55 +117,12 @@ jobs:
                   version = "не установлен"
               print(f"{pkg}: {version}")
           PY
-          python3 - <<'PY'
-          import onnx
-          import onnx2tf
-          import onnx_graphsurgeon
-          import tf_keras
-          import psutil
-
-          print("tf_keras:", tf_keras.__version__)
-          print("onnx_graphsurgeon:", onnx_graphsurgeon.__version__)
-          print("onnx:", onnx.__version__)
-          print("onnx2tf:", onnx2tf.__version__)
-          print("psutil:", psutil.__version__)
-          PY
 
       - name: Prepare model artifacts
         env:
-          TF_USE_LEGACY_KERAS: "1"
-          KERAS_BACKEND: "tensorflow"
           PYTHONPATH: "${{ github.workspace }}:$PYTHONPATH"
         run: |
           set -euxo pipefail
-          # Шим совместимости: некоторые версии ml_dtypes в связке с TF/Keras 2.14
-          # не содержат новые float8-алиасы, которые импортирует Zero-DCE.
-          # sitecustomize.py автоматически импортируется интерпретатором.
-          cat > sitecustomize.py <<'PY'
-          try:
-              import ml_dtypes as _m
-              import numpy as _np
-              # Набор алиасов, которые иногда отсутствуют
-              _aliases = (
-                  "float8_e4m3fn",
-                  "float8_e4m3fnuz",
-                  "float8_e5m2",
-                  "float8_e5m2fnuz",
-                  "float8_e4m3b11fnuz",
-                  "float8_e8m0fnu",
-              )
-              for _name in _aliases:
-                  if not hasattr(_m, _name):
-                      setattr(_m, _name, _np.float16)
-          except Exception as _e:
-              print("sitecustomize: ml_dtypes compat shim skipped:", _e)
-          PY
-          # Небольшая проверка — не обязательна, но полезна в логах
-          python3 - <<'PY'
-          import ml_dtypes as m
-          print("ml_dtypes present float8 attrs:", [a for a in dir(m) if a.startswith("float8_")])
-          PY
-
           bash scripts/prepare_models.sh
 
       - name: Configure Git user
