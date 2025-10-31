@@ -770,22 +770,65 @@ def convert_restormer(
 
     torch.set_grad_enabled(False)
     model = Restormer()
-    state = torch.load(weights_path, map_location="cpu")
-    if isinstance(state, dict):
-        for key in ("params", "state_dict", "model", "net"):
-            if key in state:
-                state = state[key]
+    
+    # Проверка существования файла весов
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Веса не найдены: {weights_path}")
+    
+    log(f"Загружаем веса из {weights_path}")
+    
+    # Загрузка checkpoint
+    checkpoint = torch.load(weights_path, map_location="cpu")
+    
+    # Restormer может хранить веса в разных форматах:
+    # - checkpoint['params_ema'] (предпочтительно для инференса)
+    # - checkpoint['params']
+    # - checkpoint['state_dict']
+    # - checkpoint['model'] или checkpoint['net']
+    # - напрямую в корне checkpoint
+    state_dict = None
+    used_key = None
+    
+    if isinstance(checkpoint, dict):
+        # Пробуем найти веса в известных ключах (params_ema первым!)
+        for key in ("params_ema", "params", "state_dict", "model", "net"):
+            if key in checkpoint:
+                state_dict = checkpoint[key]
+                used_key = key
+                log(f"Используем '{key}' из checkpoint")
                 break
-    if isinstance(state, dict):
+        
+        # Если не нашли известный ключ, используем весь checkpoint
+        if state_dict is None:
+            state_dict = checkpoint
+            used_key = "checkpoint (прямой)"
+            log("Используем checkpoint напрямую")
+    else:
+        # Если checkpoint - не dict, используем как есть
+        state_dict = checkpoint
+        used_key = "checkpoint (не dict)"
+        log("Используем checkpoint напрямую (не dict)")
+    
+    # Очистка от префикса "module." (из DataParallel/DistributedDataParallel)
+    if isinstance(state_dict, dict):
         cleaned = {}
-        for key, value in state.items():
+        for key, value in state_dict.items():
             if key.startswith("module."):
                 cleaned[key[len("module."):]] = value
             else:
                 cleaned[key] = value
-        state = cleaned
-    model.load_state_dict(state, strict=False)
+        state_dict = cleaned
+    
+    # Применение весов к модели (strict=True для проверки)
+    model.load_state_dict(state_dict, strict=True)
+    
+    # Перевод в режим inference (важно!)
     model.eval()
+    
+    # Логирование для проверки
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    log(f"Веса загружены: {total_params:,} параметров (тренируемых: {trainable_params:,})")
 
     dummy_input = torch.randn(1, 3, 256, 256)
     onnx_path = convert_dir / "restormer.onnx"
@@ -805,7 +848,20 @@ def convert_restormer(
     )
 
     onnx_size = onnx_path.stat().st_size
-    log(f"ONNX создан: {onnx_size / 1024 / 1024:.1f} MB")
+    onnx_size_mb = onnx_size / 1024 / 1024
+    log(f"ONNX создан: {onnx_size_mb:.1f} MB")
+    
+    # Валидация размера ONNX
+    # Для Restormer (~26M параметров) ожидаем ~100 MB в FP32
+    MIN_EXPECTED_SIZE_MB = 80.0  # минимум 80 MB
+    if onnx_size_mb < MIN_EXPECTED_SIZE_MB:
+        raise ValueError(
+            f"ONNX файл слишком маленький ({onnx_size_mb:.1f} MB), "
+            f"ожидается минимум {MIN_EXPECTED_SIZE_MB} MB. "
+            f"Возможно, веса не загружены."
+        )
+    
+    log(f"✅ ONNX размер валиден: {onnx_size_mb:.1f} MB")
 
     simp_path = convert_dir / "restormer_simplified.onnx"
     try:
