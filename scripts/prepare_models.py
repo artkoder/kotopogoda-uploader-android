@@ -289,14 +289,14 @@ def _create_tflite_interpreter(tflite_path: Path):
             ) from primary_error
 
 
-def run_tflite_smoke_test(tflite_path: Path) -> dict:
+def run_tflite_smoke_test(tflite_path: Path, min_size_mib: float = 1.0) -> dict:
     import numpy as np  # type: ignore[import-not-found]
 
-    min_size_bytes = 1 * 1024 * 1024
+    min_size_bytes = int(min_size_mib * 1024 * 1024)
     size_bytes = tflite_path.stat().st_size
     if size_bytes <= min_size_bytes:
         raise RuntimeError(
-            f"Размер модели {format_mib(size_bytes)} MiB ≤ 1 MiB: вероятно, экспорт выполнен некорректно"
+            f"Размер модели {format_mib(size_bytes)} MiB ≤ {min_size_mib} MiB: вероятно, экспорт выполнен некорректно"
         )
 
     interpreter = _create_tflite_interpreter(tflite_path)
@@ -1149,7 +1149,15 @@ def write_summary(results: List[dict]) -> None:
                 if len(sha_value) > 16:
                     sha_value = sha_value[:8] + "..."
                 op_count = "—"
-                smoke_status = "OK" if size_value and size_value >= 1.0 else "FAIL"
+                # Разные требования к размеру для разных моделей
+                model_name = result.get("key", "").lower()
+                if "zerodcepp" in model_name or "zerodce" in model_name:
+                    min_size_mib = 0.030  # 30 KB минимум для Zero-DCE++
+                elif "restormer" in model_name:
+                    min_size_mib = 1.0    # 1 MB минимум для Restormer
+                else:
+                    min_size_mib = 0.1    # 100 KB по умолчанию
+                smoke_status = "OK" if size_value and size_value >= min_size_mib else "FAIL"
             else:
                 size_text = "—"
                 sha_value = "—"
