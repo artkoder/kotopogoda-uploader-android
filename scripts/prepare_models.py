@@ -524,23 +524,14 @@ def convert_zero_dce(
             "torch",
             "onnx",
             "onnxsim",
-            "onnxruntime",
-            "onnx2tf",
-            "tensorflow",
-            "tf_keras",
-            "cv2",
-            "lmdb",
         ]
     )
 
     import importlib.util
-    import traceback
 
     import torch
     import onnx
-    import tensorflow as tf
     from onnxsim import simplify
-    from onnx2tf import convert as onnx2tf_convert
 
     weights_path = sources["weights"]
     model_py = sources["model"]
@@ -584,8 +575,9 @@ def convert_zero_dce(
     model = _ZeroDCEWrapper(base_model)
     model.eval()
 
-    dummy_input = torch.rand(1, 3, 256, 256)
+    dummy_input = torch.rand(1, 3, 512, 512)
     onnx_path = convert_dir / "zerodcepp.onnx"
+    log(f"Экспортируем PyTorch → ONNX (opset 18): {onnx_path}")
     torch.onnx.export(
         model,
         dummy_input,
@@ -596,11 +588,18 @@ def convert_zero_dce(
             "input": {0: "batch", 2: "height", 3: "width"},
             "output": {0: "batch", 2: "height", 3: "width"},
         },
-        opset_version=13,
+        opset_version=18,
     )
+    
+    onnx_size = onnx_path.stat().st_size
+    log(f"ONNX модель создана: {format_mib(onnx_size)} MiB")
+    
+    if onnx_size < 100 * 1024:
+        raise RuntimeError(f"ONNX файл слишком маленький ({onnx_size} байт), возможно, экспорт провален")
 
     simplified_path = convert_dir / "zerodcepp_simplified.onnx"
     try:
+        log("Упрощаем ONNX граф с помощью onnxsim...")
         simplified_model, check = simplify(str(onnx_path), dynamic_input_shape=True)
     except Exception as exc:
         log(f"Не удалось упростить ONNX: {exc}; используется исходная модель")
@@ -608,76 +607,71 @@ def convert_zero_dce(
     else:
         if check:
             onnx.save(simplified_model, simplified_path.as_posix())
+            simplified_size = simplified_path.stat().st_size
+            log(f"ONNX упрощен: {format_mib(simplified_size)} MiB")
         else:
             log("onnxsim не подтвердил корректность модели; используется исходный ONNX")
             simplified_path = onnx_path
 
-    export_dir = convert_dir / "onnx2tf_export"
-    if export_dir.exists():
-        shutil.rmtree(export_dir)
+    log("Конвертируем ONNX → NCNN...")
+    onnx2ncnn = shutil.which("onnx2ncnn")
+    if not onnx2ncnn:
+        raise RuntimeError("Команда onnx2ncnn не найдена в PATH")
 
-    try:
-        onnx2tf_convert(
-            input_onnx_file_path=str(simplified_path),
-            output_folder_path=str(export_dir),
-            copy_onnx_input_output_names_to_tflite=True,
-            not_use_onnxsim=True,
+    param_path = convert_dir / "zerodcepp_fp16.param"
+    bin_path = convert_dir / "zerodcepp_fp16.bin"
+    
+    subprocess.run(
+        [onnx2ncnn, str(simplified_path), str(param_path), str(bin_path)],
+        check=True,
+    )
+    
+    if not param_path.exists() or not bin_path.exists():
+        raise RuntimeError("onnx2ncnn не создал .param/.bin файлы")
+    
+    bin_size = bin_path.stat().st_size
+    log(f"NCNN модель создана: .param + .bin ({format_mib(bin_size)} MiB)")
+    
+    if bin_size < 1 * 1024 * 1024:
+        raise RuntimeError(
+            f"NCNN .bin файл слишком маленький ({format_mib(bin_size)} MiB), "
+            "возможно, конвертация провалена"
         )
-    except Exception as exc:
-        log(f"onnx2tf завершился с ошибкой: {exc}")
-        for line in traceback.format_exc().splitlines()[:200]:
-            log(line)
-        ops = collect_onnx_operator_types(simplified_path)
-        if ops:
-            log("Операторы ONNX: " + ", ".join(ops))
-        raise
 
-    saved_model_dir: Optional[Path] = None
-    for candidate in export_dir.rglob("saved_model.pb"):
-        saved_model_dir = candidate.parent
-        break
-    if saved_model_dir is None:
-        raise RuntimeError("Не удалось найти saved_model.pb после работы onnx2tf")
-
-    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
-    converter.allow_custom_ops = True
-    converter.target_spec.supported_ops = [
-        tf.lite.OpsSet.TFLITE_BUILTINS,
-        tf.lite.OpsSet.SELECT_TF_OPS,
-    ]
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    converter.target_spec.supported_types = [tf.float16]
-    converter.experimental_new_converter = True
-
-    try:
-        tflite_data = converter.convert()
-    except Exception as exc:
-        log("Конвертация в TFLite завершилась с ошибкой")
-        log(
-            "Параметры: supported_ops=%s, supported_types=%s, optimizations=%s"
-            % (converter.target_spec.supported_ops, converter.target_spec.supported_types, converter.optimizations)
+    ncnnoptimize = shutil.which("ncnnoptimize")
+    if ncnnoptimize:
+        log("Оптимизируем NCNN модель...")
+        opt_param = convert_dir / "zerodcepp_fp16_opt.param"
+        opt_bin = convert_dir / "zerodcepp_fp16_opt.bin"
+        
+        subprocess.run(
+            [ncnnoptimize, str(param_path), str(bin_path), str(opt_param), str(opt_bin), "65536"],
+            check=True,
         )
-        log(
-            "Среда: TensorFlow=%s, Python=%s, Платформа=%s"
-            % (
-                getattr(tf, "__version__", "?"),
-                platform.python_version(),
-                platform.platform(),
-            )
-        )
-        for line in traceback.format_exc().splitlines()[:200]:
-            log(line)
-        raise
-
-    tflite_path = convert_dir / "zerodcepp_fp16.tflite"
-    tflite_path.write_bytes(tflite_data)
-
-    smoke = run_tflite_smoke_test(tflite_path)
+        
+        if opt_param.exists() and opt_bin.exists():
+            opt_bin_size = opt_bin.stat().st_size
+            log(f"NCNN оптимизирован: {format_mib(opt_bin_size)} MiB")
+            param_path.unlink()
+            bin_path.unlink()
+            opt_param.rename(param_path)
+            opt_bin.rename(bin_path)
+            bin_size = opt_bin_size
+        else:
+            log("ncnnoptimize не создал файлы, используем неоптимизированную версию")
+    else:
+        log("ncnnoptimize не найден, пропускаем оптимизацию")
 
     metadata: Dict[str, object] = {
-        "tflite": smoke,
+        "ncnn": {
+            "param_size_bytes": param_path.stat().st_size,
+            "bin_size_bytes": bin_size,
+            "bin_size_mib": format_mib(bin_size),
+            "sha256_param": sha256_of(param_path),
+            "sha256_bin": sha256_of(bin_path),
+        },
         "onnx": {
-            "path": str(simplified_path),
+            "path": str(simplified_path.name),
             "sha256": sha256_of(simplified_path),
             "size_mib": format_mib(simplified_path.stat().st_size),
             "operators": collect_onnx_operator_types(simplified_path),
@@ -686,20 +680,26 @@ def convert_zero_dce(
 
     files = [
         {
-            "path": tflite_path,
-            "relative": Path("zerodcepp_fp16.tflite"),
+            "path": param_path,
+            "relative": Path("models/zerodcepp_fp16.param"),
             "include": True,
-            "label": "tflite",
+            "label": "param",
+        },
+        {
+            "path": bin_path,
+            "relative": Path("models/zerodcepp_fp16.bin"),
+            "include": True,
+            "label": "bin",
         },
         {
             "path": simplified_path,
-            "relative": Path("zerodcepp_fp16.onnx"),
+            "relative": Path("zerodcepp_simplified.onnx"),
             "include": False,
             "label": "onnx",
         },
     ]
 
-    return "tflite", files, metadata
+    return "ncnn", files, metadata
 
 
 def convert_restormer(
