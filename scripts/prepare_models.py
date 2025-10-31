@@ -889,18 +889,20 @@ def convert_restormer(
 
     log("Конвертируем ONNX → TensorFlow SavedModel...")
     import tensorflow as tf  # type: ignore[import-not-found]
+    import onnx2tf  # type: ignore[import-not-found]
     
     saved_model_dir = convert_dir / "restormer_saved_model"
     if saved_model_dir.exists():
         shutil.rmtree(saved_model_dir)
     
-    subprocess.run([
-        sys.executable, "-m", "onnx2tf",
-        "-i", str(simp_path),
-        "-o", str(saved_model_dir),
-        "-osd",
-        "-cotof"
-    ], check=True)
+    onnx2tf.convert(
+        input_onnx_file_path=str(simp_path),
+        output_folder_path=str(saved_model_dir),
+        keep_shape_absolutely_input_names=["input"],
+        output_signaturedefs=True,
+        copy_onnx_input_output_names_to_tflite=True,
+        non_verbose=True,
+    )
     
     if not saved_model_dir.exists():
         raise RuntimeError("onnx2tf не создал SavedModel")
