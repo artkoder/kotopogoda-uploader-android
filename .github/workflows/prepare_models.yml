@@ -91,58 +91,58 @@ jobs:
             einops "opencv-python-headless<5" lmdb tqdm pyyaml "scipy<1.14" "scikit-image<0.23" \
             psutil>=5.9 "ml_dtypes<0.5"
           python3 - <<'PY'
-import onnx
-import onnx2tf
-from onnx.serialization import ProtoSerializer
+          import onnx
+          import onnx2tf
+          from onnx.serialization import ProtoSerializer
 
-print("ONNX", onnx.__version__, "OK")
-PY
+          print("ONNX", onnx.__version__, "OK")
+          PY
           python3 - <<'PY'
-import importlib.metadata as metadata
-packages = [
-    "numpy",
-    "torch",
-    "torchvision",
-    "onnx",
-    "onnxruntime",
-    "onnxsim",
-    "onnx2tf",
-    "tf-keras",
-    "onnx-graphsurgeon",
-    "tensorflow",
-    "keras",
-    "tensorflow-addons",
-    "onnx-tf",
-    "psutil",
-    "einops",
-    "opencv-python-headless",
-    "lmdb",
-    "tqdm",
-    "pyyaml",
-    "scipy",
-    "scikit-image",
-    "ml_dtypes",
-]
-for pkg in packages:
-    try:
-        version = metadata.version(pkg)
-    except metadata.PackageNotFoundError:
-        version = "не установлен"
-    print(f"{pkg}: {version}")
-PY
+          import importlib.metadata as metadata
+          packages = [
+              "numpy",
+              "torch",
+              "torchvision",
+              "onnx",
+              "onnxruntime",
+              "onnxsim",
+              "onnx2tf",
+              "tf-keras",
+              "onnx-graphsurgeon",
+              "tensorflow",
+              "keras",
+              "tensorflow-addons",
+              "onnx-tf",
+              "psutil",
+              "einops",
+              "opencv-python-headless",
+              "lmdb",
+              "tqdm",
+              "pyyaml",
+              "scipy",
+              "scikit-image",
+              "ml_dtypes",
+          ]
+          for pkg in packages:
+              try:
+                  version = metadata.version(pkg)
+              except metadata.PackageNotFoundError:
+                  version = "не установлен"
+              print(f"{pkg}: {version}")
+          PY
           python3 - <<'PY'
-import onnx
-import onnx2tf
-import onnx_graphsurgeon
-import tf_keras
-import psutil
+          import onnx
+          import onnx2tf
+          import onnx_graphsurgeon
+          import tf_keras
+          import psutil
 
-print("tf_keras:", tf_keras.__version__)
-print("onnx_graphsurgeon:", onnx_graphsurgeon.__version__)
-print("onnx:", onnx.__version__)
-print("onnx2tf:", onnx2tf.__version__)
-print("psutil:", psutil.__version__)
-PY
+          print("tf_keras:", tf_keras.__version__)
+          print("onnx_graphsurgeon:", onnx_graphsurgeon.__version__)
+          print("onnx:", onnx.__version__)
+          print("onnx2tf:", onnx2tf.__version__)
+          print("psutil:", psutil.__version__)
+          PY
 
       - name: Prepare model artifacts
         env:
@@ -154,28 +154,28 @@ PY
           # не содержат новые float8-алиасы, которые импортирует Zero-DCE.
           # sitecustomize.py автоматически импортируется интерпретатором.
           cat > sitecustomize.py <<'PY'
-try:
-    import ml_dtypes as _m
-    import numpy as _np
-    # Набор алиасов, которые иногда отсутствуют
-    _aliases = (
-        "float8_e4m3fn",
-        "float8_e4m3fnuz",
-        "float8_e5m2",
-        "float8_e5m2fnuz",
-        "float8_e4m3b11fnuz",
-    )
-    for _name in _aliases:
-        if not hasattr(_m, _name):
-            setattr(_m, _name, _np.float16)
-except Exception as _e:
-    print("sitecustomize: ml_dtypes compat shim skipped:", _e)
-PY
+          try:
+              import ml_dtypes as _m
+              import numpy as _np
+              # Набор алиасов, которые иногда отсутствуют
+              _aliases = (
+                  "float8_e4m3fn",
+                  "float8_e4m3fnuz",
+                  "float8_e5m2",
+                  "float8_e5m2fnuz",
+                  "float8_e4m3b11fnuz",
+              )
+              for _name in _aliases:
+                  if not hasattr(_m, _name):
+                      setattr(_m, _name, _np.float16)
+          except Exception as _e:
+              print("sitecustomize: ml_dtypes compat shim skipped:", _e)
+          PY
           # Небольшая проверка — не обязательна, но полезна в логах
           python3 - <<'PY'
-import ml_dtypes as m
-print("ml_dtypes present float8 attrs:", [a for a in dir(m) if a.startswith("float8_")])
-PY
+          import ml_dtypes as m
+          print("ml_dtypes present float8 attrs:", [a for a in dir(m) if a.startswith("float8_")])
+          PY
 
           bash scripts/prepare_models.sh
 
