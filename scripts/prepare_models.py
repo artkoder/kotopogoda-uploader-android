@@ -864,7 +864,8 @@ def convert_restormer(
         dynamic_axes={
             'input': {0: 'batch', 2: 'height', 3: 'width'},
             'output': {0: 'batch', 2: 'height', 3: 'width'}
-        }
+        },
+        dynamo=False
     )
 
     onnx_size = onnx_path.stat().st_size
