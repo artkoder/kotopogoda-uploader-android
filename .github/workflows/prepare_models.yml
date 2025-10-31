@@ -148,6 +148,7 @@ jobs:
         env:
           TF_USE_LEGACY_KERAS: "1"
           KERAS_BACKEND: "tensorflow"
+          PYTHONPATH: "${{ github.workspace }}:$PYTHONPATH"
         run: |
           set -euxo pipefail
           # Шим совместимости: некоторые версии ml_dtypes в связке с TF/Keras 2.14
