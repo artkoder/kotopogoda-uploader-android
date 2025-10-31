@@ -671,11 +671,19 @@ def convert_zero_dce(
     bin_size = bin_path.stat().st_size
     log(f"NCNN модель создана: .param + .bin ({format_mib(bin_size)} MiB)")
     
-    if bin_size < 1 * 1024 * 1024:
+    # Zero-DCE++ — очень легковесная модель (10,561 параметр),
+    # поэтому NCNN .bin будет ~40 KB, что нормально
+    MIN_EXPECTED_BIN_SIZE_KB = 30  # минимум 30 KB
+    bin_size_kb = bin_size / 1024
+    
+    if bin_size_kb < MIN_EXPECTED_BIN_SIZE_KB:
         raise RuntimeError(
-            f"NCNN .bin файл слишком маленький ({format_mib(bin_size)} MiB), "
-            "возможно, конвертация провалена"
+            f"NCNN .bin файл слишком маленький ({bin_size} байт = {bin_size_kb:.1f} KB), "
+            f"ожидается минимум {MIN_EXPECTED_BIN_SIZE_KB} KB. "
+            "Возможно, конвертация провалена."
         )
+    
+    log(f"✅ NCNN .bin размер валиден: {bin_size_kb:.1f} KB")
 
     ncnnoptimize = shutil.which("ncnnoptimize")
     if ncnnoptimize:
