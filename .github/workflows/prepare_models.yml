@@ -86,7 +86,7 @@ jobs:
             torch torchvision \
             "onnx==1.16.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" onnx-graphsurgeon onnxscript \
             einops "opencv-python-headless<5" tqdm pyyaml "scipy<1.14" "scikit-image<0.23" \
-            psutil "ml_dtypes<0.5"
+            psutil
           python3 - <<'PY'
           import onnx
           print(f"ONNX {onnx.__version__} OK")
@@ -108,7 +108,6 @@ jobs:
               "pyyaml",
               "scipy",
               "scikit-image",
-              "ml_dtypes",
           ]
           for pkg in packages:
               try:
