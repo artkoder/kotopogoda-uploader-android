@@ -685,29 +685,10 @@ def convert_zero_dce(
     
     log(f"✅ NCNN .bin размер валиден: {bin_size_kb:.1f} KB")
 
-    ncnnoptimize = shutil.which("ncnnoptimize")
-    if ncnnoptimize:
-        log("Оптимизируем NCNN модель...")
-        opt_param = convert_dir / "zerodcepp_fp16_opt.param"
-        opt_bin = convert_dir / "zerodcepp_fp16_opt.bin"
-        
-        subprocess.run(
-            [ncnnoptimize, str(param_path), str(bin_path), str(opt_param), str(opt_bin), "65536"],
-            check=True,
-        )
-        
-        if opt_param.exists() and opt_bin.exists():
-            opt_bin_size = opt_bin.stat().st_size
-            log(f"NCNN оптимизирован: {format_mib(opt_bin_size)} MiB")
-            param_path.unlink()
-            bin_path.unlink()
-            opt_param.rename(param_path)
-            opt_bin.rename(bin_path)
-            bin_size = opt_bin_size
-        else:
-            log("ncnnoptimize не создал файлы, используем неоптимизированную версию")
-    else:
-        log("ncnnoptimize не найден, пропускаем оптимизацию")
+    # Zero-DCE++ — очень маленькая модель (41 KB), оптимизация не критична
+    # и вызывает SIGFPE ошибку в ncnnoptimize
+    log("Пропускаем ncnnoptimize для маленькой модели Zero-DCE++")
+    log("✅ NCNN модель готова (без оптимизации)")
 
     metadata: Dict[str, object] = {
         "ncnn": {
