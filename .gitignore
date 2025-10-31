@@ -40,6 +40,12 @@ gradle/wrapper/gradle-wrapper.jar
 
 **/build/generated/openapi/
 
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
 .android-sdk/
 
 # Model artifacts

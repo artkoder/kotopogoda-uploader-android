@@ -543,10 +543,17 @@ def convert_zero_dce(
     spec.loader.exec_module(module)
 
     base_model = module.enhance_net_nopool(scale_factor=1)
+    
+    # Проверка существования файла весов
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Веса не найдены: {weights_path}")
+    
+    log(f"Загружаем веса из {weights_path}")
     state = torch.load(weights_path, map_location="cpu")
     if isinstance(state, dict):
         for key in ("state_dict", "model", "net", "params"):
             if key in state:
+                log(f"Извлекаем state_dict из ключа '{key}'")
                 state = state[key]
                 break
     if isinstance(state, dict):
@@ -557,7 +564,28 @@ def convert_zero_dce(
             else:
                 cleaned[key] = value
         state = cleaned
-    base_model.load_state_dict(state, strict=False)
+    
+    # Проверка, что state_dict не пустой
+    if not isinstance(state, dict) or not state:
+        raise RuntimeError(f"State dict пустой или некорректный, тип: {type(state)}")
+    
+    log(f"State dict содержит {len(state)} ключей")
+    
+    # Загрузка весов в модель
+    missing_keys, unexpected_keys = base_model.load_state_dict(state, strict=False)
+    if missing_keys:
+        log(f"Предупреждение: отсутствующие ключи при загрузке: {missing_keys[:5]}")
+    if unexpected_keys:
+        log(f"Предупреждение: неожиданные ключи при загрузке: {unexpected_keys[:5]}")
+    
+    # Проверка количества параметров
+    total_params = sum(p.numel() for p in base_model.parameters())
+    trainable_params = sum(p.numel() for p in base_model.parameters() if p.requires_grad)
+    log(f"Веса загружены: {total_params:,} параметров (тренируемых: {trainable_params:,})")
+    
+    if total_params == 0:
+        raise RuntimeError("Модель не содержит параметров после загрузки весов")
+    
     base_model.eval()
     torch.set_grad_enabled(False)
 
@@ -592,10 +620,17 @@ def convert_zero_dce(
     )
     
     onnx_size = onnx_path.stat().st_size
+    onnx_size_mb = onnx_size / (1024 * 1024)
     log(f"ONNX модель создана: {format_mib(onnx_size)} MiB")
     
-    if onnx_size < 100 * 1024:
-        raise RuntimeError(f"ONNX файл слишком маленький ({onnx_size} байт), возможно, экспорт провален")
+    # Валидация размера: модель с весами должна быть минимум 2 MB
+    MIN_EXPECTED_SIZE_MB = 2.0
+    if onnx_size_mb < MIN_EXPECTED_SIZE_MB:
+        raise RuntimeError(
+            f"ONNX файл слишком маленький ({onnx_size} байт = {onnx_size_mb:.3f} MiB), "
+            f"ожидается минимум {MIN_EXPECTED_SIZE_MB} MiB. "
+            "Возможно, веса не были загружены или экспорт провален."
+        )
 
     simplified_path = convert_dir / "zerodcepp_simplified.onnx"
     try:
