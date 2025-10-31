@@ -623,14 +623,18 @@ def convert_zero_dce(
     onnx_size_mb = onnx_size / (1024 * 1024)
     log(f"ONNX модель создана: {format_mib(onnx_size)} MiB")
     
-    # Валидация размера: модель с весами должна быть минимум 2 MB
-    MIN_EXPECTED_SIZE_MB = 2.0
-    if onnx_size_mb < MIN_EXPECTED_SIZE_MB:
+    # Zero-DCE++ — очень легковесная модель (10,561 параметр),
+    # поэтому ONNX файл будет ~80 KB, что нормально
+    MIN_EXPECTED_SIZE_KB = 50
+    onnx_size_kb = onnx_size / 1024
+    if onnx_size_kb < MIN_EXPECTED_SIZE_KB:
         raise RuntimeError(
-            f"ONNX файл слишком маленький ({onnx_size} байт = {onnx_size_mb:.3f} MiB), "
-            f"ожидается минимум {MIN_EXPECTED_SIZE_MB} MiB. "
-            "Возможно, веса не были загружены или экспорт провален."
+            f"ONNX файл слишком маленький ({onnx_size} байт = {onnx_size_kb:.1f} KB), "
+            f"ожидается минимум {MIN_EXPECTED_SIZE_KB} KB. "
+            "Возможно, экспорт провален."
         )
+
+    log(f"✅ ONNX размер валиден: {onnx_size_kb:.1f} KB")
 
     simplified_path = convert_dir / "zerodcepp_simplified.onnx"
     try:
