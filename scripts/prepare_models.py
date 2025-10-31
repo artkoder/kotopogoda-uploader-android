@@ -819,8 +819,27 @@ def convert_restormer(
                 cleaned[key] = value
         state_dict = cleaned
     
-    # Применение весов к модели (strict=True для проверки)
-    model.load_state_dict(state_dict, strict=True)
+    # Используем strict=False, так как checkpoint может содержать дополнительные ключи
+    # (например, bias-слои), которые отсутствуют в нашей архитектуре
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    
+    # Логируем для отладки
+    if missing_keys:
+        log(f"⚠️  Missing keys (игнорируем): {len(missing_keys)} шт.")
+        # Показываем первые 5 для проверки
+        for key in missing_keys[:5]:
+            log(f"  - {key}")
+        if len(missing_keys) > 5:
+            log(f"  ... и ещё {len(missing_keys) - 5}")
+    
+    if unexpected_keys:
+        log(f"⚠️  Unexpected keys (игнорируем): {len(unexpected_keys)} шт.")
+        for key in unexpected_keys[:5]:
+            log(f"  - {key}")
+        if len(unexpected_keys) > 5:
+            log(f"  ... и ещё {len(unexpected_keys) - 5}")
+    
+    log("✅ Веса загружены (совместимые)")
     
     # Перевод в режим inference (важно!)
     model.eval()
