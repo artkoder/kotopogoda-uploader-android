@@ -17,9 +17,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
-
 try:
     from importlib import metadata as importlib_metadata
 except ImportError:  # pragma: no cover - поддержка старых Python
@@ -736,20 +733,12 @@ def convert_restormer(
     ensure_python_modules([
         "torch",
         "onnx",
-        "onnx_tf",
-        "tensorflow",
+        "onnxsim",
         "einops",
-        "cv2",
-        "lmdb",
-        "tqdm",
-        "yaml",
-        "scipy",
-        "skimage",
     ])
     import torch
-    from onnx_tf.backend import prepare
     import onnx
-    import tensorflow as tf
+    from onnxsim import simplify
 
     weights_path = sources["weights"]
     repo_root = sources["code"]
@@ -778,10 +767,16 @@ def convert_restormer(
 
     torch.set_grad_enabled(False)
     model = Restormer()
+    
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Веса не найдены: {weights_path}")
+    
+    log(f"Загружаем веса из {weights_path}")
     state = torch.load(weights_path, map_location="cpu")
     if isinstance(state, dict):
         for key in ("params", "state_dict", "model", "net"):
             if key in state:
+                log(f"Извлекаем state_dict из ключа '{key}'")
                 state = state[key]
                 break
     if isinstance(state, dict):
@@ -792,89 +787,169 @@ def convert_restormer(
             else:
                 cleaned[key] = value
         state = cleaned
-    model.load_state_dict(state, strict=False)
+    
+    if not isinstance(state, dict) or not state:
+        raise RuntimeError(f"State dict пустой или некорректный, тип: {type(state)}")
+    
+    log(f"State dict содержит {len(state)} ключей")
+    
+    missing_keys, unexpected_keys = model.load_state_dict(state, strict=False)
+    if missing_keys:
+        log(f"Предупреждение: отсутствующие ключи при загрузке: {missing_keys[:5]}")
+    if unexpected_keys:
+        log(f"Предупреждение: неожиданные ключи при загрузке: {unexpected_keys[:5]}")
+    
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    log(f"Модель Restormer загружена: {total_params:,} параметров (тренируемых: {trainable_params:,})")
+    
+    if total_params == 0:
+        raise RuntimeError("Модель не содержит параметров после загрузки весов")
+    
     model.eval()
 
-    dummy = torch.rand(1, 3, 256, 256)
+    dummy_input = torch.rand(1, 3, 512, 512)
     onnx_path = convert_dir / "restormer.onnx"
+    log(f"Экспортируем PyTorch → ONNX (opset 18): {onnx_path}")
     torch.onnx.export(
         model,
-        dummy,
+        dummy_input,
         onnx_path,
         input_names=["input"],
         output_names=["output"],
         dynamic_axes={
-            "input": {2: "height", 3: "width"},
-            "output": {2: "height", 3: "width"},
+            "input": {0: "batch", 2: "height", 3: "width"},
+            "output": {0: "batch", 2: "height", 3: "width"},
         },
-        opset_version=17,
+        opset_version=18,
     )
+    
+    onnx_size = onnx_path.stat().st_size
+    onnx_size_mb = onnx_size / (1024 * 1024)
+    log(f"ONNX модель создана: {format_mib(onnx_size)} MiB")
+    
+    MIN_EXPECTED_SIZE_MB = 10.0
+    if onnx_size_mb < MIN_EXPECTED_SIZE_MB:
+        raise RuntimeError(
+            f"ONNX файл слишком маленький ({onnx_size} байт = {onnx_size_mb:.1f} MB), "
+            f"ожидается минимум {MIN_EXPECTED_SIZE_MB} MB. "
+            "Возможно, экспорт провален."
+        )
+    
+    log(f"✅ ONNX размер валиден: {onnx_size_mb:.1f} MB")
 
-    saved_model_dir = convert_dir / "restormer_saved_model"
-    if saved_model_dir.exists():
-        shutil.rmtree(saved_model_dir)
-
+    simplified_path = convert_dir / "restormer_simplified.onnx"
     try:
-        onnx_model = onnx.load(onnx_path)
-        tf_rep = prepare(onnx_model)
-        tf_rep.export_graph(str(saved_model_dir))
-        converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
-        converter.target_spec.supported_types = [tf.float16]
-        converter.experimental_new_converter = True
-        tflite_data = converter.convert()
-        tflite_path = convert_dir / "restormer_fp16.tflite"
-        tflite_path.write_bytes(tflite_data)
-        metadata: Dict[str, object] = {
-            "tflite": {
-                "size_bytes": tflite_path.stat().st_size,
-                "size_mib": format_mib(tflite_path.stat().st_size),
-                "sha256": sha256_of(tflite_path),
-            }
-        }
-        return "tflite", [
-            {
-                "path": tflite_path,
-                "relative": Path("models/restormer_fp16.tflite"),
-                "include": True,
-                "label": "tflite",
-            }
-        ], metadata
+        log("Упрощаем ONNX граф с помощью onnxsim...")
+        simplified_model, check = simplify(str(onnx_path), dynamic_input_shape=True)
     except Exception as exc:
-        log(f"Не удалось получить Restormer TFLite, fallback на NCNN: {exc}")
-        onnx2ncnn = shutil.which("onnx2ncnn")
-        if not onnx2ncnn:
-            raise RuntimeError("Команда onnx2ncnn не найдена в PATH") from exc
-        param_path = convert_dir / "restormer_fp16.param"
-        bin_path = convert_dir / "restormer_fp16.bin"
-        subprocess.run([onnx2ncnn, str(onnx_path), str(param_path), str(bin_path)], check=True)
-        ncnnoptimize = shutil.which("ncnnoptimize")
-        if ncnnoptimize:
-            opt_param = convert_dir / "restormer_fp16.opt.param"
-            opt_bin = convert_dir / "restormer_fp16.opt.bin"
+        log(f"Не удалось упростить ONNX: {exc}; используется исходная модель")
+        simplified_path = onnx_path
+    else:
+        if check:
+            onnx.save(simplified_model, simplified_path.as_posix())
+            simplified_size = simplified_path.stat().st_size
+            log(f"ONNX упрощен: {format_mib(simplified_size)} MiB")
+        else:
+            log("onnxsim не подтвердил корректность модели; используется исходный ONNX")
+            simplified_path = onnx_path
+
+    log("Конвертируем ONNX → NCNN...")
+    onnx2ncnn = shutil.which("onnx2ncnn")
+    if not onnx2ncnn:
+        raise RuntimeError("Команда onnx2ncnn не найдена в PATH")
+
+    param_path = convert_dir / "restormer_fp16.param"
+    bin_path = convert_dir / "restormer_fp16.bin"
+    
+    subprocess.run(
+        [onnx2ncnn, str(simplified_path), str(param_path), str(bin_path)],
+        check=True,
+    )
+    
+    if not param_path.exists() or not bin_path.exists():
+        raise RuntimeError("onnx2ncnn не создал .param/.bin файлы")
+    
+    bin_size = bin_path.stat().st_size
+    bin_size_mb = bin_size / (1024 * 1024)
+    log(f"NCNN модель создана: .param + .bin ({format_mib(bin_size)} MiB)")
+    
+    MIN_EXPECTED_BIN_SIZE_MB = 20.0
+    if bin_size_mb < MIN_EXPECTED_BIN_SIZE_MB:
+        raise RuntimeError(
+            f"NCNN .bin файл слишком маленький ({bin_size} байт = {bin_size_mb:.1f} MB), "
+            f"ожидается минимум {MIN_EXPECTED_BIN_SIZE_MB} MB. "
+            "Возможно, конвертация провалена."
+        )
+    
+    log(f"✅ NCNN .bin размер валиден: {bin_size_mb:.1f} MB")
+
+    ncnnoptimize = shutil.which("ncnnoptimize")
+    if ncnnoptimize:
+        opt_param = convert_dir / "restormer_fp16_opt.param"
+        opt_bin = convert_dir / "restormer_fp16_opt.bin"
+        try:
+            log("Оптимизируем NCNN модель с помощью ncnnoptimize...")
             subprocess.run(
-                [ncnnoptimize, str(param_path), str(bin_path), str(opt_param), str(opt_bin), "0"],
+                [ncnnoptimize, str(param_path), str(bin_path), str(opt_param), str(opt_bin), "65536"],
                 check=True,
+                timeout=120,
             )
-            param_path.unlink()
-            bin_path.unlink()
-            opt_param.rename(param_path)
-            opt_bin.rename(bin_path)
-        metadata = {"tflite": None}
-        return "ncnn", [
-            {
-                "path": param_path,
-                "relative": Path("models/restormer_fp16.param"),
-                "include": True,
-                "label": "param",
-            },
-            {
-                "path": bin_path,
-                "relative": Path("models/restormer_fp16.bin"),
-                "include": True,
-                "label": "bin",
-            },
-        ], metadata
+            if opt_param.exists() and opt_bin.exists():
+                param_path.unlink()
+                bin_path.unlink()
+                opt_param.rename(param_path)
+                opt_bin.rename(bin_path)
+                log("✅ NCNN модель оптимизирована")
+            else:
+                log("⚠️ ncnnoptimize не создал выходные файлы, используем неоптимизированную версию")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            log(f"⚠️ ncnnoptimize провален: {exc}, используем неоптимизированную версию")
+            if opt_param.exists():
+                opt_param.unlink()
+            if opt_bin.exists():
+                opt_bin.unlink()
+    else:
+        log("⚠️ ncnnoptimize не найден, используем неоптимизированную версию")
+
+    metadata: Dict[str, object] = {
+        "ncnn": {
+            "param_size_bytes": param_path.stat().st_size,
+            "bin_size_bytes": bin_size,
+            "bin_size_mib": format_mib(bin_size),
+            "sha256_param": sha256_of(param_path),
+            "sha256_bin": sha256_of(bin_path),
+        },
+        "onnx": {
+            "path": str(simplified_path.name),
+            "sha256": sha256_of(simplified_path),
+            "size_mib": format_mib(simplified_path.stat().st_size),
+            "operators": collect_onnx_operator_types(simplified_path),
+        },
+    }
+
+    files = [
+        {
+            "path": param_path,
+            "relative": Path("models/restormer_fp16.param"),
+            "include": True,
+            "label": "param",
+        },
+        {
+            "path": bin_path,
+            "relative": Path("models/restormer_fp16.bin"),
+            "include": True,
+            "label": "bin",
+        },
+        {
+            "path": simplified_path,
+            "relative": Path("restormer_simplified.onnx"),
+            "include": False,
+            "label": "onnx",
+        },
+    ]
+
+    return "ncnn", files, metadata
 
 
 def process_model(key: str, cfg: dict) -> dict:
