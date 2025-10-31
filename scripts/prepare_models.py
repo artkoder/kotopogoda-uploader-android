@@ -1003,18 +1003,43 @@ def write_sha_sums(results: List[dict]) -> None:
 def write_summary(results: List[dict]) -> None:
     SUMMARY_FILE.parent.mkdir(parents=True, exist_ok=True)
     lines = [
-        "| Модель | Backend | Размер TFLite (MiB) | SHA-256 (TFLite) | Операторов | Smoke-тест |",
+        "| Модель | Backend | Размер (MiB) | SHA-256 | Операторов | Статус |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for result in results:
         metadata = result.get("metadata", {})
-        tflite_info = metadata.get("tflite") if isinstance(metadata, dict) else None
-        if isinstance(tflite_info, dict):
-            size_value = tflite_info.get("size_mib")
-            size_text = f"{float(size_value):.2f}" if size_value is not None else "—"
-            sha_value = tflite_info.get("sha256", "—")
-            op_count = tflite_info.get("op_count", "—")
-            smoke_status = tflite_info.get("status", "—")
+        backend = result.get("backend", "unknown")
+        
+        if backend == "tflite":
+            tflite_info = metadata.get("tflite") if isinstance(metadata, dict) else None
+            if isinstance(tflite_info, dict):
+                size_value = tflite_info.get("size_mib")
+                size_text = f"{float(size_value):.2f}" if size_value is not None else "—"
+                sha_value = tflite_info.get("sha256", "—")
+                if len(sha_value) > 16:
+                    sha_value = sha_value[:8] + "..."
+                op_count = tflite_info.get("op_count", "—")
+                smoke_status = tflite_info.get("status", "—")
+            else:
+                size_text = "—"
+                sha_value = "—"
+                op_count = "—"
+                smoke_status = "—"
+        elif backend == "ncnn":
+            ncnn_info = metadata.get("ncnn") if isinstance(metadata, dict) else None
+            if isinstance(ncnn_info, dict):
+                size_value = ncnn_info.get("bin_size_mib")
+                size_text = f"{float(size_value):.2f}" if size_value is not None else "—"
+                sha_value = ncnn_info.get("sha256_bin", "—")
+                if len(sha_value) > 16:
+                    sha_value = sha_value[:8] + "..."
+                op_count = "—"
+                smoke_status = "OK" if size_value and size_value >= 1.0 else "FAIL"
+            else:
+                size_text = "—"
+                sha_value = "—"
+                op_count = "—"
+                smoke_status = "—"
         else:
             size_text = "—"
             sha_value = "—"
@@ -1022,13 +1047,13 @@ def write_summary(results: List[dict]) -> None:
             smoke_status = "—"
 
         lines.append(
-            "| {model} | {backend} | {size} | {sha} | {ops} | {smoke} |".format(
+            "| {model} | {backend} | {size} | {sha} | {ops} | {status} |".format(
                 model=result["display"],
-                backend=result["backend"],
+                backend=backend,
                 size=size_text,
                 sha=sha_value,
                 ops=op_count,
-                smoke=smoke_status,
+                status=smoke_status,
             )
         )
     lines.append("")
