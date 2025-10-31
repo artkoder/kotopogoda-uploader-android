@@ -769,7 +769,18 @@ def convert_restormer(
         sys.path.pop(0)
 
     torch.set_grad_enabled(False)
-    model = Restormer()
+    model = Restormer(
+        inp_channels=3,
+        out_channels=3,
+        dim=48,
+        num_blocks=[4,6,6,8],
+        num_refinement_blocks=4,
+        heads=[1,2,4,8],
+        ffn_expansion_factor=2.66,
+        bias=True,
+        LayerNorm_type='WithBias',
+        dual_pixel_task=False
+    )
     
     # Проверка существования файла весов
     if not weights_path.exists():
