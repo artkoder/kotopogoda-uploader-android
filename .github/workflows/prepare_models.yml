@@ -90,10 +90,6 @@ jobs:
           command -v ncnnoptimize
           ncnnoptimize </dev/null >/dev/null 2>&1 || true
 
-      - name: Purge pip cache
-        run: |
-          pip cache purge || true
-
       - name: Install Python dependencies (lean, CPU-only)
         env:
           PIP_NO_CACHE_DIR: "1"
