@@ -92,16 +92,16 @@ if restormer is None:
     raise SystemExit("В models.lock.json отсутствует запись restormer_fp16")
 
 backend = restormer.get("backend")
-if backend != "tflite":
-    raise SystemExit(f"Restormer должен использовать backend=tflite, получен: {backend}")
+if backend != "ncnn":
+    raise SystemExit(f"Restormer должен использовать backend=ncnn, получен: {backend}")
 
 metadata = restormer.get("metadata") or {}
-tflite_meta = metadata.get("tflite") or {}
-tflite_size_mib = tflite_meta.get("size_mib")
-MIN_RESTORMER_SIZE_MIB = 1.0
-if tflite_size_mib is None or tflite_size_mib < MIN_RESTORMER_SIZE_MIB:
+ncnn_meta = metadata.get("ncnn") or {}
+bin_size_mib = ncnn_meta.get("bin_size_mib")
+MIN_RESTORMER_SIZE_MIB = 30.0
+if bin_size_mib is None or bin_size_mib < MIN_RESTORMER_SIZE_MIB:
     raise SystemExit(
-        f"Restormer TFLite файл имеет недопустимый размер: {tflite_size_mib} MiB "
+        f"Restormer NCNN .bin файл имеет недопустимый размер: {bin_size_mib} MiB "
         f"(ожидается ≥{MIN_RESTORMER_SIZE_MIB} MiB)"
     )
 
@@ -116,13 +116,13 @@ if not zip_path.exists():
 with zipfile.ZipFile(zip_path, "r") as archive:
     file_names = sorted([info.filename for info in archive.infolist() if not info.is_dir()])
 
-expected = ["models/restormer_fp16.tflite"]
+expected = ["models/restormer_fp16.bin", "models/restormer_fp16.param"]
 if file_names != expected:
     raise SystemExit(
         f"Архив {asset_name} должен содержать {expected}, найдено: {file_names}"
     )
 
-print(f"✅ Restormer: архив TFLite в норме (размер: {tflite_size_mib:.4f} MiB)")
+print(f"✅ Restormer: архив NCNN в норме (размер .bin: {bin_size_mib:.4f} MiB)")
 PY
 
 log INFO "Используем тег релиза: $RELEASE_TAG"
