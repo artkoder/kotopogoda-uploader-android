@@ -369,9 +369,11 @@ def _tensorflow_requirements() -> List[str]:
     global _TF_REQUIREMENTS_CACHE
     if _TF_REQUIREMENTS_CACHE is None:
         _TF_REQUIREMENTS_CACHE = [
-            "tensorflow==2.13.1",
-            "tf-keras==2.13.*",
-            "tensorflow-addons==0.22.*",
+            "typing-extensions>=4.10.0",
+            "protobuf==3.20.3",
+            "tensorflow==2.16.2",
+            "tf-keras>=2.16.0",
+            "tensorflow-addons==0.23.*",
         ]
     return list(_TF_REQUIREMENTS_CACHE)
 
@@ -395,12 +397,12 @@ MODULE_INSTALL_MAP = {
     "onnx": ["onnx==1.14.*"],
     "onnxsim": ["onnxsim==0.4.*"],
     "onnxruntime": ["onnxruntime==1.16.*"],
-    "onnx2tf": ["onnx2tf==1.24.*"],
+    "onnx2tf": ["onnx2tf==1.24.*", "onnx-graphsurgeon", "simple-onnx-processing-tools"],
     "onnx_tf": _onnx_tf_requirements,
     "keras": ["keras>=3.0.0"],
-    "keras.src.engine": ["tf-keras==2.13.*", "keras>=3.0.0"],
+    "keras.src.engine": ["tf-keras>=2.16.0", "keras>=3.0.0"],
     "tensorflow": _tensorflow_requirements,
-    "tf_keras": ["tf-keras==2.13.*"],
+    "tf_keras": ["tf-keras>=2.16.0"],
     "einops": ["einops"],
 }
 
