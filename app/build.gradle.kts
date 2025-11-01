@@ -8,6 +8,11 @@ plugins {
 import org.gradle.api.Action
 import org.gradle.api.GradleException
 import org.gradle.api.execution.TaskExecutionGraph
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.DigestInputStream
+import java.security.MessageDigest
+import java.util.zip.ZipInputStream
 
 val modelsLockLiteral: String by rootProject.extra
 
@@ -144,6 +149,126 @@ gradle.taskGraph.whenReady(object : Action<TaskExecutionGraph> {
         }
     }
 })
+
+// Задача для загрузки предсобранных NCNN библиотек
+tasks.register("fetchNcnn") {
+    group = "build setup"
+    description = "Скачивает и распаковывает предсобранные NCNN библиотеки"
+    
+    val ncnnVersion = "20240410"
+    val ncnnUrl = "https://github.com/Tencent/ncnn/releases/download/$ncnnVersion/ncnn-$ncnnVersion-android-vulkan.zip"
+    val expectedSha256 = "352f7f6b11e862c72b72de4b8133e0b237b43d030c079aa8ed653f3c8e944580"
+    
+    val downloadDir = layout.buildDirectory.dir("ncnn-download").get().asFile
+    val cppDir = layout.projectDirectory.dir("src/main/cpp").asFile
+    val ncnnIncludeDir = file("$cppDir/ncnn/include")
+    val ncnnLibDir = file("$cppDir/ncnn-lib/arm64-v8a")
+    
+    outputs.dir(ncnnIncludeDir)
+    outputs.dir(ncnnLibDir)
+    
+    doLast {
+        // Проверяем, нужна ли загрузка
+        val libFile = file("$ncnnLibDir/libncnn.a")
+        if (libFile.exists() && ncnnIncludeDir.exists()) {
+            logger.lifecycle("NCNN уже распакован, пропускаем загрузку")
+            return@doLast
+        }
+        
+        downloadDir.mkdirs()
+        val zipFile = file("$downloadDir/ncnn-$ncnnVersion-android-vulkan.zip")
+        
+        // Скачиваем архив
+        logger.lifecycle("Скачивание NCNN из $ncnnUrl")
+        val connection = URL(ncnnUrl).openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects = true
+        try {
+            connection.inputStream.use { input ->
+                zipFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+        
+        // Проверяем SHA-256
+        logger.lifecycle("Проверка SHA-256...")
+        val digest = MessageDigest.getInstance("SHA-256")
+        val actualSha256 = zipFile.inputStream().use { input ->
+            DigestInputStream(input, digest).use { stream ->
+                val buffer = ByteArray(8192)
+                while (stream.read(buffer) != -1) {
+                    // читаем до конца
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
+        
+        if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+            throw GradleException("Неверный SHA-256 NCNN архива: ожидалось $expectedSha256, получено $actualSha256")
+        }
+        
+        logger.lifecycle("SHA-256 проверен успешно")
+        
+        // Очищаем целевые директории
+        ncnnIncludeDir.deleteRecursively()
+        ncnnLibDir.deleteRecursively()
+        
+        // Распаковываем только нужные файлы
+        logger.lifecycle("Распаковка NCNN...")
+        ZipInputStream(zipFile.inputStream().buffered()).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                val name = entry.name
+                
+                // Распаковываем заголовочные файлы из arm64-v8a/include/ncnn/
+                if (name.startsWith("ncnn-$ncnnVersion-android-vulkan/arm64-v8a/include/ncnn/")) {
+                    val relativePath = name.removePrefix("ncnn-$ncnnVersion-android-vulkan/arm64-v8a/include/")
+                    val outFile = file("$cppDir/ncnn/include/$relativePath")
+                    
+                    if (entry.isDirectory) {
+                        outFile.mkdirs()
+                    } else {
+                        outFile.parentFile.mkdirs()
+                        outFile.outputStream().use { output ->
+                            zip.copyTo(output)
+                        }
+                        logger.lifecycle("Распакован: include/$relativePath")
+                    }
+                }
+                
+                // Распаковываем все .a библиотеки для arm64-v8a
+                if (name.startsWith("ncnn-$ncnnVersion-android-vulkan/arm64-v8a/lib/") && name.endsWith(".a")) {
+                    val libName = name.substringAfterLast("/")
+                    val outFile = file("$ncnnLibDir/$libName")
+                    outFile.parentFile.mkdirs()
+                    outFile.outputStream().use { output ->
+                        zip.copyTo(output)
+                    }
+                    logger.lifecycle("Распакован: $libName для arm64-v8a")
+                }
+                
+                entry = zip.nextEntry
+            }
+        }
+        
+        // Проверяем, что файлы распакованы
+        if (!libFile.exists()) {
+            throw GradleException("Не удалось распаковать libncnn.a")
+        }
+        if (!ncnnIncludeDir.exists() || ncnnIncludeDir.listFiles()?.isEmpty() != false) {
+            throw GradleException("Не удалось распаковать заголовочные файлы NCNN")
+        }
+        
+        logger.lifecycle("NCNN успешно загружен и распакован")
+    }
+}
+
+// Делаем preBuild зависимым от fetchNcnn
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn("fetchNcnn")
+}
 
 dependencies {
     implementation(project(":core:data"))

@@ -175,7 +175,7 @@ static void bitmapToMat(JNIEnv* env, jobject bitmap, ncnn::Mat& mat) {
     void* pixels;
     AndroidBitmap_lockPixels(env, bitmap, &pixels);
     
-    mat.create(info.width, info.height, 3);
+    mat.create(static_cast<int>(info.width), static_cast<int>(info.height), 3, 4u, nullptr);
     
     uint32_t* pixelData = reinterpret_cast<uint32_t*>(pixels);
     

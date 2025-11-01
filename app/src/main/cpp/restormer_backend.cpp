@@ -1,5 +1,6 @@
 #include "restormer_backend.h"
 #include "tile_processor.h"
+#include "ncnn_engine.h"
 #include <ncnn/mat.h>
 #include <ncnn/net.h>
 #include <android/log.h>

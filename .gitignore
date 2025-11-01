@@ -54,3 +54,7 @@ app/src/main/assets/models/*.tflite.sha256
 app/src/main/assets/models/*.zip
 .work/
 dist/
+
+# NCNN artifacts (fetched at build time)
+app/src/main/cpp/ncnn/
+app/src/main/cpp/ncnn-lib/
