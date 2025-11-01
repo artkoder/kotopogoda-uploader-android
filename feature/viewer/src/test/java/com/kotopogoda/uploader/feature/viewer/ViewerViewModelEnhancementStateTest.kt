@@ -29,6 +29,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -84,6 +85,7 @@ class ViewerViewModelEnhancementStateTest {
 
     @AfterTest
     fun tearDown() {
+        Dispatchers.resetMain()
         runCatching { unmockkObject() }
     }
 
