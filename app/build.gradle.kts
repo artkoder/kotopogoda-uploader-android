@@ -41,7 +41,7 @@ android {
         buildConfigField("String", "MODELS_LOCK_JSON", modelsLockLiteral)
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a")
         }
 
         externalNativeBuild {
@@ -51,6 +51,7 @@ android {
                     "-DANDROID_STL=c++_shared",
                     "-DANDROID_PLATFORM=android-26"
                 )
+                abiFilters += listOf("arm64-v8a")
             }
         }
     }
