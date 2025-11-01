@@ -17,9 +17,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
-
 try:
     from importlib import metadata as importlib_metadata
 except ImportError:  # pragma: no cover - поддержка старых Python
@@ -393,16 +390,15 @@ def _onnx_tf_requirements() -> List[str]:
 
 MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
-    "onnx": ["onnx==1.14.*"],
+    "onnx": ["onnx==1.16.*"],
     "onnxsim": ["onnxsim==0.4.*"],
     "onnxruntime": ["onnxruntime==1.16.*"],
-    "onnx2tf": ["onnx2tf==1.24.*", "onnx-graphsurgeon", "simple-onnx-processing-tools"],
-    "onnx_tf": _onnx_tf_requirements,
-    "keras": ["keras>=3.0.0"],
-    "keras.src.engine": ["tf-keras>=2.16.0", "keras>=3.0.0"],
-    "tensorflow": _tensorflow_requirements,
-    "tf_keras": ["tf-keras>=2.16.0"],
     "einops": ["einops"],
+    "cv2": ["opencv-python-headless"],
+    "scipy": ["scipy"],
+    "skimage": ["scikit-image"],
+    "tqdm": ["tqdm"],
+    "yaml": ["pyyaml"],
 }
 
 
@@ -469,9 +465,6 @@ def _collect_missing_modules(modules: List[str]) -> Tuple[List[str], Dict[str, I
 
 
 def ensure_python_modules(modules: List[str]) -> None:
-    if any(module in ("tensorflow", "onnx_tf") for module in modules):
-        ensure_numpy_legacy_cap()
-
     requested_modules: List[str] = list(modules)
     attempted_requirements: set[str] = set()
 
