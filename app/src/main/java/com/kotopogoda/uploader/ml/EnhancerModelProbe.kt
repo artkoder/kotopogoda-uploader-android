@@ -15,12 +15,7 @@ import java.io.FileInputStream
 import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.util.Locale
-import kotlin.math.max
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
 import timber.log.Timber
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
 
 object EnhancerModelProbe {
 
@@ -145,7 +140,7 @@ object EnhancerModelProbe {
         definition: ModelDefinition,
     ): Map<String, EnhanceLogging.DelegateSummary> {
         return when (definition.backend) {
-            ModelBackend.TFLITE -> probeTfliteDelegates(context, definition)
+            ModelBackend.TFLITE -> emptyMap()
             ModelBackend.NCNN -> probeNcnnDelegates(context, definition)
         }
     }
@@ -169,21 +164,6 @@ object EnhancerModelProbe {
         return mapOf(
             "ncnn" to runDelegateCheck("ncnn") { checkNcnnDelegate(context, paramFile.path, binFile.path) },
         )
-    }
-
-    private fun probeTfliteDelegates(
-        context: Context,
-        definition: ModelDefinition,
-    ): Map<String, EnhanceLogging.DelegateSummary> {
-        val tfliteFile = definition.files.firstOrNull { it.path.endsWith(".tflite") } ?: definition.files.firstOrNull()
-        if (tfliteFile == null) {
-            Timber.tag(TAG).w("Для модели %s не найден TFLite-файл", definition.name)
-            return emptyMap()
-        }
-        val delegates = mutableMapOf<String, EnhanceLogging.DelegateSummary>()
-        delegates["gpu"] = runDelegateCheck("gpu") { checkGpuDelegate(context, tfliteFile.path) }
-        delegates["xnnpack"] = runDelegateCheck("xnnpack") { checkXnnpackDelegate(context, tfliteFile.path) }
-        return delegates
     }
 
     private inline fun runDelegateCheck(
@@ -223,44 +203,6 @@ object EnhancerModelProbe {
             }
         }
         return (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000
-    }
-
-    private fun checkGpuDelegate(context: Context, assetPath: String): Long {
-        val options = Interpreter.Options()
-        var delegate: GpuDelegate? = null
-        return try {
-            val start = SystemClock.elapsedRealtimeNanos()
-            delegate = GpuDelegate()
-            options.addDelegate(delegate)
-            Interpreter(loadModel(context, assetPath), options).use { interpreter ->
-                interpreter.allocateTensors()
-            }
-            (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000
-        } finally {
-            delegate?.close()
-        }
-    }
-
-    private fun checkXnnpackDelegate(context: Context, assetPath: String): Long {
-        val options = Interpreter.Options()
-        options.setUseXNNPACK(true)
-        options.setNumThreads(max(1, Runtime.getRuntime().availableProcessors() - 1))
-        val start = SystemClock.elapsedRealtimeNanos()
-        Interpreter(loadModel(context, assetPath), options).use { interpreter ->
-            interpreter.allocateTensors()
-        }
-        return (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000
-    }
-
-    private fun loadModel(context: Context, assetPath: String): MappedByteBuffer {
-        val assetManager = context.assets
-        val descriptor = assetManager.openFd(assetPath)
-        descriptor.use { afd ->
-            FileInputStream(afd.fileDescriptor).use { stream ->
-                val channel: FileChannel = stream.channel
-                return channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.length)
-            }
-        }
     }
 
     private data class AssetInfo(

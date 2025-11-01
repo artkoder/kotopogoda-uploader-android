@@ -304,8 +304,6 @@ dependencies {
     implementation(libs.com.squareup.retrofit2.converter.moshi)
     implementation(libs.com.squareup.okhttp3.okhttp)
     implementation(libs.com.squareup.okhttp3.logging.interceptor)
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.gpu)
     implementation(libs.timber)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
