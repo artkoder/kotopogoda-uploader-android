@@ -24,7 +24,6 @@ except ImportError:  # pragma: no cover - поддержка старых Python
 
 
 _PIP_BOOTSTRAPPED = False
-_TF_REQUIREMENTS_CACHE: Optional[List[str]] = None
 
 
 def _ensure_pip_bootstrapped() -> None:
@@ -93,55 +92,6 @@ def pip_install(requirement: str) -> bool:
             if base_error.stderr:
                 log(base_error.stderr.decode(errors="ignore"))
             return False
-
-
-def _tensorflow_version() -> Optional[str]:
-    for dist_name in ("tensorflow", "tensorflow-cpu"):
-        try:
-            return importlib_metadata.version(dist_name)
-        except importlib_metadata.PackageNotFoundError:
-            continue
-    return None
-
-
-def _version_tuple(version: str) -> Tuple[int, ...]:
-    parts: List[int] = []
-    for piece in version.split("."):
-        if not piece.isdigit():
-            break
-        parts.append(int(piece))
-    return tuple(parts)
-
-
-def ensure_numpy_legacy_cap() -> None:
-    """Гарантирует использование numpy с мажорной версией < 2."""
-
-    import importlib
-
-    try:
-        import numpy as np  # type: ignore[import-not-found]
-    except Exception:
-        np = None  # type: ignore[assignment]
-    else:
-        if _version_tuple(getattr(np, "__version__", "0")) < (2, 0):
-            return
-
-    log("Устанавливаем numpy<2.0 для совместимости с TensorFlow")
-    if not pip_install("numpy<2.0"):
-        raise RuntimeError("Не удалось установить numpy<2.0")
-
-    importlib.invalidate_caches()
-    for module_name in list(sys.modules):
-        if module_name == "numpy" or module_name.startswith("numpy."):
-            sys.modules.pop(module_name, None)
-
-    try:
-        import numpy as np  # type: ignore[import-not-found]
-    except Exception as exc:  # pragma: no cover - защита от редких ошибок импорта
-        raise RuntimeError("Не удалось переустановить совместимую версию numpy") from exc
-
-    if _version_tuple(getattr(np, "__version__", "0")) >= (2, 0):
-        raise RuntimeError("numpy>=2.0 не совместим с текущим процессом конвертации")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = ROOT_DIR / ".work" / "models"
@@ -265,129 +215,6 @@ def collect_onnx_operator_types(onnx_path: Path) -> List[str]:
     return sorted({node.op_type for node in model.graph.node})
 
 
-def _create_tflite_interpreter(tflite_path: Path):
-    try:
-        import tensorflow as tf  # type: ignore[import-not-found]
-
-        return tf.lite.Interpreter(model_path=str(tflite_path))
-    except Exception as primary_error:
-        try:
-            from tflite_runtime.interpreter import Interpreter  # type: ignore[import-not-found]
-        except Exception as fallback_error:  # pragma: no cover - редкий случай
-            raise RuntimeError(
-                "Не удалось создать TFLite Interpreter: отсутствуют tensorflow и tflite_runtime"
-            ) from fallback_error
-
-        try:
-            return Interpreter(model_path=str(tflite_path))
-        except Exception as runtime_error:
-            raise RuntimeError(
-                f"Не удалось инициализировать tflite_runtime.Interpreter: {runtime_error}"
-            ) from primary_error
-
-
-def run_tflite_smoke_test(tflite_path: Path, min_size_mib: float = 1.0) -> dict:
-    import numpy as np  # type: ignore[import-not-found]
-
-    min_size_bytes = int(min_size_mib * 1024 * 1024)
-    size_bytes = tflite_path.stat().st_size
-    if size_bytes <= min_size_bytes:
-        raise RuntimeError(
-            f"Размер модели {format_mib(size_bytes)} MiB ≤ {min_size_mib} MiB: вероятно, экспорт выполнен некорректно"
-        )
-
-    interpreter = _create_tflite_interpreter(tflite_path)
-    input_details = interpreter.get_input_details()
-    if not input_details:
-        raise RuntimeError("TFLite-модель не содержит входных тензоров")
-
-    input_detail = input_details[0]
-    requested_shape = [int(dim) for dim in input_detail["shape"]]
-    for index, dim in enumerate(requested_shape):
-        if dim > 0:
-            continue
-        if index == 0:
-            requested_shape[index] = 1
-        elif index in (1, 2):
-            requested_shape[index] = 256
-        elif index == 3:
-            requested_shape[index] = 3
-        else:
-            requested_shape[index] = 1
-
-    if requested_shape != list(input_detail["shape"]):
-        interpreter.resize_tensor_input(input_detail["index"], requested_shape, strict=False)
-
-    interpreter.allocate_tensors()
-    input_detail = interpreter.get_input_details()[0]
-    output_details = interpreter.get_output_details()
-    if not output_details:
-        raise RuntimeError("TFLite-модель не содержит выходных тензоров")
-
-    output_detail = output_details[0]
-    rng = np.random.default_rng(seed=42)
-    synthetic = rng.random(requested_shape, dtype=np.float32)
-    synthetic = synthetic.astype(input_detail["dtype"], copy=False)
-    interpreter.set_tensor(input_detail["index"], synthetic)
-    interpreter.invoke()
-    output = interpreter.get_tensor(output_detail["index"])
-
-    if output.shape != tuple(requested_shape):
-        raise RuntimeError(
-            f"Форма выхода {output.shape} не совпадает с входом {tuple(requested_shape)}"
-        )
-
-    diff = float(
-        np.mean(
-            np.abs(output.astype(np.float32, copy=False) - synthetic.astype(np.float32, copy=False))
-        )
-    )
-    if diff <= 1e-5:
-        raise RuntimeError(
-            f"Smoke-тест провален: среднее абсолютное отклонение {diff:.6e} ≤ 1e-5"
-        )
-
-    try:
-        op_count = len(interpreter._get_ops_details())  # type: ignore[attr-defined]
-    except AttributeError:
-        op_count = len(interpreter.get_tensor_details())
-
-    return {
-        "status": "OK",
-        "size_bytes": size_bytes,
-        "size_mib": format_mib(size_bytes),
-        "sha256": sha256_of(tflite_path),
-        "op_count": op_count,
-        "mean_abs_diff": diff,
-    }
-
-
-def _tensorflow_requirements() -> List[str]:
-    global _TF_REQUIREMENTS_CACHE
-    if _TF_REQUIREMENTS_CACHE is None:
-        _TF_REQUIREMENTS_CACHE = [
-            "typing-extensions>=4.10.0",
-            "tensorflow==2.20.0",
-            "tf-keras==2.20.1",
-            "tensorflow-addons==0.23.0",
-        ]
-    return list(_TF_REQUIREMENTS_CACHE)
-
-
-def _onnx_tf_requirements() -> List[str]:
-    requirements = ["onnx<1.19", "onnx-tf==1.10.0"]
-
-    if sys.version_info < (3, 12):
-        version = _tensorflow_version()
-        parts = _version_tuple(version) if version else ()
-        if parts and parts < (2, 14):
-            requirements.append("tensorflow-addons==0.22.*")
-        elif parts and parts < (2, 16):
-            requirements.append("tensorflow-addons==0.23.*")
-
-    return requirements
-
-
 MODULE_INSTALL_MAP = {
     "torch": ["torch", "torchvision"],
     "onnx": ["onnx==1.16.*"],
@@ -400,39 +227,6 @@ MODULE_INSTALL_MAP = {
     "tqdm": ["tqdm"],
     "yaml": ["pyyaml"],
 }
-
-
-def _ensure_keras_src_engine_alias() -> bool:
-    """Гарантирует доступность keras.src.engine, используя tf_keras при необходимости."""
-
-    import importlib
-    import sys
-
-    try:
-        keras_src = importlib.import_module("keras.src")
-    except ModuleNotFoundError:
-        return False
-
-    try:
-        importlib.import_module("keras.src.engine")
-    except ModuleNotFoundError as exc:
-        if getattr(exc, "name", None) != "keras.src.engine":
-            return False
-    else:
-        return True
-
-    try:
-        tf_engine = importlib.import_module("tf_keras.src.engine")
-    except ModuleNotFoundError:
-        return False
-
-    sys.modules["keras.src.engine"] = tf_engine
-    try:
-        setattr(keras_src, "engine", tf_engine)
-    except Exception:
-        pass
-
-    return True
 
 
 def _collect_missing_modules(modules: List[str]) -> Tuple[List[str], Dict[str, ImportError]]:
@@ -475,9 +269,6 @@ def ensure_python_modules(modules: List[str]) -> None:
 
         progress = False
         for module in missing:
-            if module == "keras.src.engine" and _ensure_keras_src_engine_alias():
-                progress = True
-                continue
             requirements = MODULE_INSTALL_MAP.get(module, [])
             if callable(requirements):  # type: ignore[callable-impl]
                 requirements = requirements()
