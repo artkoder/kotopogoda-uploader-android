@@ -534,18 +534,8 @@ def convert_zero_dce(
     import onnx
     from onnxsim import simplify
     
-    # Проверка доступности onnxscript (требуется для torch.onnx.export)
-    try:
-        import onnxscript  # type: ignore[import-not-found]
-        log(f"onnxscript доступен, версия: {getattr(onnxscript, '__version__', 'неизвестна')}")
-    except ImportError as exc:
-        raise RuntimeError(
-            "Модуль onnxscript недоступен, но требуется для экспорта PyTorch → ONNX. "
-            "Установите: pip install 'onnxscript>=0.1.0,<0.2'"
-        ) from exc
-    
     # Логирование версий ключевых пакетов
-    log(f"PyTorch: {torch.__version__}, ONNX: {onnx.__version__}, onnxscript: {getattr(onnxscript, '__version__', 'неизвестна')}")
+    log(f"PyTorch: {torch.__version__}, ONNX: {onnx.__version__}")
 
     weights_path = sources["weights"]
     model_py = sources["model"]
@@ -619,7 +609,7 @@ def convert_zero_dce(
 
     dummy_input = torch.rand(1, 3, 512, 512)
     onnx_path = convert_dir / "zerodcepp.onnx"
-    log(f"Экспортируем PyTorch → ONNX (opset 18): {onnx_path}")
+    log(f"Экспортируем PyTorch → ONNX (opset 18, legacy mode): {onnx_path}")
     torch.onnx.export(
         model,
         dummy_input,
@@ -631,6 +621,7 @@ def convert_zero_dce(
             "output": {0: "batch", 2: "height", 3: "width"},
         },
         opset_version=18,
+        dynamo=False,
     )
     
     onnx_size = onnx_path.stat().st_size
@@ -747,38 +738,18 @@ def convert_zero_dce(
 def convert_restormer(
     model_cfg: dict, sources: Dict[str, Path], convert_dir: Path
 ) -> Tuple[str, List[Dict[str, Any]], Dict[str, object]]:
-    # Настройка переменных окружения перед любыми импортами TF
-    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-    os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
-    os.environ.setdefault("XLA_FLAGS", "--xla_cpu_enable_fast_math=false")
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-    os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "1")
-    os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
-    
     ensure_python_modules([
         "torch",
         "onnx",
         "onnxsim",
         "einops",
-        "tensorflow",
-        "onnx2tf",
     ])
     import torch
     import onnx
     from onnxsim import simplify
     
-    # Проверка доступности onnxscript (требуется для torch.onnx.export)
-    try:
-        import onnxscript  # type: ignore[import-not-found]
-        log(f"onnxscript доступен, версия: {getattr(onnxscript, '__version__', 'неизвестна')}")
-    except ImportError as exc:
-        raise RuntimeError(
-            "Модуль onnxscript недоступен, но требуется для экспорта PyTorch → ONNX. "
-            "Установите: pip install 'onnxscript>=0.1.0,<0.2'"
-        ) from exc
-    
     # Логирование версий ключевых пакетов
-    log(f"PyTorch: {torch.__version__}, ONNX: {onnx.__version__}, onnxscript: {getattr(onnxscript, '__version__', 'неизвестна')}")
+    log(f"PyTorch: {torch.__version__}, ONNX: {onnx.__version__}")
 
     weights_path = sources["weights"]
     repo_root = sources["code"]
@@ -876,15 +847,15 @@ def convert_restormer(
     dummy_input = torch.randn(1, 3, tile_size, tile_size)
     onnx_path = convert_dir / "restormer.onnx"
     
-    log(f"Экспортируем PyTorch → ONNX (opset 13, статический размер {tile_size}×{tile_size}): {onnx_path}")
+    log(f"Экспортируем PyTorch → ONNX (opset 18, legacy mode, статический размер {tile_size}×{tile_size}): {onnx_path}")
     torch.onnx.export(
         model,
         dummy_input,
         str(onnx_path),
-        opset_version=13,
+        opset_version=18,
         input_names=['input'],
         output_names=['output'],
-        dynamo=False
+        dynamo=False,
     )
 
     onnx_size = onnx_path.stat().st_size
@@ -922,78 +893,74 @@ def convert_restormer(
         log(f"Не удалось упростить ONNX: {exc}; используется исходная модель")
         onnx.save(model_onnx, str(simp_path))
 
-    log("Конвертируем ONNX → TensorFlow SavedModel...")
-    import time
-    import tensorflow as tf  # type: ignore[import-not-found]
-    import onnx2tf  # type: ignore[import-not-found]
+    log("Конвертируем ONNX → NCNN...")
+    onnx2ncnn = shutil.which("onnx2ncnn")
+    if not onnx2ncnn:
+        raise RuntimeError("Команда onnx2ncnn не найдена в PATH")
+
+    param_path = convert_dir / "restormer_fp16.param"
+    bin_path = convert_dir / "restormer_fp16.bin"
     
-    saved_model_dir = convert_dir / "restormer_saved_model"
-    if saved_model_dir.exists():
-        shutil.rmtree(saved_model_dir)
+    subprocess.run(
+        [onnx2ncnn, str(simp_path), str(param_path), str(bin_path)],
+        check=True,
+    )
     
-    # Конвертация ONNX → SavedModel с обработкой ошибок и таймингом
+    if not param_path.exists() or not bin_path.exists():
+        raise RuntimeError("onnx2ncnn не создал .param/.bin файлы")
+    
+    bin_size = bin_path.stat().st_size
+    bin_size_mb = bin_size / 1024 / 1024
+    log(f"NCNN модель создана: .param + .bin ({format_mib(bin_size)} MiB)")
+    
+    # Restormer — большая модель (~26.1M параметров), проверка минимального размера
+    MIN_EXPECTED_BIN_SIZE_MB = 30.0  # минимум 30 MB для Restormer NCNN
+    
+    if bin_size_mb < MIN_EXPECTED_BIN_SIZE_MB:
+        raise RuntimeError(
+            f"NCNN .bin файл слишком маленький ({bin_size_mb:.1f} MB), "
+            f"ожидается минимум {MIN_EXPECTED_BIN_SIZE_MB} MB. "
+            "Возможно, конвертация провалена."
+        )
+    
+    log(f"✅ NCNN .bin размер валиден: {bin_size_mb:.1f} MB")
+
+    # Применяем ncnnoptimize для оптимизации модели
+    log("Оптимизируем NCNN модель с помощью ncnnoptimize...")
+    ncnnoptimize = shutil.which("ncnnoptimize")
+    if not ncnnoptimize:
+        raise RuntimeError("Команда ncnnoptimize не найдена в PATH")
+    
+    optimized_param = convert_dir / "restormer_fp16_opt.param"
+    optimized_bin = convert_dir / "restormer_fp16_opt.bin"
+    
     try:
-        start_time = time.time()
-        log(f"Начинаем конвертацию ONNX → SavedModel (env: OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'не установлен')})")
-        
-        onnx2tf.convert(
-            input_onnx_file_path=str(simp_path),
-            output_folder_path=str(saved_model_dir),
-            keep_shape_absolutely_input_names=["input"],
-            output_signaturedefs=True,
-            copy_onnx_input_output_names_to_tflite=True,
-            non_verbose=True,
+        subprocess.run(
+            [ncnnoptimize, str(param_path), str(bin_path), str(optimized_param), str(optimized_bin), "65536"],
+            check=True,
         )
         
-        elapsed = time.time() - start_time
-        log(f"✅ ONNX → SavedModel завершена за {elapsed:.1f}s")
-    except Exception as exc:
-        elapsed = time.time() - start_time
-        log(f"❌ Ошибка конвертации ONNX → SavedModel после {elapsed:.1f}s: {exc}")
-        raise RuntimeError(f"Не удалось сконвертировать ONNX → SavedModel: {exc}") from exc
-    
-    if not saved_model_dir.exists():
-        raise RuntimeError("onnx2tf не создал SavedModel")
-    
-    log("Конвертируем SavedModel → TFLite FP16...")
-    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    converter.target_spec.supported_types = [tf.float16]
-    
-    # Конвертация SavedModel → TFLite с обработкой ошибок и таймингом
-    try:
-        start_time = time.time()
-        log("Начинаем конвертацию SavedModel → TFLite с FP16...")
-        
-        tflite_model = converter.convert()
-        
-        elapsed = time.time() - start_time
-        log(f"✅ SavedModel → TFLite завершена за {elapsed:.1f}s")
-    except Exception as exc:
-        elapsed = time.time() - start_time
-        log(f"❌ Ошибка конвертации SavedModel → TFLite после {elapsed:.1f}s: {exc}")
-        raise RuntimeError(f"Не удалось сконвертировать SavedModel → TFLite: {exc}") from exc
-    
-    tflite_dir = convert_dir / "restormer_fp16"
-    tflite_dir.mkdir(parents=True, exist_ok=True)
-    tflite_path = tflite_dir / "restormer_fp16.tflite"
-    tflite_path.write_bytes(tflite_model)
-    
-    tflite_size_mb = len(tflite_model) / 1024 / 1024
-    log(f"TFLite FP16 создан: {tflite_size_mb:.1f} MB")
-    log(f"Входная форма: [1, {tile_size}, {tile_size}, 3] (NHWC), каналы в порядке RGB")
-    
-    log("Запускаем smoke-тест TFLite...")
-    smoke_result = run_tflite_smoke_test(tflite_path)
-    log(f"✅ Smoke-тест пройден: {smoke_result['status']}, размер: {smoke_result['size_mib']} MiB")
+        if optimized_param.exists() and optimized_bin.exists():
+            opt_bin_size = optimized_bin.stat().st_size
+            log(f"NCNN модель оптимизирована: {format_mib(opt_bin_size)} MiB")
+            # Заменяем оригинальные файлы оптимизированными
+            shutil.move(str(optimized_param), str(param_path))
+            shutil.move(str(optimized_bin), str(bin_path))
+            bin_size = opt_bin_size
+        else:
+            log("⚠️  ncnnoptimize не создал файлы, используем неоптимизированную версию")
+    except subprocess.CalledProcessError as exc:
+        log(f"⚠️  Ошибка при оптимизации NCNN: {exc}; используем неоптимизированную версию")
+
+    log("✅ NCNN модель готова")
 
     metadata: Dict[str, object] = {
-        "tflite": {
-            "size_bytes": smoke_result["size_bytes"],
-            "size_mib": smoke_result["size_mib"],
-            "sha256": smoke_result["sha256"],
-            "op_count": smoke_result["op_count"],
-            "status": smoke_result["status"],
+        "ncnn": {
+            "param_size_bytes": param_path.stat().st_size,
+            "bin_size_bytes": bin_size,
+            "bin_size_mib": format_mib(bin_size),
+            "sha256_param": sha256_of(param_path),
+            "sha256_bin": sha256_of(bin_path),
             "tile_size": tile_size,
         },
         "onnx": {
@@ -1006,10 +973,16 @@ def convert_restormer(
 
     files = [
         {
-            "path": tflite_path,
-            "relative": Path("models/restormer_fp16.tflite"),
+            "path": param_path,
+            "relative": Path("models/restormer_fp16.param"),
             "include": True,
-            "label": "tflite",
+            "label": "param",
+        },
+        {
+            "path": bin_path,
+            "relative": Path("models/restormer_fp16.bin"),
+            "include": True,
+            "label": "bin",
         },
         {
             "path": simp_path,
@@ -1019,7 +992,7 @@ def convert_restormer(
         },
     ]
 
-    return "tflite", files, metadata
+    return "ncnn", files, metadata
 
 
 def process_model(key: str, cfg: dict) -> dict:
