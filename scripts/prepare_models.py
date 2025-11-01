@@ -533,6 +533,19 @@ def convert_zero_dce(
     import torch
     import onnx
     from onnxsim import simplify
+    
+    # Проверка доступности onnxscript (требуется для torch.onnx.export)
+    try:
+        import onnxscript  # type: ignore[import-not-found]
+        log(f"onnxscript доступен, версия: {getattr(onnxscript, '__version__', 'неизвестна')}")
+    except ImportError as exc:
+        raise RuntimeError(
+            "Модуль onnxscript недоступен, но требуется для экспорта PyTorch → ONNX. "
+            "Установите: pip install 'onnxscript>=0.1.0,<0.2'"
+        ) from exc
+    
+    # Логирование версий ключевых пакетов
+    log(f"PyTorch: {torch.__version__}, ONNX: {onnx.__version__}, onnxscript: {getattr(onnxscript, '__version__', 'неизвестна')}")
 
     weights_path = sources["weights"]
     model_py = sources["model"]
@@ -753,6 +766,19 @@ def convert_restormer(
     import torch
     import onnx
     from onnxsim import simplify
+    
+    # Проверка доступности onnxscript (требуется для torch.onnx.export)
+    try:
+        import onnxscript  # type: ignore[import-not-found]
+        log(f"onnxscript доступен, версия: {getattr(onnxscript, '__version__', 'неизвестна')}")
+    except ImportError as exc:
+        raise RuntimeError(
+            "Модуль onnxscript недоступен, но требуется для экспорта PyTorch → ONNX. "
+            "Установите: pip install 'onnxscript>=0.1.0,<0.2'"
+        ) from exc
+    
+    # Логирование версий ключевых пакетов
+    log(f"PyTorch: {torch.__version__}, ONNX: {onnx.__version__}, onnxscript: {getattr(onnxscript, '__version__', 'неизвестна')}")
 
     weights_path = sources["weights"]
     repo_root = sources["code"]
