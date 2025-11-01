@@ -734,6 +734,14 @@ def convert_zero_dce(
 def convert_restormer(
     model_cfg: dict, sources: Dict[str, Path], convert_dir: Path
 ) -> Tuple[str, List[Dict[str, Any]], Dict[str, object]]:
+    # Настройка переменных окружения перед любыми импортами TF
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+    os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+    os.environ.setdefault("XLA_FLAGS", "--xla_cpu_enable_fast_math=false")
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "1")
+    os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
+    
     ensure_python_modules([
         "torch",
         "onnx",
@@ -889,12 +897,7 @@ def convert_restormer(
         onnx.save(model_onnx, str(simp_path))
 
     log("Конвертируем ONNX → TensorFlow SavedModel...")
-    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-    os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
-    os.environ.setdefault("XLA_FLAGS", "--xla_cpu_enable_fast_math=false")
-    os.environ.setdefault("OMP_NUM_THREADS", "2")
-    os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "2")
-    os.environ.setdefault("TF_NUM_INTEROP_THREADS", "2")
+    import time
     import tensorflow as tf  # type: ignore[import-not-found]
     import onnx2tf  # type: ignore[import-not-found]
     
@@ -902,26 +905,48 @@ def convert_restormer(
     if saved_model_dir.exists():
         shutil.rmtree(saved_model_dir)
     
-    onnx2tf.convert(
-        input_onnx_file_path=str(simp_path),
-        output_folder_path=str(saved_model_dir),
-        keep_shape_absolutely_input_names=["input"],
-        output_signaturedefs=True,
-        copy_onnx_input_output_names_to_tflite=True,
-        non_verbose=True,
-    )
+    # Конвертация ONNX → SavedModel с обработкой ошибок и таймингом
+    try:
+        start_time = time.time()
+        log(f"Начинаем конвертацию ONNX → SavedModel (env: OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'не установлен')})")
+        
+        onnx2tf.convert(
+            input_onnx_file_path=str(simp_path),
+            output_folder_path=str(saved_model_dir),
+            keep_shape_absolutely_input_names=["input"],
+            output_signaturedefs=True,
+            copy_onnx_input_output_names_to_tflite=True,
+            non_verbose=True,
+        )
+        
+        elapsed = time.time() - start_time
+        log(f"✅ ONNX → SavedModel завершена за {elapsed:.1f}s")
+    except Exception as exc:
+        elapsed = time.time() - start_time
+        log(f"❌ Ошибка конвертации ONNX → SavedModel после {elapsed:.1f}s: {exc}")
+        raise RuntimeError(f"Не удалось сконвертировать ONNX → SavedModel: {exc}") from exc
     
     if not saved_model_dir.exists():
         raise RuntimeError("onnx2tf не создал SavedModel")
-    
-    log("✅ SavedModel создан")
     
     log("Конвертируем SavedModel → TFLite FP16...")
     converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.target_spec.supported_types = [tf.float16]
     
-    tflite_model = converter.convert()
+    # Конвертация SavedModel → TFLite с обработкой ошибок и таймингом
+    try:
+        start_time = time.time()
+        log("Начинаем конвертацию SavedModel → TFLite с FP16...")
+        
+        tflite_model = converter.convert()
+        
+        elapsed = time.time() - start_time
+        log(f"✅ SavedModel → TFLite завершена за {elapsed:.1f}s")
+    except Exception as exc:
+        elapsed = time.time() - start_time
+        log(f"❌ Ошибка конвертации SavedModel → TFLite после {elapsed:.1f}s: {exc}")
+        raise RuntimeError(f"Не удалось сконвертировать SavedModel → TFLite: {exc}") from exc
     
     tflite_dir = convert_dir / "restormer_fp16"
     tflite_dir.mkdir(parents=True, exist_ok=True)
