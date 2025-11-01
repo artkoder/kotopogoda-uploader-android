@@ -370,10 +370,9 @@ def _tensorflow_requirements() -> List[str]:
     if _TF_REQUIREMENTS_CACHE is None:
         _TF_REQUIREMENTS_CACHE = [
             "typing-extensions>=4.10.0",
-            "protobuf==3.20.3",
-            "tensorflow==2.16.2",
-            "tf-keras>=2.16.0",
-            "tensorflow-addons==0.23.*",
+            "tensorflow==2.20.0",
+            "tf-keras==2.20.1",
+            "tensorflow-addons==0.23.0",
         ]
     return list(_TF_REQUIREMENTS_CACHE)
 
@@ -890,6 +889,12 @@ def convert_restormer(
         onnx.save(model_onnx, str(simp_path))
 
     log("Конвертируем ONNX → TensorFlow SavedModel...")
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+    os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+    os.environ.setdefault("XLA_FLAGS", "--xla_cpu_enable_fast_math=false")
+    os.environ.setdefault("OMP_NUM_THREADS", "2")
+    os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "2")
+    os.environ.setdefault("TF_NUM_INTEROP_THREADS", "2")
     import tensorflow as tf  # type: ignore[import-not-found]
     import onnx2tf  # type: ignore[import-not-found]
     
