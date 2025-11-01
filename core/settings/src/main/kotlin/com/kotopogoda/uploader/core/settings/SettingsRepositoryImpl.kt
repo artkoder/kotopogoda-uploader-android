@@ -39,11 +39,18 @@ class SettingsRepositoryImpl @Inject constructor(
             val storedBaseUrl = preferences[BASE_URL_KEY]?.takeIf { it.isNotBlank() }
             val persistentPreference = preferences[PERSISTENT_QUEUE_NOTIFICATION_KEY]
             val persistentValue = (persistentPreference ?: permissionGranted) && permissionGranted
+            val previewQualityString = preferences[PREVIEW_QUALITY_KEY] ?: PreviewQuality.BALANCED.name
+            val previewQuality = try {
+                PreviewQuality.valueOf(previewQualityString)
+            } catch (e: IllegalArgumentException) {
+                PreviewQuality.BALANCED
+            }
             AppSettings(
                 baseUrl = storedBaseUrl ?: defaultBaseUrl,
                 appLogging = preferences[APP_LOGGING_KEY] ?: true,
                 httpLogging = preferences[HTTP_LOGGING_KEY] ?: true,
                 persistentQueueNotification = persistentValue,
+                previewQuality = previewQuality,
             )
         }
         .distinctUntilChanged()
@@ -85,10 +92,19 @@ class SettingsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun setPreviewQuality(quality: PreviewQuality) {
+        withContext(ioDispatcher) {
+            dataStore.edit { preferences ->
+                preferences[PREVIEW_QUALITY_KEY] = quality.name
+            }
+        }
+    }
+
     private companion object {
         private val BASE_URL_KEY = stringPreferencesKey("base_url")
         private val APP_LOGGING_KEY = booleanPreferencesKey("app_logging")
         private val HTTP_LOGGING_KEY = booleanPreferencesKey("http_logging")
         private val PERSISTENT_QUEUE_NOTIFICATION_KEY = booleanPreferencesKey("persistent_queue_notification")
+        private val PREVIEW_QUALITY_KEY = stringPreferencesKey("preview_quality")
     }
 }

@@ -100,7 +100,8 @@ class ViewerViewModel @Inject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
-    private val enhanceEngine: EnhanceEngine,
+    private val nativeEnhanceAdapter: com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter,
+    private val settingsRepository: com.kotopogoda.uploader.core.settings.SettingsRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -222,6 +223,16 @@ class ViewerViewModel @Inject constructor(
     init {
         restoreUndoStack()
         savedStateHandle[currentIndexKey] = _currentIndex.value
+
+        viewModelScope.launch {
+            settingsRepository.flow.collect { settings ->
+                runCatching {
+                    nativeEnhanceAdapter.initialize(settings.previewQuality)
+                }.onFailure { error ->
+                    Timber.tag(LOG_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
+                }
+            }
+        }
 
         viewModelScope.launch {
             folderRepository.observeFolder().collect { folder ->

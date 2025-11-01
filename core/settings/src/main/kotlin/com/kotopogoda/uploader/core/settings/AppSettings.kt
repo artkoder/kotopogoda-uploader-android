@@ -5,4 +5,10 @@ data class AppSettings(
     val appLogging: Boolean,
     val httpLogging: Boolean,
     val persistentQueueNotification: Boolean,
+    val previewQuality: PreviewQuality,
 )
+
+enum class PreviewQuality {
+    BALANCED,
+    QUALITY,
+}

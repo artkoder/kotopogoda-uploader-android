@@ -16,6 +16,9 @@
     <string name="settings_base_url_label">База URL</string>
     <string name="settings_base_url_error">Введите корректный адрес (http или https)</string>
     <string name="settings_base_url_save">Сохранить</string>
+    <string name="settings_section_enhancement">Улучшение</string>
+    <string name="settings_preview_quality">Качество превью</string>
+    <string name="settings_preview_quality_desc">Включить Quality (Restormer→Zero-DCE++) вместо Balanced (только Zero-DCE++). Влияет на скорость предпросмотра.</string>
     <string name="settings_section_logging">Логирование</string>
     <string name="settings_app_logging">Логи приложения</string>
     <string name="settings_app_logging_desc">Логи включены по умолчанию и пишутся в файл (до 5 файлов по 1 МБ); при необходимости их можно отключить вручную.</string>

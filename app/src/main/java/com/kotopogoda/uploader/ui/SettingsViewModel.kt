@@ -46,6 +46,7 @@ class SettingsViewModel @Inject constructor(
             queueNotificationPermissionGranted = notificationPermissionChecker.canPostNotifications(),
             isQueueNotificationToggleEnabled = notificationPermissionChecker.canPostNotifications(),
             logsDirectoryPath = logsExporter.publicDirectoryDisplayPath(),
+            previewQuality = com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -62,6 +63,7 @@ class SettingsViewModel @Inject constructor(
                         appLoggingEnabled = settings.appLogging,
                         httpLoggingEnabled = settings.httpLogging,
                         queueNotificationPersistent = settings.persistentQueueNotification,
+                        previewQuality = settings.previewQuality,
                         isBaseUrlValid = true,
                         isBaseUrlDirty = false,
                     )
@@ -236,6 +238,21 @@ class SettingsViewModel @Inject constructor(
         sendEvent(SettingsEvent.OpenDocs(docsUrl))
     }
 
+    fun onPreviewQualityChanged(quality: com.kotopogoda.uploader.core.settings.PreviewQuality) {
+        val current = uiState.value.previewQuality
+        if (quality == current) {
+            return
+        }
+        _uiState.update { it.copy(previewQuality = quality) }
+        viewModelScope.launch {
+            runCatching { settingsRepository.setPreviewQuality(quality) }
+                .onFailure {
+                    _uiState.update { it.copy(previewQuality = current) }
+                    sendEvent(SettingsEvent.ShowMessageRes(R.string.settings_snackbar_action_failed))
+                }
+        }
+    }
+
     private fun isValidUrl(raw: String): Boolean {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) {
@@ -267,6 +284,7 @@ data class SettingsUiState(
     val contractVersion: String,
     val docsUrl: String,
     val logsDirectoryPath: String,
+    val previewQuality: com.kotopogoda.uploader.core.settings.PreviewQuality,
 )
 
 sealed interface SettingsEvent {

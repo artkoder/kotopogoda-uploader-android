@@ -12,6 +12,11 @@ data class UploadEnhancementInfo(
     val delegate: String,
     val metrics: UploadEnhancementMetrics,
     val fileSize: Long? = null,
+    val previewTimingMs: Long? = null,
+    val fullTimingMs: Long? = null,
+    val usedVulkan: Boolean? = null,
+    val peakMemoryMb: Float? = null,
+    val cancelled: Boolean? = null,
 )
 
 data class UploadEnqueueOptions(
