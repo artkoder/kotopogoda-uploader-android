@@ -8,11 +8,21 @@ import timber.log.Timber
 
 const val URI_READ_LOG_TAG: String = "UriAccess"
 
+private const val MEDIA_DOCS_AUTH = "com.android.providers.media.documents"
+
+fun isMediaUri(uri: Uri): Boolean {
+    if (uri.scheme != ContentResolver.SCHEME_CONTENT) return false
+    val auth = uri.authority ?: return false
+    return auth == MediaStore.AUTHORITY || auth == MEDIA_DOCS_AUTH
+}
+
+fun Uri.isMediaUri(): Boolean = isMediaUri(this)
+
 fun ContentResolver.requireOriginalIfNeeded(uri: Uri): Uri {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
         return uri
     }
-    if (!MediaStore.isMediaUri(uri)) {
+    if (!uri.isMediaUri()) {
         return uri
     }
     return runCatching { MediaStore.setRequireOriginal(uri) }
