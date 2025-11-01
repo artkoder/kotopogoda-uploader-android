@@ -98,6 +98,7 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install --no-cache-dir \
             torch==2.9.0 \
+            torchvision \
             --index-url https://download.pytorch.org/whl/cpu \
             --extra-index-url https://pypi.org/simple \
             numpy==1.26.4 onnx==1.16.2 onnxruntime==1.16.3 onnxsim==0.4.36 \
@@ -113,6 +114,7 @@ jobs:
           packages = [
               "numpy",
               "torch",
+              "torchvision",
               "onnx",
               "onnxruntime",
               "onnxsim",
@@ -138,12 +140,7 @@ jobs:
       - name: Prepare model artifacts
         env:
           PYTHONPATH: "${{ github.workspace }}:$PYTHONPATH"
-          TF_CPP_MIN_LOG_LEVEL: "2"
-          TF_ENABLE_ONEDNN_OPTS: "0"
-          XLA_FLAGS: "--xla_cpu_enable_fast_math=false"
           OMP_NUM_THREADS: "1"
-          TF_NUM_INTRAOP_THREADS: "1"
-          TF_NUM_INTEROP_THREADS: "1"
         run: |
           set -euxo pipefail
           bash scripts/prepare_models.sh
