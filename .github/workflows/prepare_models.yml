@@ -108,7 +108,8 @@ jobs:
             --index-url https://download.pytorch.org/whl/cpu \
             --extra-index-url https://pypi.org/simple \
             "numpy<2" "onnx==1.16.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" onnx-graphsurgeon einops \
-            "opencv-python-headless<5" tqdm pyyaml "scipy<1.14" "scikit-image<0.23" psutil lmdb addict
+            "opencv-python-headless<5" tqdm pyyaml "scipy<1.14" "scikit-image<0.23" psutil lmdb addict \
+            "onnxscript>=0.1.0,<0.2"
           python3 - <<'PY'
           import onnx
           print(f"ONNX {onnx.__version__} OK")
@@ -122,6 +123,7 @@ jobs:
               "onnxruntime",
               "onnxsim",
               "onnx-graphsurgeon",
+              "onnxscript",
               "psutil",
               "einops",
               "opencv-python-headless",
