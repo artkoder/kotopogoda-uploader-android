@@ -547,7 +547,7 @@ class EnhanceEngine(
                 val tile = buffer.subRegion(innerX, innerY, innerWidth, innerHeight)
                 val requestedDelegate = currentDelegate
                 val processed = try {
-                    model.denoise(tile, currentDelegate)
+                    model?.denoise(tile, currentDelegate) ?: ModelResult(tile, Delegate.CPU)
                 } catch (error: Exception) {
                     Timber.tag(LOG_TAG).w(
                         error,
