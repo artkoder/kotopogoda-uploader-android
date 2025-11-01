@@ -16,6 +16,15 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <uses-feature
+        android:name="android.hardware.vulkan.level"
+        android:required="false"
+        android:version="1" />
+    <uses-feature
+        android:name="android.hardware.vulkan.compute"
+        android:required="false"
+        android:version="0" />
+
     <application
         android:name="com.kotopogoda.uploader.KotopogodaUploaderApp"
         android:allowBackup="true"
