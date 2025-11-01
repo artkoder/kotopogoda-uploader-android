@@ -51,8 +51,6 @@ __pycache__/
 # Model artifacts
 app/src/main/assets/models/*.tflite
 app/src/main/assets/models/*.tflite.sha256
-app/src/main/assets/models/*.bin
-app/src/main/assets/models/*.param
 app/src/main/assets/models/*.zip
 .work/
 dist/
