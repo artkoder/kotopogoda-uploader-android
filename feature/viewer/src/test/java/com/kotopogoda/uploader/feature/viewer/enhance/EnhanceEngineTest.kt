@@ -348,6 +348,218 @@ class EnhanceEngineTest {
         )
     }
 
+    @Test
+    fun `models telemetry includes backend and checksums`() = runTest {
+        val pixels = IntArray(16) { argb(30, 30, 30) }
+        val decoder = QueueDecoder(listOf(EnhanceEngine.ImageBuffer(4, 4, pixels)))
+        val encoder = RecordingEncoder()
+        val zeroDce = TrackingZeroDce()
+        val restormer = TrackingRestormer()
+        val expectedChecksums = EnhanceEngine.ExpectedChecksums(
+            zeroDce = "zero-dce-test",
+            restormer = "restormer-test",
+        )
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = zeroDce,
+            restormer = restormer,
+            dispatcher = StandardTestDispatcher(testScheduler),
+            expectedChecksums = expectedChecksums,
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
+
+        val result = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                tileSize = 2,
+                overlap = 1,
+            ),
+        )
+
+        val models = result.models
+        assertNotNull(models.zeroDce)
+        assertEquals(EnhanceEngine.ModelBackend.TFLITE, models.zeroDce?.backend)
+        assertEquals("zero-dce-test", models.zeroDce?.checksum)
+        assertEquals("zero-dce-test", models.zeroDce?.expectedChecksum)
+        assertEquals(true, models.zeroDce?.checksumOk)
+
+        assertNotNull(models.restormer)
+        assertEquals(EnhanceEngine.ModelBackend.TFLITE, models.restormer?.backend)
+        assertEquals("restormer-test", models.restormer?.checksum)
+        assertEquals("restormer-test", models.restormer?.expectedChecksum)
+        assertEquals(true, models.restormer?.checksumOk)
+
+        input.delete()
+        output.delete()
+    }
+
+    @Test
+    fun `checksum mismatch reported correctly`() = runTest {
+        val pixels = IntArray(16) { argb(30, 30, 30) }
+        val decoder = QueueDecoder(listOf(EnhanceEngine.ImageBuffer(4, 4, pixels)))
+        val encoder = RecordingEncoder()
+        val zeroDce = TrackingZeroDce()
+        val expectedChecksums = EnhanceEngine.ExpectedChecksums(
+            zeroDce = "different-checksum",
+        )
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = zeroDce,
+            restormer = null,
+            dispatcher = StandardTestDispatcher(testScheduler),
+            expectedChecksums = expectedChecksums,
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
+
+        val result = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+            ),
+        )
+
+        val models = result.models
+        assertNotNull(models.zeroDce)
+        assertEquals("zero-dce-test", models.zeroDce?.checksum)
+        assertEquals("different-checksum", models.zeroDce?.expectedChecksum)
+        assertEquals(false, models.zeroDce?.checksumOk)
+
+        input.delete()
+        output.delete()
+    }
+
+    @Test
+    fun `tile progress callback receives updates during processing`() = runTest {
+        val noisyPixels = IntArray(16) { index -> if (index % 2 == 0) argb(255, 0, 0) else argb(0, 0, 255) }
+        val decoder = QueueDecoder(listOf(EnhanceEngine.ImageBuffer(4, 4, noisyPixels)))
+        val encoder = RecordingEncoder()
+        val restormer = TrackingRestormer()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = null,
+            restormer = restormer,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
+
+        val progressUpdates = mutableListOf<EnhanceEngine.TileProgress>()
+        engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                tileSize = 2,
+                overlap = 1,
+                onTileProgress = { progress ->
+                    progressUpdates.add(progress)
+                },
+            ),
+        )
+
+        assertTrue(progressUpdates.isNotEmpty(), "должны быть обновления прогресса")
+        progressUpdates.forEach { progress ->
+            assertTrue(progress.progress >= 0f && progress.progress <= 1f, "прогресс должен быть в диапазоне [0, 1]")
+            assertTrue(progress.index >= 0, "индекс тайла должен быть неотрицательным")
+            assertTrue(progress.total >= 0, "общее количество тайлов должно быть неотрицательным")
+        }
+
+        input.delete()
+        output.delete()
+    }
+
+    @Test
+    fun `pipeline reports seamless blending metrics`() = runTest {
+        val noisyPixels = IntArray(64) { index -> if (index % 3 == 0) argb(200, 100, 50) else argb(100, 150, 200) }
+        val decoder = QueueDecoder(listOf(EnhanceEngine.ImageBuffer(8, 8, noisyPixels)))
+        val encoder = RecordingEncoder()
+        val restormer = TrackingRestormer()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = null,
+            restormer = restormer,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
+
+        val result = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                tileSize = 4,
+                overlap = 2,
+            ),
+        )
+
+        val pipeline = result.pipeline
+        assertTrue(pipeline.tileUsed, "тайлинг должен быть использован")
+        assertTrue(pipeline.hasSeamFix, "seam fix должен быть применен при overlap > 0")
+        assertTrue(pipeline.seamMaxDelta >= 0f, "seamMaxDelta должен быть неотрицательным")
+        assertTrue(pipeline.seamMeanDelta >= 0f, "seamMeanDelta должен быть неотрицательным")
+        assertTrue(pipeline.seamArea >= 0, "seamArea должен быть неотрицательным")
+
+        input.delete()
+        output.delete()
+    }
+
+    @Test
+    fun `timings capture all pipeline stages`() = runTest {
+        val pixels = IntArray(16) { argb(50, 50, 50) }
+        val decoder = QueueDecoder(listOf(EnhanceEngine.ImageBuffer(4, 4, pixels)))
+        val encoder = RecordingEncoder()
+        val zeroDce = TrackingZeroDce()
+        val restormer = TrackingRestormer()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = zeroDce,
+            restormer = restormer,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val output = File.createTempFile("output", ".jpg")
+
+        val result = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 1f,
+                outputFile = output,
+                tileSize = 2,
+                overlap = 1,
+            ),
+        )
+
+        val timings = result.timings
+        assertTrue(timings.decode >= 0, "decode time должен быть неотрицательным")
+        assertTrue(timings.metrics >= 0, "metrics time должен быть неотрицательным")
+        assertTrue(timings.zeroDce >= 0, "zeroDce time должен быть неотрицательным")
+        assertTrue(timings.restormer >= 0, "restormer time должен быть неотрицательным")
+        assertTrue(timings.sharpen >= 0, "sharpen time должен быть неотрицательным")
+        assertTrue(timings.vibrance >= 0, "vibrance time должен быть неотрицательным")
+        assertTrue(timings.encode >= 0, "encode time должен быть неотрицательным")
+        assertTrue(timings.total >= 0, "total time должен быть неотрицательным")
+        assertTrue(timings.elapsed >= 0, "elapsed time должен быть неотрицательным")
+
+        val sum = timings.decode + timings.metrics + timings.zeroDce + 
+                  timings.restormer + timings.blend + timings.sharpen + 
+                  timings.vibrance + timings.encode + timings.exif
+        assertTrue(sum <= timings.total + 10, "сумма отдельных этапов не должна сильно превышать total")
+
+        input.delete()
+        output.delete()
+    }
+
     private fun argb(r: Int, g: Int, b: Int): Int {
         val rr = (r and 0xFF)
         val gg = (g and 0xFF)

@@ -1242,7 +1242,8 @@ private fun ViewerEnhancementSlider(
                 Text(
                     text = sliderValueDescription,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("enhancement_strength_label")
                 )
             }
             Slider(
@@ -1252,6 +1253,7 @@ private fun ViewerEnhancementSlider(
                 onValueChangeFinished = onValueChangeFinished,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .testTag("enhancement_slider")
                     .semantics {
                         contentDescription = sliderLabel
                         stateDescription = sliderValueDescription
@@ -1267,18 +1269,29 @@ private fun ViewerEnhancementSlider(
             if (inProgress || (!isReady && progressByTile.isNotEmpty())) {
                 LinearProgressIndicator(
                     progress = averageProgress,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("enhancement_progress")
                 )
                 Text(
                     text = stringResource(id = R.string.viewer_improve_progress, progressPercent),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("enhancement_progress_text")
+                )
+            }
+            if (inProgress) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .testTag("enhancement_loader")
                 )
             }
             Text(
                 text = statusText,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("enhancement_status_text")
             )
         }
     }
