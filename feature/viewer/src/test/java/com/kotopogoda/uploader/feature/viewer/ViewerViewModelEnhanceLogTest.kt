@@ -11,7 +11,10 @@ import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
-import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
+import com.kotopogoda.uploader.core.settings.SettingsRepository
+import com.kotopogoda.uploader.core.settings.AppSettings
+import com.kotopogoda.uploader.core.settings.PreviewQuality
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import io.mockk.MockKAnnotations
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
@@ -48,11 +51,22 @@ class ViewerViewModelEnhanceLogTest {
     private lateinit var context: Context
 
     @MockK(relaxed = true)
-    private lateinit var enhanceEngine: EnhanceEngine
+    private lateinit var nativeEnhanceAdapter: NativeEnhanceAdapter
+
+    @MockK(relaxed = true)
+    private lateinit var settingsRepository: SettingsRepository
 
     @BeforeTest
     fun setUp() {
         MockKAnnotations.init(this, relaxUnitFun = true)
+        val defaultSettings = AppSettings(
+            baseUrl = "https://example.com",
+            appLogging = true,
+            httpLogging = true,
+            persistentQueueNotification = false,
+            previewQuality = PreviewQuality.BALANCED,
+        )
+        every { settingsRepository.flow } returns kotlinx.coroutines.flow.flowOf(defaultSettings)
     }
 
     @AfterTest
@@ -76,7 +90,8 @@ class ViewerViewModelEnhanceLogTest {
             uploadQueueRepository = uploadQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
-            enhanceEngine = enhanceEngine,
+            nativeEnhanceAdapter = nativeEnhanceAdapter,
+            settingsRepository = settingsRepository,
             savedStateHandle = SavedStateHandle(),
         )
 
