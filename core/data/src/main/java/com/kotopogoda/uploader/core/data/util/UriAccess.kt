@@ -16,13 +16,11 @@ fun isMediaUri(uri: Uri): Boolean {
     return auth == MediaStore.AUTHORITY || auth == MEDIA_DOCS_AUTH
 }
 
-fun Uri.isMediaUri(): Boolean = isMediaUri(this)
-
 fun ContentResolver.requireOriginalIfNeeded(uri: Uri): Uri {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
         return uri
     }
-    if (!uri.isMediaUri()) {
+    if (!isMediaUri(uri)) {
         return uri
     }
     return runCatching { MediaStore.setRequireOriginal(uri) }
