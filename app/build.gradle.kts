@@ -34,6 +34,20 @@ android {
 
         buildConfigField("String", "API_BASE_URL", "\"$prodApiBaseUrl\"")
         buildConfigField("String", "MODELS_LOCK_JSON", modelsLockLiteral)
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17", "-frtti", "-fexceptions")
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_PLATFORM=android-26"
+                )
+            }
+        }
     }
 
     signingConfigs {
@@ -87,9 +101,21 @@ android {
         kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get() // 1.5.11
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    ndkVersion = "26.1.10909125"
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }
