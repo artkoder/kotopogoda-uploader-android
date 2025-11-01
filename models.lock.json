@@ -5,31 +5,150 @@
       "release": "models-v1",
       "asset": "zerodcepp_fp16_v1.zip",
       "unzipped": "models",
-      "sha256": null,
-      "backend": "tflite",
-      "min_mb": 3.0,
+      "sha256": "ba6087bd096e95b8ed9ff05091bba75a7960185d08fcb977be317ce316b8e150",
+      "backend": "ncnn",
+      "min_mb": 0.0395,
       "files": [
         {
-          "path": "zerodcepp_fp16.tflite",
-          "sha256": "f63a1e3ce3e09d771f45a8df00ab32a76a003de9f4538ecf9cac439cfa71436d",
-          "min_mb": 3.0
+          "path": "zerodcepp_fp16.param",
+          "sha256": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
+          "min_mb": 0.0096,
+          "label": "param"
+        },
+        {
+          "path": "zerodcepp_fp16.bin",
+          "sha256": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
+          "min_mb": 0.0403,
+          "label": "bin"
         }
-      ]
+      ],
+      "hashes": [
+        {
+          "path": "models/zerodcepp_fp16.param",
+          "sha256": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
+          "size_mb": 0.0096,
+          "label": "param",
+          "included": true
+        },
+        {
+          "path": "models/zerodcepp_fp16.bin",
+          "sha256": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
+          "size_mb": 0.0403,
+          "label": "bin",
+          "included": true
+        },
+        {
+          "path": "zerodcepp_simplified.onnx",
+          "sha256": "a865dea3cdc002886bd4892385c90c3fd1a3f67cdbd5b865cd8bee773759a233",
+          "size_mb": 0.0528,
+          "label": "onnx",
+          "included": false
+        }
+      ],
+      "metadata": {
+        "ncnn": {
+          "param_size_bytes": 10053,
+          "bin_size_bytes": 42300,
+          "bin_size_mib": 0.0403,
+          "sha256_param": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
+          "sha256_bin": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73"
+        },
+        "onnx": {
+          "path": "zerodcepp_simplified.onnx",
+          "sha256": "a865dea3cdc002886bd4892385c90c3fd1a3f67cdbd5b865cd8bee773759a233",
+          "size_mib": 0.0528,
+          "operators": [
+            "Add",
+            "Concat",
+            "Conv",
+            "Mul",
+            "Pow",
+            "Relu",
+            "Sub",
+            "Tanh"
+          ]
+        }
+      }
     },
     "restormer_fp16": {
       "release": "models-v1",
       "asset": "restormer_fp16_v1.zip",
       "unzipped": "models",
-      "sha256": null,
-      "backend": "tflite",
-      "min_mb": 48.0,
+      "sha256": "e1b41c17c842d0a5daa7e0506885f322946124ec5639b2aa05858e592feae4f8",
+      "backend": "ncnn",
+      "min_mb": 34.6366,
       "files": [
         {
-          "path": "restormer_fp16.tflite",
-          "sha256": "24a35adfa525ecd99a8052042581b301e4ecc9853fe6585589c79688899578e3",
-          "min_mb": 48.0
+          "path": "restormer_fp16.param",
+          "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
+          "min_mb": 0.6851,
+          "label": "param"
+        },
+        {
+          "path": "restormer_fp16.bin",
+          "sha256": "bfa13cb316d95361856a8603556360b60d5ecba5caf8be4cc5d3d20457642358",
+          "min_mb": 50.3672,
+          "label": "bin"
         }
-      ]
+      ],
+      "hashes": [
+        {
+          "path": "models/restormer_fp16.param",
+          "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
+          "size_mb": 0.6851,
+          "label": "param",
+          "included": true
+        },
+        {
+          "path": "models/restormer_fp16.bin",
+          "sha256": "bfa13cb316d95361856a8603556360b60d5ecba5caf8be4cc5d3d20457642358",
+          "size_mb": 50.3672,
+          "label": "bin",
+          "included": true
+        },
+        {
+          "path": "restormer_simplified.onnx",
+          "sha256": "710f0d521786fd94f58804baae27a82492aa4ff21764c5112e8448a240b117ee",
+          "size_mb": 100.9805,
+          "label": "onnx",
+          "included": false
+        }
+      ],
+      "metadata": {
+        "ncnn": {
+          "param_size_bytes": 718348,
+          "bin_size_bytes": 52813800,
+          "bin_size_mib": 50.3672,
+          "sha256_param": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
+          "sha256_bin": "bfa13cb316d95361856a8603556360b60d5ecba5caf8be4cc5d3d20457642358",
+          "tile_size": 512
+        },
+        "onnx": {
+          "path": "restormer_simplified.onnx",
+          "sha256": "710f0d521786fd94f58804baae27a82492aa4ff21764c5112e8448a240b117ee",
+          "size_mib": 100.9805,
+          "operators": [
+            "Add",
+            "Clip",
+            "Concat",
+            "Conv",
+            "DepthToSpace",
+            "Div",
+            "Erf",
+            "Expand",
+            "MatMul",
+            "Mul",
+            "ReduceL2",
+            "ReduceMean",
+            "Reshape",
+            "Slice",
+            "Softmax",
+            "Sqrt",
+            "Sub",
+            "Transpose"
+          ]
+        }
+      }
     }
   }
 }
