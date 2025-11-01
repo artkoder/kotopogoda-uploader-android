@@ -19,6 +19,7 @@ import okio.buffer
 import okio.blackholeSink
 import com.kotopogoda.uploader.core.data.util.URI_READ_LOG_TAG
 import com.kotopogoda.uploader.core.data.util.hasPersistedReadPermission
+import com.kotopogoda.uploader.core.data.util.isMediaUri
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
 import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import timber.log.Timber
@@ -44,7 +45,7 @@ internal suspend fun prepareUploadRequestPayload(
     val normalizedUri = resolver.requireOriginalIfNeeded(uri)
     resolver.logUriReadDebug("UploadRequestPayload.digest", uri, normalizedUri)
     val hasPersistedRead = resolver.hasPersistedReadPermission(uri, normalizedUri)
-    val requireOriginalAttempted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && MediaStore.isMediaUri(uri)
+    val requireOriginalAttempted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isMediaUri(uri)
     val requireOriginalSucceeded = requireOriginalAttempted && normalizedUri != uri
 
     val inspectionOutcome = resolver.openInputStream(normalizedUri)?.buffered()?.use { stream ->
