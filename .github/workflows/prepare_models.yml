@@ -104,11 +104,11 @@ jobs:
           set -euxo pipefail
           python3 -m pip install --upgrade pip
           python3 -m pip install --no-cache-dir \
-            'numpy<2' \
-            'torch==2.9.0' --index-url https://download.pytorch.org/whl/cpu \
-            'onnx==1.16.*' 'onnxruntime==1.16.*' 'onnxsim==0.4.*' \
-            onnx-graphsurgeon einops 'opencv-python-headless<5' tqdm pyyaml \
-            'scipy<1.14' 'scikit-image<0.23' psutil lmdb addict
+            torch==2.9.0 \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --extra-index-url https://pypi.org/simple \
+            "numpy<2" "onnx==1.16.*" "onnxruntime==1.16.*" "onnxsim==0.4.*" onnx-graphsurgeon einops \
+            "opencv-python-headless<5" tqdm pyyaml "scipy<1.14" "scikit-image<0.23" psutil lmdb addict
           python3 - <<'PY'
           import onnx
           print(f"ONNX {onnx.__version__} OK")
