@@ -473,29 +473,56 @@ class ViewerViewModel @Inject constructor(
     }
 
     fun onEnhancementStrengthChange(value: Float) {
-        cancelEnhancementJob()
-        disposeEnhancementResult(_enhancementState.value.result)
         val clamped = value.coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
-        _enhancementState.update { state ->
-            if (state.strength == clamped && !state.isResultReady) {
-                state
-            } else {
+        val currentState = _enhancementState.value
+        
+        if (clamped == 0f) {
+            cancelEnhancementJob()
+            _enhancementState.update { state ->
                 state.copy(
-                    strength = clamped,
-                    isResultReady = false,
-                    progressByTile = emptyMap(),
-                    result = null,
-                    resultUri = null,
-                    resultPhotoId = null,
-                    isResultForCurrentPhoto = false,
+                    strength = 0f,
+                    inProgress = false,
+                    isResultReady = true,
                 )
             }
+            return
+        }
+        
+        if (currentState.isResultReady && currentState.isResultForCurrentPhoto) {
+            _enhancementState.update { state ->
+                state.copy(strength = clamped)
+            }
+            return
+        }
+        
+        cancelEnhancementJob()
+        disposeEnhancementResult(currentState.result)
+        _enhancementState.update { state ->
+            state.copy(
+                strength = clamped,
+                isResultReady = false,
+                progressByTile = emptyMap(),
+                result = null,
+                resultUri = null,
+                resultPhotoId = null,
+                isResultForCurrentPhoto = false,
+            )
         }
     }
 
     fun onEnhancementStrengthChangeFinished() {
         val target = currentPhoto.value ?: return
-        startEnhancementJob(target, _enhancementState.value.strength)
+        val currentState = _enhancementState.value
+        
+        if (currentState.strength == 0f) {
+            return
+        }
+        
+        if (currentState.isResultReady && currentState.isResultForCurrentPhoto) {
+            return
+        }
+        
+        startEnhancementJob(target, currentState.strength)
     }
 
     fun onMoveToProcessing(photo: PhotoItem?) {
