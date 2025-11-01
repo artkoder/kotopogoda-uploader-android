@@ -133,7 +133,7 @@ abstract class FetchModelsTask : DefaultTask() {
             }
 
             if (!isArchive) {
-                cleanupTarget(assetsDir, unzippedPath, files)
+                cleanupTarget(assetsDir, unzippedPath, files, removeRootDir = false)
                 files.forEach { entry ->
                     val entryUrl = entry.url ?: defaultDownloadUrl
                         ?: error("Для файла '${entry.path}' модели '$name' не указан url")
@@ -253,18 +253,53 @@ abstract class FetchModelsTask : DefaultTask() {
         return target.toFile()
     }
 
-    private fun cleanupTarget(baseDir: java.io.File, root: Path?, files: List<FileEntry>) {
-        if (root != null) {
+    private fun cleanupTarget(
+        baseDir: java.io.File,
+        root: Path?,
+        files: List<FileEntry>,
+        removeRootDir: Boolean = true,
+    ) {
+        if (removeRootDir && root != null) {
             val rootDir = resolveRootDir(baseDir, root)
             if (rootDir.exists()) {
                 rootDir.deleteRecursively()
             }
-        } else {
-            files.forEach { entry ->
-                val existing = resolveFile(baseDir, null, entry.path)
-                if (existing.exists()) {
-                    existing.delete()
+            return
+        }
+
+        val cleanupRoot = when {
+            root != null -> resolveRootDir(baseDir, root)
+            removeRootDir -> baseDir
+            else -> null
+        }
+
+        files.forEach { entry ->
+            val existing = resolveFile(baseDir, root, entry.path)
+            if (existing.exists()) {
+                if (!existing.delete()) {
+                    existing.deleteRecursively()
                 }
+            }
+            if (removeRootDir && cleanupRoot != null) {
+                var current = existing.parentFile
+                while (current != null && current != cleanupRoot && current != baseDir) {
+                    val children = current.list()
+                    if (children != null && children.isEmpty()) {
+                        if (!current.delete()) {
+                            break
+                        }
+                        current = current.parentFile
+                    } else {
+                        break
+                    }
+                }
+            }
+        }
+
+        if (removeRootDir && root != null) {
+            val rootDir = resolveRootDir(baseDir, root)
+            if (rootDir.exists() && rootDir.list()?.isEmpty() == true) {
+                rootDir.delete()
             }
         }
     }
