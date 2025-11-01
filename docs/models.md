@@ -5,9 +5,9 @@
 2. Шаг `prepare` читает `scripts/model_sources.lock.json`, в котором заданы репозитории, коммиты и дополнительные URL. Файл играет роль «freeze»-конфигурации: любые изменения версий в workflow возможны только после обновления этого локфайла в репозитории.\
 3. Скрипт `scripts/prepare_models.py` автоматически:\
    - скачивает и кеширует исходники и веса по `model_sources.lock.json`,
-   - конвертирует Zero-DCE++ в TensorFlow Lite (`backend=tflite`) и Restormer в NCNN (`backend=ncnn`),
-   - упаковывает артефакты `<artifact>_v1.zip` в `dist/` и формирует `SHA256SUMS.txt`,
-   - пересоздаёт `models.lock.json`, выставляя backend'ы и SHA-256 для архива и вложенных файлов.
+   - конвертирует Zero-DCE++ и Restormer в NCNN (`backend=ncnn`) через ONNX,
+   - упаковывает артефакты `<artifact>_v2.zip` в `dist/` и формирует `SHA256SUMS.txt`,
+   - пересоздаёт `models.lock.json`, выставляя backend'ы и SHA-256 для архива и вложенных файлов (.param/.bin).
 4. В `GITHUB_STEP_SUMMARY` появляется таблица с перечислением моделей, их backend'ов, размером артефакта и контрольной суммой. Это итог one-click запуска, который используется перед публикацией релиза.
 
 ## `model_sources.lock.json`
@@ -18,16 +18,16 @@
 ## `models.lock.json`
 - Создаётся автоматически после сборки моделей, ручное редактирование не требуется.
 - Содержит:
-  - `release` и `asset` (название zip-файла для релиза `models-v1`),
+  - `release` и `asset` (название zip-файла для релиза `models-v2`),
   - `sha256` архива, рассчитанный скриптом,
-  - ожидаемый `backend` (`tflite` для Zero-DCE++, `ncnn` для Restormer),
-  - список файлов с собственными SHA и минимальным размером в MiB.
+  - ожидаемый `backend` (`ncnn` для обеих моделей),
+  - список файлов с собственными SHA-256 и минимальным размером в MiB (.param/.bin для каждой модели).
 - Этот файл читает Gradle-задача `fetchModels` и проверяет контрольные суммы во время сборки приложения.
 
-## Публикация релиза `models-v1`
+## Публикация релиза `models-v2`
 1. После успешного one-click workflow выполните `scripts/publish_models_release.sh` (в GitHub Actions или локально). Скрипт ожидает готовые артефакты в `dist/`.
-2. Скрипт проверяет наличие релиза `models-v1` и создаёт его при необходимости, загружает все `*_v1.zip` и `SHA256SUMS.txt` через `gh release upload --clobber`.
-3. В `GITHUB_STEP_SUMMARY` автоматически добавляется Markdown с таблицей файлов и их SHA-256, а затем создаётся коммит `Update models.lock for models-v1 release` с обновлённым `models.lock.json`.
+2. Скрипт проверяет наличие релиза `models-v2` и создаёт его при необходимости, загружает все `*_v2.zip` и `SHA256SUMS.txt` через `gh release upload --clobber`.
+3. В `GITHUB_STEP_SUMMARY` автоматически добавляется Markdown с таблицей файлов и их SHA-256, а затем создаётся коммит `Update models.lock for models-v2 release` с обновлённым `models.lock.json`.
 
 ## Локальная проверка
 1. Выполните `./gradlew assembleDebug`. Задача `preBuild` автоматически зависит от `fetchModels`, поэтому Gradle скачает артефакты из релиза, проверит SHA-256 и распакует их в `build/models`.
@@ -36,9 +36,9 @@
 ## Логи приложения
 1. Запустите приложение и выполните улучшение фото, затем соберите логи: `adb logcat -s Enhance`.
 2. События `enhance_result` и `enhance_metrics` содержат поля:
-   - `backend` — фактический выбор `tflite` или `ncnn`,
+   - `backend` — фактический выбор `ncnn`,
    - `delegate_actual` — реальный delegate, задействованный на устройстве,
-   - `zero_dce_sha256` / `restormer_sha256` — SHA-256 загруженных моделей.
+   - `zero_dce_sha256` / `restormer_sha256` — SHA-256 загруженных NCNN моделей (.param/.bin).
 3. Значения SHA должны совпадать с `models.lock.json`; несовпадение сигнализирует о проблеме с поставкой весов.
 
 ## Лицензии и цитаты

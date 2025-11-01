@@ -146,14 +146,29 @@ object EnhancerModelProbe {
     ): Map<String, EnhanceLogging.DelegateSummary> {
         return when (definition.backend) {
             ModelBackend.TFLITE -> probeTfliteDelegates(context, definition)
-            ModelBackend.NCNN -> mapOf(
+            ModelBackend.NCNN -> probeNcnnDelegates(context, definition)
+        }
+    }
+
+    private fun probeNcnnDelegates(
+        context: Context,
+        definition: ModelDefinition,
+    ): Map<String, EnhanceLogging.DelegateSummary> {
+        val paramFile = definition.files.firstOrNull { it.path.endsWith(".param") }
+        val binFile = definition.files.firstOrNull { it.path.endsWith(".bin") }
+        if (paramFile == null || binFile == null) {
+            Timber.tag(TAG).w("Для модели %s не найдены .param/.bin файлы", definition.name)
+            return mapOf(
                 "ncnn" to EnhanceLogging.DelegateSummary(
                     available = false,
                     warmupMillis = null,
-                    error = "ncnn_probe_not_implemented",
+                    error = "missing_param_or_bin",
                 ),
             )
         }
+        return mapOf(
+            "ncnn" to runDelegateCheck("ncnn") { checkNcnnDelegate(context, paramFile.path, binFile.path) },
+        )
     }
 
     private fun probeTfliteDelegates(
@@ -190,6 +205,24 @@ object EnhancerModelProbe {
                 error = error.message ?: error.javaClass.simpleName,
             )
         }
+    }
+
+    private fun checkNcnnDelegate(context: Context, paramPath: String, binPath: String): Long {
+        val assetManager = context.assets
+        val start = SystemClock.elapsedRealtimeNanos()
+        assetManager.open(paramPath).use { paramStream ->
+            val paramBytes = paramStream.readBytes()
+            if (paramBytes.isEmpty()) {
+                throw IllegalStateException("Файл .param пустой")
+            }
+        }
+        assetManager.open(binPath).use { binStream ->
+            val binBytes = binStream.readBytes()
+            if (binBytes.isEmpty()) {
+                throw IllegalStateException("Файл .bin пустой")
+            }
+        }
+        return (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000
     }
 
     private fun checkGpuDelegate(context: Context, assetPath: String): Long {
