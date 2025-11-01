@@ -715,7 +715,7 @@ class ViewerViewModel @Inject constructor(
                     )
                     disposeEnhancementResult(
                         enhancementResult,
-                        EnhancementResultDisposition.Enqueued,
+                        EnhancementResultDisposition.ENQUEUED,
                     )
                     _enhancementState.update { state ->
                         state.copy(
@@ -1907,42 +1907,15 @@ class ViewerViewModel @Inject constructor(
                 }
                 var fallbackReason: String? = null
                 val result = try {
-                    if (delegatePlan.delegateType == EnhancementDelegateType.PRIMARY) {
-                        val engineResult = enhanceEngine.enhance(
-                            EnhanceEngine.Request(
-                                source = workspace.source,
-                                strength = normalized,
-                                tileSize = tileSize,
-                                overlap = tileOverlap,
-                                delegate = delegatePlan.engineDelegate,
-                                exif = workspace.exif,
-                                outputFile = workspace.output,
-                                onTileProgress = progressCallback,
-                            )
-                        )
-                        EnhancementResult(
-                            sourceFile = workspace.source,
-                            file = engineResult.file,
-                            uri = engineResult.file.toUri(),
-                            metrics = engineResult.metrics,
-                            profile = engineResult.profile,
-                            delegate = EnhancementDelegateType.PRIMARY,
-                            engineDelegate = engineResult.delegate,
-                            pipeline = engineResult.pipeline,
-                            timings = engineResult.timings,
-                            models = engineResult.models,
-                        )
-                    } else {
-                        fallbackReason = "precondition"
-                        logEnhancement(
-                            action = "delegate_fallback",
-                            photo = photo,
-                            "reason" to "precondition",
-                            "delegate" to delegatePlan.delegateType.name.lowercase(),
-                            "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
-                        )
-                        runFallbackEnhancement(workspace, metrics)
-                    }
+                    fallbackReason = "precondition"
+                    logEnhancement(
+                        action = "delegate_fallback",
+                        photo = photo,
+                        "reason" to "precondition",
+                        "delegate" to delegatePlan.delegateType.name.lowercase(),
+                        "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
+                    )
+                    runFallbackEnhancement(workspace, metrics)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -1952,7 +1925,7 @@ class ViewerViewModel @Inject constructor(
                         action = "delegate_fallback",
                         photo = photo,
                         "reason" to (error.message ?: error::class.java.simpleName),
-                        "delegate" to EnhancementDelegateType.PRIMARY.name.lowercase(),
+                        "delegate" to delegatePlan.delegateType.name.lowercase(),
                         "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                     )
                     runFallbackEnhancement(workspace, metrics)
@@ -2247,16 +2220,8 @@ class ViewerViewModel @Inject constructor(
         metrics: EnhanceEngine.Metrics,
         strength: Float,
     ): EnhancementDelegatePlan {
-        val delegateType = if (strength < 0.15f && metrics.nNoise < 0.2) {
-            EnhancementDelegateType.FALLBACK
-        } else {
-            EnhancementDelegateType.PRIMARY
-        }
-        val engineDelegate = if (delegateType == EnhancementDelegateType.PRIMARY) {
-            selectEngineDelegate()
-        } else {
-            EnhanceEngine.Delegate.CPU
-        }
+        val delegateType = EnhancementDelegateType.FALLBACK
+        val engineDelegate = EnhanceEngine.Delegate.CPU
         return EnhancementDelegatePlan(delegateType, engineDelegate)
     }
 
@@ -2808,6 +2773,7 @@ class ViewerViewModel @Inject constructor(
     companion object {
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
+        private const val LOG_TAG = "ViewerViewModel"
         private const val UI_TAG = "UI"
         private const val PERMISSION_TAG = "Permissions"
         private const val MIN_ENHANCEMENT_STRENGTH = 0f
