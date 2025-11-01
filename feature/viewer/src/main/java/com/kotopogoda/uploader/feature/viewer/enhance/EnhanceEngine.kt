@@ -512,6 +512,11 @@ class EnhanceEngine(
                 delegateFallback = false,
             )
         }
+        
+        val nonNullModel = requireNotNull(model) {
+            "Restormer model must be non-null when restormerActive is true"
+        }
+        
         val width = buffer.width
         val height = buffer.height
         val tilesX = ceil(width / step.toDouble()).toInt()
@@ -547,7 +552,7 @@ class EnhanceEngine(
                 val tile = buffer.subRegion(innerX, innerY, innerWidth, innerHeight)
                 val requestedDelegate = currentDelegate
                 val processed = try {
-                    model.denoise(tile, currentDelegate)
+                    nonNullModel.denoise(tile, currentDelegate)
                 } catch (error: Exception) {
                     Timber.tag(LOG_TAG).w(
                         error,

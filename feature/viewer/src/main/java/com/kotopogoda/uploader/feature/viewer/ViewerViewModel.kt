@@ -229,7 +229,7 @@ class ViewerViewModel @Inject constructor(
                 runCatching {
                     nativeEnhanceAdapter.initialize(settings.previewQuality)
                 }.onFailure { error ->
-                    Timber.tag(LOG_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
+                    Timber.tag(UI_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
                 }
             }
         }
@@ -715,7 +715,7 @@ class ViewerViewModel @Inject constructor(
                     )
                     disposeEnhancementResult(
                         enhancementResult,
-                        EnhancementResultDisposition.Enqueued,
+                        EnhancementResultDisposition.ENQUEUED,
                     )
                     _enhancementState.update { state ->
                         state.copy(
@@ -1907,55 +1907,21 @@ class ViewerViewModel @Inject constructor(
                 }
                 var fallbackReason: String? = null
                 val result = try {
-                    if (delegatePlan.delegateType == EnhancementDelegateType.PRIMARY) {
-                        val engineResult = enhanceEngine.enhance(
-                            EnhanceEngine.Request(
-                                source = workspace.source,
-                                strength = normalized,
-                                tileSize = tileSize,
-                                overlap = tileOverlap,
-                                delegate = delegatePlan.engineDelegate,
-                                exif = workspace.exif,
-                                outputFile = workspace.output,
-                                onTileProgress = progressCallback,
-                            )
-                        )
-                        EnhancementResult(
-                            sourceFile = workspace.source,
-                            file = engineResult.file,
-                            uri = engineResult.file.toUri(),
-                            metrics = engineResult.metrics,
-                            profile = engineResult.profile,
-                            delegate = EnhancementDelegateType.PRIMARY,
-                            engineDelegate = engineResult.delegate,
-                            pipeline = engineResult.pipeline,
-                            timings = engineResult.timings,
-                            models = engineResult.models,
-                        )
-                    } else {
-                        fallbackReason = "precondition"
-                        logEnhancement(
-                            action = "delegate_fallback",
-                            photo = photo,
-                            "reason" to "precondition",
-                            "delegate" to delegatePlan.delegateType.name.lowercase(),
-                            "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
-                        )
-                        runFallbackEnhancement(workspace, metrics)
-                    }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    Timber.tag(UI_TAG).e(error, "Enhancement failed for %s", photo.uri)
-                    fallbackReason = error.message ?: error::class.java.simpleName
+                    fallbackReason = "native_controller_migration"
                     logEnhancement(
                         action = "delegate_fallback",
                         photo = photo,
-                        "reason" to (error.message ?: error::class.java.simpleName),
-                        "delegate" to EnhancementDelegateType.PRIMARY.name.lowercase(),
+                        "reason" to "native_controller_migration",
+                        "delegate" to delegatePlan.delegateType.name.lowercase(),
                         "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                     )
                     runFallbackEnhancement(workspace, metrics)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.tag(UI_TAG).e(error, "Enhancement fallback failed for %s", photo.uri)
+                    fallbackReason = error.message ?: error::class.java.simpleName
+                    throw error
                 }
                 producedResult = result
                 latestResult = result

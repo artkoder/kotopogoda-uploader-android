@@ -7,6 +7,8 @@ import android.media.ExifInterface
 import com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo
 import com.kotopogoda.uploader.core.data.upload.UploadEnhancementMetrics
 import com.kotopogoda.uploader.core.settings.PreviewQuality
+import com.kotopogoda.uploader.feature.viewer.di.RestormerChecksum
+import com.kotopogoda.uploader.feature.viewer.di.ZeroDceChecksum
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -21,8 +23,8 @@ import javax.inject.Singleton
 class NativeEnhanceAdapter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val controller: NativeEnhanceController,
-    private val zeroDceChecksum: String,
-    private val restormerChecksum: String,
+    @ZeroDceChecksum private val zeroDceChecksum: String,
+    @RestormerChecksum private val restormerChecksum: String,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
