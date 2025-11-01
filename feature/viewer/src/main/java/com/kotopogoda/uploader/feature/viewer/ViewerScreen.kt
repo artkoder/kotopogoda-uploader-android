@@ -85,6 +85,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -536,23 +537,41 @@ internal fun ViewerScreen(
                             }
                     ) {
                         if (item != null) {
-                            val displayedUri =
-                                if (
-                                    page == currentIndex &&
-                                    enhancementReady &&
-                                    isEnhancementResultForCurrentPhoto &&
-                                    enhancementResultUri != null
-                                ) {
-                                    enhancementResultUri
-                                } else {
-                                    item.uri
-                                }
-                            ZoomableImage(
-                                uri = displayedUri,
-                                modifier = Modifier.fillMaxSize(),
-                                onZoomChanged = onZoomStateChanged
-                            )
-                            if (page == currentIndex && isCurrentQueued) {
+                            val isCurrentPage = page == currentIndex
+                            val useEnhancedPreview = isCurrentPage &&
+                                enhancementReady &&
+                                isEnhancementResultForCurrentPhoto &&
+                                enhancementResultUri != null &&
+                                enhancementStrength > 0f
+                            
+                            val showLoader = isCurrentPage &&
+                                enhancementInProgress &&
+                                enhancementStrength > 0f
+                            
+                            if (useEnhancedPreview) {
+                                BlendableImage(
+                                    baseUri = item.uri,
+                                    enhancedUri = enhancementResultUri,
+                                    blendFactor = enhancementStrength,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onZoomChanged = onZoomStateChanged
+                                )
+                            } else {
+                                ZoomableImage(
+                                    uri = item.uri,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onZoomChanged = onZoomStateChanged
+                                )
+                            }
+                            
+                            if (showLoader) {
+                                EnhancementLoaderOverlay(
+                                    modifier = Modifier.fillMaxSize(),
+                                    progress = enhancementProgress.values.average().toFloat().coerceIn(0f, 1f)
+                                )
+                            }
+                            
+                            if (isCurrentPage && isCurrentQueued) {
                                 UploadQueuedBadge(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
@@ -1212,17 +1231,16 @@ private fun ViewerEnhancementSlider(
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
 ) {
-    val averageProgress = remember(progressByTile) {
-        if (progressByTile.isEmpty()) {
-            0f
-        } else {
-            (progressByTile.values.sum() / progressByTile.size).coerceIn(0f, 1f)
-        }
-    }
     val percent = (value * 100).roundToInt().coerceIn(0, 100)
-    val progressPercent = (averageProgress * 100).roundToInt().coerceIn(0, 100)
     val sliderLabel = stringResource(id = R.string.viewer_improve_label)
     val sliderValueDescription = stringResource(id = R.string.viewer_improve_value, percent)
+    val sliderStateDescription = when {
+        inProgress -> stringResource(id = R.string.viewer_improve_state_running)
+        isReady && percent > 0 -> stringResource(id = R.string.viewer_improve_state_ready)
+        percent == 0 -> null
+        else -> stringResource(id = R.string.viewer_improve_state_pending)
+    }
+    
     Surface(tonalElevation = 3.dp) {
         Column(
             modifier = Modifier
@@ -1247,51 +1265,21 @@ private fun ViewerEnhancementSlider(
                 )
             }
             Slider(
-                value = value,
-                onValueChange = onValueChange,
-                valueRange = 0f..1f,
+                value = percent.toFloat(),
+                onValueChange = { intValue ->
+                    val normalizedFloat = (intValue / 100f).coerceIn(0f, 1f)
+                    onValueChange(normalizedFloat)
+                },
+                valueRange = 0f..100f,
+                steps = 99,
                 onValueChangeFinished = onValueChangeFinished,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("enhancement_slider")
                     .semantics {
                         contentDescription = sliderLabel
-                        stateDescription = sliderValueDescription
+                        stateDescription = sliderStateDescription ?: sliderValueDescription
                     }
-            )
-            val statusText = when {
-                inProgress -> stringResource(id = R.string.viewer_improve_state_running)
-                isReady -> stringResource(id = R.string.viewer_improve_state_ready)
-                progressByTile.isEmpty() -> stringResource(id = R.string.viewer_improve_state_pending)
-                progressPercent >= 100 -> stringResource(id = R.string.viewer_improve_state_ready)
-                else -> stringResource(id = R.string.viewer_improve_state_pending)
-            }
-            if (inProgress || (!isReady && progressByTile.isNotEmpty())) {
-                LinearProgressIndicator(
-                    progress = averageProgress,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("enhancement_progress")
-                )
-                Text(
-                    text = stringResource(id = R.string.viewer_improve_progress, progressPercent),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("enhancement_progress_text")
-                )
-            }
-            if (inProgress) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .testTag("enhancement_loader")
-                )
-            }
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("enhancement_status_text")
             )
         }
     }
@@ -1371,5 +1359,44 @@ private fun ViewerEmptyState() {
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+private fun EnhancementLoaderOverlay(
+    modifier: Modifier = Modifier,
+    progress: Float = 0f
+) {
+    val progressPercent = (progress * 100).roundToInt().coerceIn(0, 100)
+    val loaderDescription = stringResource(id = R.string.viewer_improve_state_running)
+    val progressDescription = stringResource(id = R.string.viewer_improve_progress, progressPercent)
+    
+    Box(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.5f))
+            .semantics {
+                contentDescription = loaderDescription
+                stateDescription = progressDescription
+            }
+            .testTag("enhancement_overlay"),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("enhancement_overlay_spinner"),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = progressDescription,
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White,
+                modifier = Modifier.testTag("enhancement_overlay_text")
+            )
+        }
     }
 }
