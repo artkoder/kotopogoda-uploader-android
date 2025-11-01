@@ -29,11 +29,13 @@ object ViewerEnhanceModule {
 
     @Provides
     @Singleton
+    @ZeroDceChecksum
     fun provideZeroDceChecksum(lock: ModelsLock): String =
         requireNcnnChecksum(lock.require("zerodcepp_fp16"))
 
     @Provides
     @Singleton
+    @RestormerChecksum
     fun provideRestormerChecksum(lock: ModelsLock): String =
         requireNcnnChecksum(lock.require("restormer_fp16"))
 
@@ -42,8 +44,8 @@ object ViewerEnhanceModule {
     fun provideNativeEnhanceAdapter(
         @ApplicationContext context: Context,
         controller: NativeEnhanceController,
-        zeroDceChecksum: String,
-        restormerChecksum: String,
+        @ZeroDceChecksum zeroDceChecksum: String,
+        @RestormerChecksum restormerChecksum: String,
     ): NativeEnhanceAdapter = NativeEnhanceAdapter(
         context = context,
         controller = controller,
