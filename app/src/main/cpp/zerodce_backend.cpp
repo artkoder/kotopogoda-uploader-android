@@ -1,4 +1,5 @@
 #include "zerodce_backend.h"
+#include "ncnn_engine.h"
 #include <ncnn/mat.h>
 #include <ncnn/net.h>
 #include <android/log.h>

@@ -7,16 +7,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Ofast -ffast-math")
 
-# Vulkan
-find_library(vulkan-lib vulkan REQUIRED)
-
-# NCNN статические библиотеки
+# NCNN путь и заголовки
+set(NCNN_ROOT ${CMAKE_SOURCE_DIR}/ncnn)
 set(NCNN_LIB_DIR ${CMAKE_SOURCE_DIR}/ncnn-lib/${ANDROID_ABI})
 
+# NCNN статическая библиотека
 add_library(ncnn STATIC IMPORTED)
-set_target_properties(ncnn PROPERTIES IMPORTED_LOCATION ${NCNN_LIB_DIR}/libncnn.a)
+set_target_properties(ncnn PROPERTIES 
+    IMPORTED_LOCATION ${NCNN_LIB_DIR}/libncnn.a
+)
 
-# glslang библиотеки для Vulkan shaders
+# glslang библиотеки (требуются для NCNN с Vulkan)
 add_library(glslang STATIC IMPORTED)
 set_target_properties(glslang PROPERTIES IMPORTED_LOCATION ${NCNN_LIB_DIR}/libglslang.a)
 
@@ -38,10 +39,11 @@ set_target_properties(GenericCodeGen PROPERTIES IMPORTED_LOCATION ${NCNN_LIB_DIR
 add_library(glslang-default-resource-limits STATIC IMPORTED)
 set_target_properties(glslang-default-resource-limits PROPERTIES IMPORTED_LOCATION ${NCNN_LIB_DIR}/libglslang-default-resource-limits.a)
 
-# Находим библиотеки Android
-find_library(log-lib log)
-find_library(android-lib android)
-find_library(jnigraphics-lib jnigraphics)
+# Находим системные библиотеки Android
+find_library(vulkan-lib vulkan REQUIRED)
+find_library(log-lib log REQUIRED)
+find_library(android-lib android REQUIRED)
+find_library(jnigraphics-lib jnigraphics REQUIRED)
 
 # Основная библиотека
 add_library(kotopogoda_enhance SHARED
@@ -57,8 +59,15 @@ add_library(kotopogoda_enhance SHARED
 # Включаем директории
 target_include_directories(kotopogoda_enhance PRIVATE
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/ncnn-lib/include
+    ${NCNN_ROOT}/include
 )
+
+# Определяем макрос для Vulkan поддержки
+target_compile_definitions(kotopogoda_enhance PRIVATE NCNN_VULKAN=1)
+
+# Включаем OpenMP поддержку
+target_compile_options(kotopogoda_enhance PRIVATE -fopenmp)
+target_link_options(kotopogoda_enhance PRIVATE -fopenmp)
 
 # Линкуем библиотеки
 target_link_libraries(kotopogoda_enhance
@@ -72,8 +81,8 @@ target_link_libraries(kotopogoda_enhance
     glslang-default-resource-limits
     ${vulkan-lib}
     ${log-lib}
-    ${android-lib}
     ${jnigraphics-lib}
+    ${android-lib}
 )
 
 # Опции компиляции для ARM NEON
