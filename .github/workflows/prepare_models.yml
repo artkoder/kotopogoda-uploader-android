@@ -33,6 +33,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref }}
 
+      - name: Disk space diagnostic
+        run: |
+          echo "Initial disk space:"
+          df -h
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
