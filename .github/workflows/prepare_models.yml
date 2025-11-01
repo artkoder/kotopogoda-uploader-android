@@ -38,6 +38,14 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Enable swap
+        run: |
+          sudo fallocate -l 10G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Install system dependencies and build NCNN tools
         run: |
           set -euxo pipefail
@@ -124,6 +132,12 @@ jobs:
       - name: Prepare model artifacts
         env:
           PYTHONPATH: "${{ github.workspace }}:$PYTHONPATH"
+          TF_CPP_MIN_LOG_LEVEL: "2"
+          TF_ENABLE_ONEDNN_OPTS: "0"
+          XLA_FLAGS: "--xla_cpu_enable_fast_math=false"
+          OMP_NUM_THREADS: "1"
+          TF_NUM_INTRAOP_THREADS: "1"
+          TF_NUM_INTEROP_THREADS: "1"
         run: |
           set -euxo pipefail
           bash scripts/prepare_models.sh
