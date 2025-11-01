@@ -1,9 +1,7 @@
 package com.kotopogoda.uploader.feature.viewer
 
 import android.content.Context
-import android.graphics.RuntimeShader
 import android.net.Uri
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -32,12 +30,6 @@ import coil.request.ImageRequest
 import coil.size.Size
 import androidx.exifinterface.media.ExifInterface
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.RenderEffect
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import coil.compose.SubcomposeAsyncImage
-import coil.compose.SubcomposeAsyncImageContent
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
 import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 
@@ -54,8 +46,6 @@ fun BlendableImage(
     onZoomChanged: (atBaseScale: Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val agslSupported = remember { isAgslSupported() }
-
     val displayedUri = if (enhancedUri != null && blendFactor >= 0.999f) {
         enhancedUri
     } else {
@@ -139,7 +129,7 @@ fun BlendableImage(
             }
             .transformable(transformableState)
     ) {
-        if (agslSupported && enhancedUri != null && blendFactor > 0.001f && blendFactor < 0.999f) {
+        if (enhancedUri != null && blendFactor > 0.001f && blendFactor < 0.999f) {
             BlendedImageContent(
                 baseUri = baseUri,
                 enhancedUri = enhancedUri,
@@ -235,10 +225,6 @@ private fun BlendedImageContent(
                 }
         )
     }
-}
-
-private fun isAgslSupported(): Boolean {
-    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 }
 
 data class FlipFlags(val flipX: Boolean, val flipY: Boolean)
