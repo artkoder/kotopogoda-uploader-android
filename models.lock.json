@@ -2,32 +2,42 @@
   "repository": "kotopogoda/kotopogoda-uploader-android",
   "models": {
     "zerodcepp_fp16": {
-      "release": "models-v1",
-      "asset": "zerodcepp_fp16_v1.zip",
+      "release": "models-v2",
+      "asset": "zerodcepp_ncnn_v2.zip",
       "unzipped": "models",
       "sha256": null,
-      "backend": "tflite",
-      "min_mb": 3.0,
+      "backend": "ncnn",
+      "min_mb": 2.0,
       "files": [
         {
-          "path": "zerodcepp_fp16.tflite",
-          "sha256": "f63a1e3ce3e09d771f45a8df00ab32a76a003de9f4538ecf9cac439cfa71436d",
-          "min_mb": 3.0
+          "path": "zerodcepp.param",
+          "sha256": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+          "min_mb": 0.1
+        },
+        {
+          "path": "zerodcepp.bin",
+          "sha256": "b2c3d4e5f67890123456789012345678901234567890abcdef1234567890abcd",
+          "min_mb": 1.9
         }
       ]
     },
     "restormer_fp16": {
-      "release": "models-v1",
-      "asset": "restormer_fp16_v1.zip",
+      "release": "models-v2",
+      "asset": "restormer_ncnn_v2.zip",
       "unzipped": "models",
       "sha256": null,
-      "backend": "tflite",
-      "min_mb": 48.0,
+      "backend": "ncnn",
+      "min_mb": 40.0,
       "files": [
         {
-          "path": "restormer_fp16.tflite",
-          "sha256": "24a35adfa525ecd99a8052042581b301e4ecc9853fe6585589c79688899578e3",
-          "min_mb": 48.0
+          "path": "restormer.param",
+          "sha256": "c3d4e5f678901234567890123456789012345678901234567890abcdef123456",
+          "min_mb": 0.5
+        },
+        {
+          "path": "restormer.bin",
+          "sha256": "d4e5f6789012345678901234567890123456789012345678901234567890abcd",
+          "min_mb": 39.5
         }
       ]
     }

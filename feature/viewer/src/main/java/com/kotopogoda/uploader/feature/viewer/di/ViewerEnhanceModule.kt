@@ -1,20 +1,19 @@
 package com.kotopogoda.uploader.feature.viewer.di
 
+import android.content.Context
 import com.kotopogoda.uploader.feature.viewer.BuildConfig
-import com.kotopogoda.uploader.core.data.ml.ModelBackend
 import com.kotopogoda.uploader.core.data.ml.ModelDefinition
 import com.kotopogoda.uploader.core.data.ml.ModelFile
 import com.kotopogoda.uploader.core.data.ml.ModelsLock
 import com.kotopogoda.uploader.core.data.ml.ModelsLockParser
-import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
-import com.kotopogoda.uploader.feature.viewer.enhance.backend.RestormerBackendTflite
-import com.kotopogoda.uploader.feature.viewer.enhance.backend.ZeroDceBackendTflite
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceController
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
-import javax.inject.Named
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -26,62 +25,38 @@ object ViewerEnhanceModule {
 
     @Provides
     @Singleton
-    @Named("zero_dce_model_path")
-    fun provideZeroDceModelPath(lock: ModelsLock): String = requireTflitePath(lock.require("zerodcepp_fp16"))
+    fun provideNativeEnhanceController(): NativeEnhanceController = NativeEnhanceController()
 
     @Provides
     @Singleton
-    @Named("restormer_model_path")
-    fun provideRestormerModelPath(lock: ModelsLock): String = requireTflitePath(lock.require("restormer_fp16"))
+    fun provideZeroDceChecksum(lock: ModelsLock): String =
+        requireNcnnChecksum(lock.require("zerodcepp_fp16"))
 
     @Provides
     @Singleton
-    fun provideZeroDceModel(
-        lock: ModelsLock,
-        tflite: ZeroDceBackendTflite,
-    ): EnhanceEngine.ZeroDceModel {
-        val definition = lock.require("zerodcepp_fp16")
-        return when (definition.backend) {
-            ModelBackend.TFLITE -> tflite
-            ModelBackend.NCNN -> throw IllegalStateException("Zero-DCE++ NCNN backend пока не поддержан")
-        }
-    }
+    fun provideRestormerChecksum(lock: ModelsLock): String =
+        requireNcnnChecksum(lock.require("restormer_fp16"))
 
     @Provides
     @Singleton
-    fun provideRestormerModel(
-        lock: ModelsLock,
-        tflite: RestormerBackendTflite,
-    ): EnhanceEngine.RestormerModel {
-        val definition = lock.require("restormer_fp16")
-        return when (definition.backend) {
-            ModelBackend.TFLITE -> tflite
-            ModelBackend.NCNN -> throw IllegalStateException("Restormer NCNN backend пока не поддержан")
-        }
-    }
-
-    @Provides
-    @Singleton
-    fun provideEnhanceEngine(
-        zeroDceModel: EnhanceEngine.ZeroDceModel,
-        restormerModel: EnhanceEngine.RestormerModel,
-        lock: ModelsLock,
-    ): EnhanceEngine = EnhanceEngine(
-        zeroDce = zeroDceModel,
-        restormer = restormerModel,
-        expectedChecksums = EnhanceEngine.ExpectedChecksums(
-            zeroDce = requireTfliteChecksum(lock.require("zerodcepp_fp16")),
-            restormer = requireTfliteChecksum(lock.require("restormer_fp16")),
-        ),
+    fun provideNativeEnhanceAdapter(
+        @ApplicationContext context: Context,
+        controller: NativeEnhanceController,
+        zeroDceChecksum: String,
+        restormerChecksum: String,
+    ): NativeEnhanceAdapter = NativeEnhanceAdapter(
+        context = context,
+        controller = controller,
+        zeroDceChecksum = zeroDceChecksum,
+        restormerChecksum = restormerChecksum,
     )
 }
 
-private fun requireTflitePath(definition: ModelDefinition): String =
-    requireTfliteFile(definition).path
+private fun requireNcnnChecksum(definition: ModelDefinition): String =
+    requireNcnnFile(definition).sha256
 
-private fun requireTfliteChecksum(definition: ModelDefinition): String =
-    requireTfliteFile(definition).sha256
-
-private fun requireTfliteFile(definition: ModelDefinition): ModelFile =
-    definition.files.firstOrNull { it.path.endsWith(".tflite") }
-        ?: throw IllegalStateException("Для модели ${definition.name} не найден TFLite-файл в models.lock.json")
+private fun requireNcnnFile(definition: ModelDefinition): ModelFile =
+    definition.files.firstOrNull { 
+        it.path.endsWith(".param") || it.path.endsWith(".bin") || it.path.endsWith(".ncnn")
+    } ?: definition.files.firstOrNull()
+        ?: throw IllegalStateException("Для модели ${definition.name} не найдены файлы в models.lock.json")

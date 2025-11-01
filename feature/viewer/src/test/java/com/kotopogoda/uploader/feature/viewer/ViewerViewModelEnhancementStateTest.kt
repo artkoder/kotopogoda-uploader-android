@@ -10,7 +10,10 @@ import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
-import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
+import com.kotopogoda.uploader.core.settings.SettingsRepository
+import com.kotopogoda.uploader.core.settings.AppSettings
+import com.kotopogoda.uploader.core.settings.PreviewQuality
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.every
@@ -71,7 +74,10 @@ class ViewerViewModelEnhancementStateTest {
     private lateinit var context: Context
 
     @MockK(relaxed = true)
-    private lateinit var enhanceEngine: EnhanceEngine
+    private lateinit var nativeEnhanceAdapter: NativeEnhanceAdapter
+
+    @MockK(relaxed = true)
+    private lateinit var settingsRepository: SettingsRepository
 
     private lateinit var testDispatcher: TestDispatcher
 
@@ -80,6 +86,15 @@ class ViewerViewModelEnhancementStateTest {
         MockKAnnotations.init(this, relaxUnitFun = true)
         testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
+        
+        val defaultSettings = AppSettings(
+            baseUrl = "https://example.com",
+            appLogging = true,
+            httpLogging = true,
+            persistentQueueNotification = false,
+            previewQuality = PreviewQuality.BALANCED,
+        )
+        every { settingsRepository.flow } returns kotlinx.coroutines.flow.flowOf(defaultSettings)
     }
 
     @AfterTest
@@ -388,47 +403,30 @@ class ViewerViewModelEnhancementStateTest {
             uploadQueueRepository = uploadQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
-            enhanceEngine = enhanceEngine,
+            nativeEnhanceAdapter = nativeEnhanceAdapter,
+            settingsRepository = settingsRepository,
             savedStateHandle = SavedStateHandle(),
         )
     }
 
-    private fun mockEnhanceEngine(
-        resultFile: File,
-        pipeline: EnhanceEngine.Pipeline = EnhanceEngine.Pipeline(),
-        models: EnhanceEngine.ModelsTelemetry = EnhanceEngine.ModelsTelemetry(null, null),
-    ) {
-        coEvery {
-            enhanceEngine.enhance(any())
-        } returns EnhanceEngine.Result(
-            file = resultFile,
-            metrics = EnhanceEngine.Metrics(0.5, 0.3, 0.4, 0.2),
-            profile = EnhanceEngine.Profile(
-                isLowLight = false,
-                kDce = 0f,
-                restormerMix = 0.5f,
-                alphaDetail = 0.3f,
-                sharpenAmount = 0.4f,
-                sharpenRadius = 1.2f,
-                sharpenThreshold = 0.05f,
-                vibranceGain = 0.2f,
-                saturationGain = 1.1f,
+    private fun mockNativeEnhanceAdapter(resultFile: File) {
+        coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
+        coEvery { nativeEnhanceAdapter.computePreview(any(), any(), any()) } returns true
+        coEvery { nativeEnhanceAdapter.computeFull(any(), any(), any(), any(), any()) } returns com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo(
+            strength = 0.5f,
+            delegate = "cpu",
+            metrics = com.kotopogoda.uploader.core.data.upload.UploadEnhancementMetrics(
+                lMean = 0.5f,
+                pDark = 0.3f,
+                bSharpness = 0.4f,
+                nNoise = 0.2f,
             ),
-            delegate = EnhanceEngine.Delegate.GPU,
-            pipeline = pipeline,
-            timings = EnhanceEngine.Timings(
-                decode = 100,
-                metrics = 50,
-                zeroDce = 200,
-                restormer = 500,
-                blend = 30,
-                sharpen = 40,
-                vibrance = 20,
-                encode = 150,
-                exif = 10,
-                total = 1100,
-            ),
-            models = models,
+            fileSize = 1000L,
+            previewTimingMs = 100L,
+            fullTimingMs = 500L,
+            usedVulkan = false,
+            peakMemoryMb = 50f,
+            cancelled = false,
         )
     }
 }

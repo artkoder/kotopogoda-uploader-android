@@ -112,6 +112,11 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         appLogger.setEnabled(true)
         EnhanceLogging.setVerboseLoggingEnabled(BuildConfig.DEBUG)
         EnhanceLogging.setFileLogger(EnhanceFileLogger(this))
+        runCatching {
+            com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceController.loadLibrary()
+        }.onFailure { error ->
+            Timber.tag("NativeEnhance").e(error, "Не удалось загрузить нативную библиотеку")
+        }
         runBlocking(Dispatchers.IO) {
             runCatching { EnhancerModelProbe.run(this@KotopogodaUploaderApp) }
                 .onFailure { error ->

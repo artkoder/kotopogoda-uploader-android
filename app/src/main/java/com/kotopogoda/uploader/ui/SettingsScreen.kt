@@ -138,6 +138,7 @@ fun SettingsRoute(
         onHttpLoggingChanged = viewModel::onHttpLoggingChanged,
         onQueueNotificationChanged = viewModel::onQueueNotificationChanged,
         onRequestQueueNotificationPermission = viewModel::onRequestQueueNotificationPermission,
+        onPreviewQualityChanged = viewModel::onPreviewQualityChanged,
         onExportLogs = viewModel::onExportLogs,
         onClearQueue = viewModel::onClearQueue,
         onResetPairing = viewModel::onResetPairingConfirmed,
@@ -158,6 +159,7 @@ fun SettingsScreen(
     onHttpLoggingChanged: (Boolean) -> Unit,
     onQueueNotificationChanged: (Boolean) -> Unit,
     onRequestQueueNotificationPermission: () -> Unit,
+    onPreviewQualityChanged: (com.kotopogoda.uploader.core.settings.PreviewQuality) -> Unit,
     onExportLogs: () -> Unit,
     onClearQueue: () -> Unit,
     onResetPairing: () -> Unit,
@@ -245,6 +247,28 @@ fun SettingsScreen(
                             Text(text = stringResource(id = R.string.settings_base_url_save))
                         }
                     }
+                }
+            }
+
+            item {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    SettingsSectionTitle(text = stringResource(id = R.string.settings_section_enhancement))
+                    SettingsSwitchRow(
+                        title = stringResource(id = R.string.settings_preview_quality),
+                        description = stringResource(id = R.string.settings_preview_quality_desc),
+                        checked = uiState.previewQuality == com.kotopogoda.uploader.core.settings.PreviewQuality.QUALITY,
+                        onCheckedChange = { isQuality ->
+                            val quality = if (isQuality) {
+                                com.kotopogoda.uploader.core.settings.PreviewQuality.QUALITY
+                            } else {
+                                com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED
+                            }
+                            onPreviewQualityChanged(quality)
+                        },
+                    )
                 }
             }
 
