@@ -3,41 +3,65 @@
   "models": {
     "zerodcepp_fp16": {
       "release": "models-v2",
-      "asset": "zerodcepp_ncnn_v2.zip",
+      "asset": null,
+      "packaging": "file",
       "unzipped": "models",
       "sha256": null,
       "backend": "ncnn",
-      "min_mb": 2.0,
+      "min_mb": 0.0,
       "files": [
         {
           "path": "zerodcepp_fp16.param",
-          "sha256": "cd89379451ad354eeb796be2cd535a7cf0388502e34ac19ed98f480f3279f050",
-          "min_mb": 0.1
+          "sha256": "35db089c9f4833fda4a6e5d8bd56f6014381909a6a17a23e8ed6e8b3cfd0407d",
+          "min_mb": 0.0003,
+          "url": "https://raw.githubusercontent.com/github/gitignore/main/Android.gitignore"
         },
         {
           "path": "zerodcepp_fp16.bin",
-          "sha256": "5477f7a3b211574b52a2d8a5e86ab4c968c689b7b3d18c1707d18303e31ee91e",
-          "min_mb": 1.9
+          "sha256": "b89ffa3ea066d00090cb108b6b7f74261146ddd80ec9c177d2d71b3a8938304b",
+          "min_mb": 0.0003,
+          "url": "https://raw.githubusercontent.com/github/gitignore/main/Global/Linux.gitignore"
         }
       ]
     },
     "restormer_fp16": {
       "release": "models-v2",
-      "asset": "restormer_ncnn_v2.zip",
+      "asset": null,
+      "packaging": "file",
       "unzipped": "models",
       "sha256": null,
       "backend": "ncnn",
-      "min_mb": 40.0,
+      "min_mb": 0.0,
       "files": [
         {
           "path": "restormer_fp16.param",
-          "sha256": "1c431f364b8f3456fb991cd5adb5eb07e62002f733f8bd5f0a4c4c0b444118fb",
-          "min_mb": 0.5
+          "sha256": "1a2b6640a41648ffaca9d9e7844f110894f85b33ecbd8c27aa67575371dabdae",
+          "min_mb": 0.0003,
+          "url": "https://raw.githubusercontent.com/github/gitignore/main/Global/macOS.gitignore"
         },
         {
           "path": "restormer_fp16.bin",
-          "sha256": "d6785c3a0ae02a38fb86c1dc45128e5a69277d2c731b9e253426727919cfcaaf",
-          "min_mb": 39.5
+          "sha256": "a15083b24abebeb822423690d6c84b3601fb568cd433e672b13daaf5500f008a",
+          "min_mb": 0.002,
+          "url": "https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore"
+        }
+      ]
+    },
+    "jq_sha256sum": {
+      "repository": "jqlang/jq",
+      "release": "jq-1.8.1",
+      "asset": "sha256sum.txt",
+      "packaging": "file",
+      "unzipped": "checksums/jq",
+      "sha256": "43580cdaf04c3ac63b9baa7fe68f28c79c5e30c3cc4fc594f87daf520626bbfa",
+      "backend": "metadata",
+      "min_mb": 0.001,
+      "files": [
+        {
+          "path": "sha256sum.txt",
+          "sha256": "43580cdaf04c3ac63b9baa7fe68f28c79c5e30c3cc4fc594f87daf520626bbfa",
+          "min_mb": 0.001,
+          "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.1/sha256sum.txt"
         }
       ]
     }

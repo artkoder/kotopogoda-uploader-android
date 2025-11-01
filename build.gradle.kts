@@ -101,13 +101,27 @@ abstract class FetchModelsTask : DefaultTask() {
             val release = payload["release"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: error("Для модели '$name' не указан release")
             val assetName = payload["asset"]?.toString()?.takeIf { it.isNotBlank() }
-                ?: error("Для модели '$name' не указан asset")
+            val modelRepository = payload["repository"]?.toString()?.takeIf { it.isNotBlank() } ?: repository
             val assetSha = payload["sha256"]?.toString()?.lowercase(Locale.US)
             val assetMinBytes = payload["min_mb"]?.let { toMegabytes(it) } ?: 0L
+            val payloadUrl = payload["url"]?.toString()?.takeIf { it.isNotBlank() }
             val unzipped = payload["unzipped"]?.toString()
                 ?: error("Для модели '$name' не указан unzipped")
             val unzippedPath = normaliseUnzipped(unzipped)
             val files = readFileEntries(name, payload)
+            val packagingRaw = payload["packaging"]?.toString()?.lowercase(Locale.US)
+            val packaging = packagingRaw
+                ?: if (assetName?.endsWith(".zip", ignoreCase = true) == true) "zip" else "file"
+            val isArchive = when (packaging) {
+                "zip" -> true
+                "file" -> false
+                else -> error("Модель '$name' содержит неизвестный тип упаковки '$packaging'")
+            }
+            if (isArchive && assetName == null) {
+                error("Для модели '$name' не указан asset")
+            }
+            val defaultDownloadUrl = payloadUrl
+                ?: assetName?.let { "https://github.com/$modelRepository/releases/download/$release/$it" }
 
             val ready = files.all { entry ->
                 val filePath = resolveFile(assetsDir, unzippedPath, entry.path)
@@ -118,8 +132,35 @@ abstract class FetchModelsTask : DefaultTask() {
                 return@forEach
             }
 
-            val downloadUrl = "https://github.com/$repository/releases/download/$release/$assetName"
-            val archiveFile = downloadsDir.resolve(assetName)
+            if (!isArchive) {
+                cleanupTarget(assetsDir, unzippedPath, files)
+                files.forEach { entry ->
+                    val entryUrl = entry.url ?: defaultDownloadUrl
+                        ?: error("Для файла '${entry.path}' модели '$name' не указан url")
+                    val targetFile = resolveFile(assetsDir, unzippedPath, entry.path)
+                    targetFile.parentFile?.mkdirs()
+                    downloadFile(entryUrl, targetFile)
+                    val effectiveMinBytes = maxOf(entry.minBytes, assetMinBytes)
+                    if (!verifyFile(targetFile, entry.sha256, effectiveMinBytes)) {
+                        throw IllegalStateException("Файл ${entry.path} не прошёл проверку SHA-256")
+                    }
+                }
+                if (assetSha != null && files.size == 1) {
+                    val entry = files.single()
+                    if (!assetSha.equals(entry.sha256, ignoreCase = true)) {
+                        val targetFile = resolveFile(assetsDir, unzippedPath, entry.path)
+                        val actual = sha256(targetFile)
+                        if (!actual.equals(assetSha, ignoreCase = true)) {
+                            throw IllegalStateException("Неверный SHA-256 артефакта '${assetName ?: entry.path}': ожидалось $assetSha, получено $actual")
+                        }
+                    }
+                }
+                return@forEach
+            }
+
+            val downloadUrl = defaultDownloadUrl
+                ?: error("Для модели '$name' не удалось вычислить url скачивания")
+            val archiveFile = downloadsDir.resolve(assetName!!)
             downloadFile(downloadUrl, archiveFile)
 
             if (assetSha != null) {
@@ -133,19 +174,7 @@ abstract class FetchModelsTask : DefaultTask() {
                 throw IllegalStateException("Архив '$assetName' меньше минимального размера ${payload["min_mb"]} МБ")
             }
 
-            val rootDir = resolveRootDir(assetsDir, unzippedPath)
-            if (unzippedPath != null) {
-                if (rootDir.exists()) {
-                    rootDir.deleteRecursively()
-                }
-            } else {
-                files.forEach { entry ->
-                    val existing = resolveFile(assetsDir, null, entry.path)
-                    if (existing.exists()) {
-                        existing.delete()
-                    }
-                }
-            }
+            cleanupTarget(assetsDir, unzippedPath, files)
 
             unzip(archiveFile, assetsDir)
 
@@ -183,7 +212,8 @@ abstract class FetchModelsTask : DefaultTask() {
             val sha = data["sha256"]?.toString()?.lowercase(Locale.US)
                 ?: error("Для файла '$path' не указан sha256")
             val minBytes = data["min_mb"]?.let { toMegabytes(it) } ?: 0L
-            FileEntry(path, sha, minBytes)
+            val url = data["url"]?.toString()?.takeIf { it.isNotBlank() }
+            FileEntry(path, sha, minBytes, url)
         }
     }
 
@@ -223,6 +253,22 @@ abstract class FetchModelsTask : DefaultTask() {
         return target.toFile()
     }
 
+    private fun cleanupTarget(baseDir: java.io.File, root: Path?, files: List<FileEntry>) {
+        if (root != null) {
+            val rootDir = resolveRootDir(baseDir, root)
+            if (rootDir.exists()) {
+                rootDir.deleteRecursively()
+            }
+        } else {
+            files.forEach { entry ->
+                val existing = resolveFile(baseDir, null, entry.path)
+                if (existing.exists()) {
+                    existing.delete()
+                }
+            }
+        }
+    }
+
     private fun verifyFile(file: java.io.File, expectedSha: String, minBytes: Long): Boolean {
         if (!file.exists()) return false
         if (minBytes > 0 && file.length() < minBytes) {
@@ -238,6 +284,7 @@ abstract class FetchModelsTask : DefaultTask() {
         connection.instanceFollowRedirects = true
         try {
             connection.inputStream.use { input ->
+                destination.parentFile?.mkdirs()
                 destination.outputStream().use { output ->
                     input.copyTo(output)
                 }
@@ -284,6 +331,7 @@ abstract class FetchModelsTask : DefaultTask() {
         val path: String,
         val sha256: String,
         val minBytes: Long,
+        val url: String?,
     )
 }
 
