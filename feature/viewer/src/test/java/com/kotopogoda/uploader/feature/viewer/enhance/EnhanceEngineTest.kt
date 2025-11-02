@@ -560,6 +560,85 @@ class EnhanceEngineTest {
         output.delete()
     }
 
+    @Test
+    fun `higher enhancement strength produces brighter output`() = runTest {
+        val darkPixels = IntArray(64) { argb(25, 25, 25) }
+        val decoder = QueueDecoder(
+            listOf(
+                EnhanceEngine.ImageBuffer(8, 8, darkPixels.copyOf()),
+                EnhanceEngine.ImageBuffer(8, 8, darkPixels.copyOf()),
+            ),
+        )
+        val encoder = RecordingEncoder()
+        val zeroDce = TrackingZeroDce()
+        val engine = EnhanceEngine(
+            decoder = decoder,
+            encoder = encoder,
+            zeroDce = zeroDce,
+            restormer = null,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val input = File.createTempFile("input", ".jpg")
+        val outputLow = File.createTempFile("output_low", ".jpg")
+        val outputHigh = File.createTempFile("output_high", ".jpg")
+
+        val resultLow = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 0.2f,
+                outputFile = outputLow,
+                delegate = EnhanceEngine.Delegate.CPU,
+            ),
+        )
+
+        val resultHigh = engine.enhance(
+            EnhanceEngine.Request(
+                source = input,
+                strength = 0.9f,
+                outputFile = outputHigh,
+                delegate = EnhanceEngine.Delegate.CPU,
+            ),
+        )
+
+        val bufferLow = encoder.lastBuffer
+        assertNotNull(bufferLow, "результат с низкой силой должен быть записан")
+        
+        val averageLuminanceLow = bufferLow.pixels.map { pixel ->
+            luminance(
+                Color.red(pixel) / 255f,
+                Color.green(pixel) / 255f,
+                Color.blue(pixel) / 255f,
+            )
+        }.average()
+
+        val averageLuminanceHigh = resultHigh.file.let {
+            val buffer = encoder.lastBuffer
+            assertNotNull(buffer, "результат с высокой силой должен быть записан")
+            buffer.pixels.map { pixel ->
+                luminance(
+                    Color.red(pixel) / 255f,
+                    Color.green(pixel) / 255f,
+                    Color.blue(pixel) / 255f,
+                )
+            }.average()
+        }
+
+        assertTrue(
+            averageLuminanceHigh > averageLuminanceLow,
+            "высокая сила (0.9) должна давать более яркий результат чем низкая (0.2): " +
+                "low=$averageLuminanceLow high=$averageLuminanceHigh",
+        )
+
+        assertTrue(
+            averageLuminanceHigh - averageLuminanceLow > 0.01,
+            "разница яркости должна быть заметной (>1%): difference=${averageLuminanceHigh - averageLuminanceLow}",
+        )
+
+        input.delete()
+        outputLow.delete()
+        outputHigh.delete()
+    }
+
     private fun argb(r: Int, g: Int, b: Int): Int {
         val rr = (r and 0xFF)
         val gg = (g and 0xFF)
