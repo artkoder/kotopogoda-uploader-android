@@ -13,6 +13,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -29,11 +30,13 @@ object ViewerEnhanceModule {
 
     @Provides
     @Singleton
+    @Named("zeroDceChecksum")
     fun provideZeroDceChecksum(lock: ModelsLock): String =
         requireNcnnChecksum(lock.require("zerodcepp_fp16"))
 
     @Provides
     @Singleton
+    @Named("restormerChecksum")
     fun provideRestormerChecksum(lock: ModelsLock): String =
         requireNcnnChecksum(lock.require("restormer_fp16"))
 
@@ -42,8 +45,8 @@ object ViewerEnhanceModule {
     fun provideNativeEnhanceAdapter(
         @ApplicationContext context: Context,
         controller: NativeEnhanceController,
-        zeroDceChecksum: String,
-        restormerChecksum: String,
+        @Named("zeroDceChecksum") zeroDceChecksum: String,
+        @Named("restormerChecksum") restormerChecksum: String,
     ): NativeEnhanceAdapter = NativeEnhanceAdapter(
         context = context,
         controller = controller,
