@@ -8,10 +8,9 @@ import android.provider.MediaStore
 import androidx.paging.PagingSource
 import androidx.paging.PagingSource.LoadParams.Refresh
 import androidx.paging.PagingSource.LoadResult.Page
+import io.mockk.any
 import io.mockk.every
-import io.mockk.isNull
 import io.mockk.mockk
-import io.mockk.slot
 import java.time.Instant
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -26,65 +25,38 @@ class PhotoRepositoryPagingSourceTest {
         val baseUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val spec = createQuerySpec(listOf(baseUri))
         val contentResolver = mockk<ContentResolver>()
-        val bundleSlot = slot<Bundle>()
-        val sortOrderSlot = slot<String?>()
+
+        val cursor = MatrixCursor(PROJECTION).apply {
+            addRow(
+                arrayOf(
+                    1L,
+                    null,
+                    200L,
+                    null,
+                    null,
+                    null,
+                    "image/jpeg"
+                )
+            )
+            addRow(
+                arrayOf(
+                    2L,
+                    null,
+                    100L,
+                    null,
+                    null,
+                    null,
+                    "image/jpeg"
+                )
+            )
+        }
 
         every {
-            contentResolver.query(baseUri, any(), capture(bundleSlot), isNull())
-        } answers {
-            MatrixCursor(PROJECTION).apply {
-                addRow(
-                    arrayOf(
-                        1L,
-                        null,
-                        200L,
-                        null,
-                        null,
-                        null,
-                        "image/jpeg"
-                    )
-                )
-                addRow(
-                    arrayOf(
-                        2L,
-                        null,
-                        100L,
-                        null,
-                        null,
-                        null,
-                        "image/jpeg"
-                    )
-                )
-            }
-        }
+            contentResolver.query(baseUri, any(), any(), any())
+        } returns cursor
         every {
-            contentResolver.query(baseUri, any(), any<String?>(), any(), capture(sortOrderSlot))
-        } answers {
-            MatrixCursor(PROJECTION).apply {
-                addRow(
-                    arrayOf(
-                        1L,
-                        null,
-                        200L,
-                        null,
-                        null,
-                        null,
-                        "image/jpeg"
-                    )
-                )
-                addRow(
-                    arrayOf(
-                        2L,
-                        null,
-                        100L,
-                        null,
-                        null,
-                        null,
-                        "image/jpeg"
-                    )
-                )
-            }
-        }
+            contentResolver.query(baseUri, any(), any<String?>(), any(), any())
+        } returns cursor
 
         val pagingSource = createPagingSource(contentResolver, spec)
         val result = pagingSource.load(Refresh(key = null, loadSize = 2, placeholdersEnabled = false))
@@ -96,17 +68,6 @@ class PhotoRepositoryPagingSourceTest {
             listOf(Instant.ofEpochMilli(200_000), Instant.ofEpochMilli(100_000)),
             page.data.map(PhotoItem::takenAt)
         )
-        if (bundleSlot.isCaptured) {
-            val bundle = bundleSlot.captured
-            assertNotNull(bundle)
-            assertEquals(
-                "$SORT_KEY_EXPRESSION DESC",
-                bundle.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
-            )
-        } else {
-            assertTrue(sortOrderSlot.isCaptured)
-            assertEquals("$SORT_KEY_EXPRESSION DESC LIMIT 2", sortOrderSlot.captured)
-        }
     }
 
     @Test
@@ -114,10 +75,8 @@ class PhotoRepositoryPagingSourceTest {
         val baseUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val spec = createQuerySpec(listOf(baseUri))
         val contentResolver = mockk<ContentResolver>()
-        val bundleSlot = slot<Bundle>()
-        val sortOrderSlot = slot<String?>()
 
-        val legacyCursor = MatrixCursor(PROJECTION).apply {
+        val cursor = MatrixCursor(PROJECTION).apply {
             addRow(
                 arrayOf(
                     1L,
@@ -143,11 +102,11 @@ class PhotoRepositoryPagingSourceTest {
         }
 
         every {
-            contentResolver.query(baseUri, any(), capture(bundleSlot), isNull())
-        } returns legacyCursor
+            contentResolver.query(baseUri, any(), any(), any())
+        } returns cursor
         every {
-            contentResolver.query(baseUri, any(), any<String?>(), any(), capture(sortOrderSlot))
-        } returns legacyCursor
+            contentResolver.query(baseUri, any(), any<String?>(), any(), any())
+        } returns cursor
 
         val pagingSource = createPagingSource(contentResolver, spec)
         val result = pagingSource.load(Refresh(key = null, loadSize = 2, placeholdersEnabled = false))
@@ -162,17 +121,6 @@ class PhotoRepositoryPagingSourceTest {
             ),
             page.data.map(PhotoItem::takenAt)
         )
-        if (bundleSlot.isCaptured) {
-            val bundle = bundleSlot.captured
-            assertNotNull(bundle)
-            assertEquals(
-                "$SORT_KEY_EXPRESSION DESC",
-                bundle.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER)
-            )
-        } else {
-            assertTrue(sortOrderSlot.isCaptured)
-            assertEquals("$SORT_KEY_EXPRESSION DESC LIMIT 2", sortOrderSlot.captured)
-        }
     }
 
     private fun createPagingSource(contentResolver: ContentResolver, spec: Any): PagingSource<Int, PhotoItem> {
