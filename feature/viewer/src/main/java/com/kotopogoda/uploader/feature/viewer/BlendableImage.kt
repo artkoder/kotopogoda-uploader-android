@@ -112,7 +112,7 @@ fun BlendableImage(
         }
     }
 
-    val flips = remember(displayedUri) { resolveFlipFlags(context, displayedUri) }
+    val flips = remember(displayedUri) { resolveFlipFlags(context, displayedUri, "BlendableImage.flip") }
 
     Box(
         modifier = modifier
@@ -240,24 +240,6 @@ private fun BlendedImageContent(
 private fun isAgslSupported(): Boolean {
     return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 }
-
-data class FlipFlags(val flipX: Boolean, val flipY: Boolean)
-
-private fun resolveFlipFlags(context: Context, uri: Uri): FlipFlags = runCatching {
-    val resolver = context.contentResolver
-    val normalizedUri = resolver.requireOriginalIfNeeded(uri)
-    resolver.logUriReadDebug("BlendableImage.flip", uri, normalizedUri)
-    resolver.openInputStream(normalizedUri)?.use { input ->
-        val exif = ExifInterface(input)
-        when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> FlipFlags(flipX = true, flipY = false)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> FlipFlags(flipX = false, flipY = true)
-            ExifInterface.ORIENTATION_TRANSPOSE -> FlipFlags(flipX = true, flipY = false)
-            ExifInterface.ORIENTATION_TRANSVERSE -> FlipFlags(flipX = false, flipY = true)
-            else -> FlipFlags(flipX = false, flipY = false)
-        }
-    } ?: FlipFlags(flipX = false, flipY = false)
-}.getOrDefault(FlipFlags(flipX = false, flipY = false))
 
 private fun Offset.coerceWithinBounds(scale: Float, containerSize: IntSize): Offset {
     if (containerSize.width == 0 || containerSize.height == 0) {
