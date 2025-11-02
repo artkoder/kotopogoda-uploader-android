@@ -8,9 +8,7 @@ import android.provider.MediaStore
 import androidx.paging.PagingSource
 import androidx.paging.PagingSource.LoadParams.Refresh
 import androidx.paging.PagingSource.LoadResult.Page
-import io.mockk.any
-import io.mockk.every
-import io.mockk.mockk
+import io.mockk.*
 import java.time.Instant
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -52,10 +50,10 @@ class PhotoRepositoryPagingSourceTest {
         }
 
         every {
-            contentResolver.query(baseUri, any(), any(), any())
+            contentResolver.query(baseUri, any(), any(), any(), any())
         } returns cursor
         every {
-            contentResolver.query(baseUri, any(), any<String?>(), any(), any())
+            contentResolver.query(baseUri, any(), any(), any(), any())
         } returns cursor
 
         val pagingSource = createPagingSource(contentResolver, spec)
@@ -102,10 +100,10 @@ class PhotoRepositoryPagingSourceTest {
         }
 
         every {
-            contentResolver.query(baseUri, any(), any(), any())
+            contentResolver.query(baseUri, any(), any(), any(), any())
         } returns cursor
         every {
-            contentResolver.query(baseUri, any(), any<String?>(), any(), any())
+            contentResolver.query(baseUri, any(), any(), any(), any())
         } returns cursor
 
         val pagingSource = createPagingSource(contentResolver, spec)

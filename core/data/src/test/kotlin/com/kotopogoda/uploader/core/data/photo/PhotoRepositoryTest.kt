@@ -8,11 +8,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
-import io.mockk.any
-import io.mockk.coEvery
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.spyk
+import io.mockk.*
 import java.time.Instant
 import java.time.ZoneId
 import kotlin.test.assertEquals
@@ -157,7 +153,7 @@ class PhotoRepositoryTest {
         }
 
         every {
-            contentResolver.query(baseUri, any(), any<Bundle>(), any())
+            contentResolver.query(baseUri, any(), any(), any())
         } answers {
             val bundle = thirdArg<Bundle>()
             val selection = bundle.getString(ContentResolver.QUERY_ARG_SQL_SELECTION)
@@ -165,7 +161,7 @@ class PhotoRepositoryTest {
             buildCursor(selection, args)
         }
         every {
-            contentResolver.query(baseUri, any(), any<String?>(), any(), any())
+            contentResolver.query(baseUri, any(), any(), any(), any())
         } answers {
             val selection = thirdArg<String?>()
             val args = arg<Array<String>?>(3)
