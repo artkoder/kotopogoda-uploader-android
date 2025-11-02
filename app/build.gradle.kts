@@ -119,11 +119,17 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "lib/libRapidOcr.dylib"
         }
         jniLibs {
             useLegacyPackaging = true
         }
     }
+}
+
+configurations.all {
+    exclude(group = "io.github.mymonstercat", module = "rapidocr-ncnn-macosx-arm64")
+    exclude(group = "io.github.mymonstercat", module = "rapidocr-ncnn-macosx-x86_64")
 }
 
 gradle.taskGraph.whenReady(object : Action<TaskExecutionGraph> {
