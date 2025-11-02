@@ -444,24 +444,23 @@ class PhotoRepository @Inject constructor(
                 }
 
             val pageResult = page
-                ?: LoadResult.Page<Int, PhotoItem>(
+                ?: LoadResult.Page(
                     data = emptyList(),
                     prevKey = null,
                     nextKey = null,
                 )
-            if (pageResult is LoadResult.Page) {
-                Timber.tag(MEDIA_LOG_TAG).i(
-                    UploadLog.message(
-                        category = CATEGORY_MEDIA_RESULT,
-                        action = "page",
-                        details = arrayOf(
-                            "offset" to offset,
-                            "returned" to pageResult.data.size,
-                            "next_key" to pageResult.nextKey,
-                        ),
+            
+            Timber.tag(MEDIA_LOG_TAG).i(
+                UploadLog.message(
+                    category = CATEGORY_MEDIA_RESULT,
+                    action = "page",
+                    details = arrayOf(
+                        "offset" to offset,
+                        "returned" to pageResult.data.size,
+                        "next_key" to pageResult.nextKey,
                     ),
-                )
-            }
+                ),
+            )
 
             return pageResult
         }

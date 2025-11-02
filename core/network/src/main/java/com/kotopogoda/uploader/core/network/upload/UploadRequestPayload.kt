@@ -133,8 +133,8 @@ private fun inspectExif(stream: java.io.BufferedInputStream): ExifInspection {
     }
     stream.mark(EXIF_MARK_LIMIT)
     val exif = runCatching { ExifInterface(stream) }.getOrNull()
-    val latLong = FloatArray(2)
-    val hasLatLong = exif?.getLatLong(latLong) ?: false
+    val latLong = exif?.latLong
+    val hasLatLong = latLong != null
     val resetSucceeded = runCatching { stream.reset(); true }.getOrElse { false }
     return ExifInspection(
         hasCoordinates = exif?.let { if (hasLatLong) true else false },

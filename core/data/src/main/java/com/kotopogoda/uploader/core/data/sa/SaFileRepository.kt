@@ -260,8 +260,9 @@ class SaFileRepository @Inject constructor(
 
         val deleteResult = runCatching { resolver.delete(uri, null, null) }
         val deleted = deleteResult.getOrElse { error ->
-            val recoverable = error as? RecoverableSecurityException
-                ?: throw IllegalStateException("Unable to delete source document $uri", error)
+            if (error !is RecoverableSecurityException) {
+                throw IllegalStateException("Unable to delete source document $uri", error)
+            }
             return MoveResult.RequiresDeletePermission(
                 MediaStore.createDeleteRequest(resolver, listOf(uri))
             )
@@ -282,7 +283,7 @@ class SaFileRepository @Inject constructor(
         uri: Uri,
         error: Throwable
     ): MoveResult? {
-        val recoverable = error as? RecoverableSecurityException ?: return null
+        if (error !is RecoverableSecurityException) return null
         val pendingIntent = runCatching {
             MediaStore.createWriteRequest(resolver, listOf(uri))
         }.getOrNull()
