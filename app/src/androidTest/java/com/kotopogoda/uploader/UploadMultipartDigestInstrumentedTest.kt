@@ -1,10 +1,13 @@
 package com.kotopogoda.uploader
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
+import androidx.exifinterface.media.ExifInterface
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -109,5 +112,118 @@ class UploadMultipartDigestInstrumentedTest {
                     .firstOrNull { it.isNotEmpty() && !it.startsWith("--") }
                     ?.trimEnd('\r', '\n')
             }
+    }
+
+    @Test
+    fun uploadRequestWithGpsExifDataCarriesGpsHeader() = runBlocking {
+        val file = createTempJpegWithGps(latitude = 55.7558, longitude = 37.6173)
+        val uri = Uri.fromFile(file)
+        val payload = prepareUploadRequestPayload(
+            resolver = context.contentResolver,
+            uri = uri,
+            displayName = file.name,
+            mimeType = "image/jpeg",
+            mediaType = "image/jpeg".toMediaType(),
+            totalBytes = file.length(),
+            boundarySeed = "gps-test",
+        )
+
+        assertEquals("true", payload.gpsState.headerValue)
+
+        val requestBody = payload.createRequestBody(null)
+        mockWebServer.enqueue(MockResponse().setResponseCode(202))
+
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(mockWebServer.url("/v1/uploads"))
+            .post(requestBody)
+            .header("Idempotency-Key", "gps-test")
+            .header("X-Content-SHA256", payload.requestSha256Hex)
+            .header("X-Has-GPS", payload.gpsState.headerValue)
+            .header("X-EXIF-Source", payload.exifSource.headerValue)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            assertEquals(202, response.code)
+        }
+
+        val recorded = mockWebServer.takeRequest()
+        assertEquals("true", recorded.getHeader("X-Has-GPS"))
+        assertEquals(payload.requestSha256Hex, recorded.getHeader("X-Content-SHA256"))
+
+        val recordedBytes = recorded.body.readByteArray()
+        val recordedDigest = recordedBytes.sha256Hex()
+        assertEquals(payload.requestSha256Hex, recordedDigest)
+    }
+
+    @Test
+    fun uploadRequestWithoutGpsExifDataCarriesAbsentHeader() = runBlocking {
+        val file = createTempJpegWithoutGps()
+        val uri = Uri.fromFile(file)
+        val payload = prepareUploadRequestPayload(
+            resolver = context.contentResolver,
+            uri = uri,
+            displayName = file.name,
+            mimeType = "image/jpeg",
+            mediaType = "image/jpeg".toMediaType(),
+            totalBytes = file.length(),
+            boundarySeed = "no-gps-test",
+        )
+
+        assertEquals("false", payload.gpsState.headerValue)
+
+        val requestBody = payload.createRequestBody(null)
+        mockWebServer.enqueue(MockResponse().setResponseCode(202))
+
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(mockWebServer.url("/v1/uploads"))
+            .post(requestBody)
+            .header("Idempotency-Key", "no-gps-test")
+            .header("X-Content-SHA256", payload.requestSha256Hex)
+            .header("X-Has-GPS", payload.gpsState.headerValue)
+            .header("X-EXIF-Source", payload.exifSource.headerValue)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            assertEquals(202, response.code)
+        }
+
+        val recorded = mockWebServer.takeRequest()
+        assertEquals("false", recorded.getHeader("X-Has-GPS"))
+        assertEquals(payload.requestSha256Hex, recorded.getHeader("X-Content-SHA256"))
+
+        val recordedBytes = recorded.body.readByteArray()
+        val recordedDigest = recordedBytes.sha256Hex()
+        assertEquals(payload.requestSha256Hex, recordedDigest)
+    }
+
+    private fun createTempJpegWithGps(latitude: Double, longitude: Double): File {
+        val file = File.createTempFile("gps_test", ".jpg", context.cacheDir).apply {
+            deleteOnExit()
+        }
+        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        FileOutputStream(file).use { stream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+        }
+        bitmap.recycle()
+
+        val exif = ExifInterface(file.absolutePath)
+        exif.setLatLong(latitude, longitude)
+        exif.saveAttributes()
+
+        return file
+    }
+
+    private fun createTempJpegWithoutGps(): File {
+        val file = File.createTempFile("no_gps_test", ".jpg", context.cacheDir).apply {
+            deleteOnExit()
+        }
+        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        FileOutputStream(file).use { stream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+        }
+        bitmap.recycle()
+        return file
     }
 }
