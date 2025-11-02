@@ -6,6 +6,7 @@ import com.kotopogoda.uploader.core.logging.diagnostic.DeviceInfo
 import com.kotopogoda.uploader.core.logging.diagnostic.DeviceInfoProvider
 import com.kotopogoda.uploader.core.logging.diagnostic.DiagnosticContextProvider
 import com.kotopogoda.uploader.core.settings.AppSettings
+import com.kotopogoda.uploader.core.settings.PreviewQuality
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertContains
@@ -41,6 +42,7 @@ class UploadLogTest {
                 appLogging = true,
                 httpLogging = false,
                 persistentQueueNotification = true,
+                previewQuality = PreviewQuality.BALANCED,
             )
         )
         provider.updateExtra(mapOf("device_id" to "device-123"))
