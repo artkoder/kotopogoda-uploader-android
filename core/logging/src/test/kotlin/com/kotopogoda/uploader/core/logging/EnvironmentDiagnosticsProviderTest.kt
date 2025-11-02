@@ -17,6 +17,7 @@ import com.kotopogoda.uploader.core.logging.diagnostics.WorkInfoProvider
 import com.kotopogoda.uploader.core.logging.diagnostics.WorkInfoSnapshot
 import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.NotificationPermissionProvider
+import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +122,7 @@ class EnvironmentDiagnosticsProviderTest {
                 appLogging = true,
                 httpLogging = false,
                 persistentQueueNotification = false,
+                previewQuality = PreviewQuality.BALANCED,
             )
         )
 
@@ -128,6 +130,7 @@ class EnvironmentDiagnosticsProviderTest {
         override suspend fun setAppLogging(enabled: Boolean) = error("Not needed in tests")
         override suspend fun setHttpLogging(enabled: Boolean) = error("Not needed in tests")
         override suspend fun setPersistentQueueNotification(enabled: Boolean) = error("Not needed in tests")
+        override suspend fun setPreviewQuality(quality: PreviewQuality) = error("Not needed in tests")
     }
 
     private class FakeNotificationPermissionProvider : NotificationPermissionProvider {
