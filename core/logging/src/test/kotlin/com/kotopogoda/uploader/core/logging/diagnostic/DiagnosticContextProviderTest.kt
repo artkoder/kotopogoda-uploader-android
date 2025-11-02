@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.logging.diagnostic
 
 import com.kotopogoda.uploader.core.settings.AppSettings
+import com.kotopogoda.uploader.core.settings.PreviewQuality
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -49,6 +50,7 @@ class DiagnosticContextProviderTest {
                 appLogging = false,
                 httpLogging = true,
                 persistentQueueNotification = false,
+                previewQuality = PreviewQuality.BALANCED,
             )
         )
 
