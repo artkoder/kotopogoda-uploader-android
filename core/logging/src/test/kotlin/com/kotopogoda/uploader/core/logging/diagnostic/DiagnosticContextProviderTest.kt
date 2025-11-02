@@ -49,6 +49,7 @@ class DiagnosticContextProviderTest {
                 appLogging = false,
                 httpLogging = true,
                 persistentQueueNotification = false,
+                previewQuality = com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED,
             )
         )
 
