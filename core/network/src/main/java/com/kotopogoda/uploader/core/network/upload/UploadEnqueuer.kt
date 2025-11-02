@@ -31,7 +31,7 @@ class UploadEnqueuer @Inject constructor(
     suspend fun enqueue(
         uri: Uri,
         idempotencyKey: String,
-        displayName: String,
+        @Suppress("UNUSED_PARAMETER") displayName: String,
         contentSha256: String,
         options: UploadEnqueueOptions = UploadEnqueueOptions(),
     ) {
