@@ -2,24 +2,19 @@ package com.kotopogoda.uploader.core.data.sa
 
 import android.app.PendingIntent
 import android.app.RecoverableSecurityException
+import android.app.RemoteAction
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.content.IntentSender
 import android.database.MatrixCursor
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
-import io.mockk.eq
-import io.mockk.every
-import io.mockk.match
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
-import io.mockk.verify
-import io.mockk.slot
+import io.mockk.*
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.After
@@ -65,7 +60,7 @@ class SaFileRepositoryTest {
         every { sourceDocument.uri } returns safUri
         every { sourceDocument.delete() } returns true
 
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
         every { destinationFolder.listFiles() } returns emptyArray()
         every { destinationFolder.createFile("image/jpeg", "foo.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
@@ -91,7 +86,7 @@ class SaFileRepositoryTest {
         val valuesSlot = slot<ContentValues>()
 
         every { destinationFolder.uri } returns destinationFolderUri
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
 
         mockkStatic(Build.VERSION::class)
         every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
@@ -125,9 +120,11 @@ class SaFileRepositoryTest {
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
         val pendingIntent = mockk<PendingIntent>(relaxed = true)
         val intentSender = mockk<IntentSender>()
+        val icon = mockk<Icon>()
+        val remoteAction = RemoteAction(icon, "Write Permission", "Need write permission", pendingIntent)
 
         every { destinationFolder.uri } returns destinationFolderUri
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
 
         mockkStatic(Build.VERSION::class)
         every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
@@ -144,7 +141,7 @@ class SaFileRepositoryTest {
         } throws RecoverableSecurityException(
             SecurityException("no access"),
             "Need write permission",
-            intentSender
+            remoteAction
         )
 
         val result = repository.moveToProcessing(mediaUri)
@@ -165,6 +162,8 @@ class SaFileRepositoryTest {
         val destinationDocument = mockk<DocumentFile>(relaxed = true)
         val pendingIntent = mockk<PendingIntent>(relaxed = true)
         val intentSender = mockk<IntentSender>()
+        val icon = mockk<Icon>()
+        val remoteAction = RemoteAction(icon, "Delete Permission", "Need delete permission", pendingIntent)
         val inputBytes = "media-bytes".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
@@ -188,7 +187,7 @@ class SaFileRepositoryTest {
             addRow(arrayOf<Any>("bar.jpg"))
         }
 
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
         every { destinationFolder.listFiles() } returns emptyArray()
         every { destinationFolder.createFile("image/jpeg", "bar.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
@@ -200,7 +199,7 @@ class SaFileRepositoryTest {
         every { contentResolver.delete(mediaUri, null, null) } throws RecoverableSecurityException(
             SecurityException("no access"),
             "Need delete permission",
-            intentSender
+            remoteAction
         )
 
         val result = repository.moveToProcessing(mediaUri)
@@ -237,7 +236,7 @@ class SaFileRepositoryTest {
             addRow(arrayOf<Any>("bar.jpg"))
         }
 
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
         every { destinationFolder.listFiles() } returns emptyArray()
 
         every { contentResolver.getType(mediaUri) } returns "image/jpeg"
@@ -284,7 +283,7 @@ class SaFileRepositoryTest {
         every { sourceDocument.uri } returns safUri
         every { sourceDocument.delete() } returns true
 
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
         every { existingDocument.isFile } returns true
         every { existingDocument.name } returns "foo.jpg"
         every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
@@ -322,7 +321,7 @@ class SaFileRepositoryTest {
         every { sourceDocument.uri } returns safUri
         every { sourceDocument.delete() } returns true
 
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
         every { existingDocument.isFile } returns true
         every { existingDocument.name } returns "foo.JPG"
         every { destinationFolder.listFiles() } returns arrayOf(existingDocument)
@@ -352,6 +351,8 @@ class SaFileRepositoryTest {
         val existingDocument = mockk<DocumentFile>(relaxed = true)
         val pendingIntent = mockk<PendingIntent>(relaxed = true)
         val intentSender = mockk<IntentSender>()
+        val icon = mockk<Icon>()
+        val remoteAction = RemoteAction(icon, "Delete Permission", "Need delete permission", pendingIntent)
         val inputBytes = "media-duplicate".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
@@ -372,7 +373,7 @@ class SaFileRepositoryTest {
             addRow(arrayOf<Any>("bar.jpg"))
         }
 
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
         every { destinationFolder.uri } returns destinationFolderUri
         every { existingDocument.isFile } returns true
         every { existingDocument.name } returns "bar.jpg"
@@ -387,7 +388,7 @@ class SaFileRepositoryTest {
         every { contentResolver.delete(mediaUri, null, null) } throws RecoverableSecurityException(
             SecurityException("no access"),
             "Need delete permission",
-            intentSender
+            remoteAction
         )
 
         val result = repository.moveToProcessing(mediaUri)
@@ -465,7 +466,7 @@ class SaFileRepositoryTest {
         every { existingSuffixTwo.isFile } returns true
         every { existingSuffixTwo.name } returns "foo-2.jpg"
 
-        every { processingFolderProvider.ensure() } returns destinationFolder
+        coEvery { processingFolderProvider.ensure() } returns destinationFolder
         every { destinationFolder.listFiles() } returns arrayOf(existingBase, existingSuffixOne, existingSuffixTwo)
         every { destinationFolder.createFile("image/jpeg", "foo-3.jpg") } returns destinationDocument
         every { destinationDocument.uri } returns destinationUri
