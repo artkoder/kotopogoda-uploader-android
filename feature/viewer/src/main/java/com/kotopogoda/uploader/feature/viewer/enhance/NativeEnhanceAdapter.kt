@@ -15,14 +15,15 @@ import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Singleton
 class NativeEnhanceAdapter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val controller: NativeEnhanceController,
-    private val zeroDceChecksum: String,
-    private val restormerChecksum: String,
+    @Named("zeroDceChecksum") private val zeroDceChecksum: String,
+    @Named("restormerChecksum") private val restormerChecksum: String,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
