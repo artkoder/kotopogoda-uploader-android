@@ -87,11 +87,11 @@ fun KotopogodaNavHost(
     }
 
     LaunchedEffect(deviceCreds, resolvedStartDestination) {
-        val startDestination = resolvedStartDestination ?: return@LaunchedEffect
+        val destination = resolvedStartDestination ?: return@LaunchedEffect
         val targetRoute = if (deviceCreds == null) {
             PairingRoute
         } else {
-            startDestination.startRoute
+            destination.startRoute
         }
         navController.navigate(targetRoute) {
             popUpTo(0)
