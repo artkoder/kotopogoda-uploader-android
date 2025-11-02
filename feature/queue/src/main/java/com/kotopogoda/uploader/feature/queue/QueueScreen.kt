@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,10 +27,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallTopAppBar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -98,7 +98,7 @@ fun QueueScreen(
 ) {
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = stringResource(id = R.string.queue_title))
@@ -111,12 +111,12 @@ fun QueueScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.Rounded.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(id = R.string.queue_back)
                         )
                     }
                 },
-                colors = TopAppBarDefaults.smallTopAppBarColors()
+                colors = TopAppBarDefaults.topAppBarColors()
             )
         }
     ) { innerPadding ->
@@ -216,7 +216,7 @@ private fun QueueItemCard(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
                 LinearProgressIndicator(
-                    progress = (item.progressPercent ?: 0) / 100f,
+                    progress = { (item.progressPercent ?: 0) / 100f },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
