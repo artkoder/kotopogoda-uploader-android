@@ -123,6 +123,7 @@ class StatusViewModel @Inject constructor(
         storageRefresh.tryEmit(Unit)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun storageStateFlow(): Flow<StorageStatus> {
         return combine(folderRepository.observeFolder(), storageRefresh) { folder, _ -> folder }
             .flatMapLatest { folder ->
