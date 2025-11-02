@@ -41,6 +41,7 @@ class UploadLogTest {
                 appLogging = true,
                 httpLogging = false,
                 persistentQueueNotification = true,
+                previewQuality = com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED,
             )
         )
         provider.updateExtra(mapOf("device_id" to "device-123"))

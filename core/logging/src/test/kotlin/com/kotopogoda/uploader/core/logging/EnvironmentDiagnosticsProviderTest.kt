@@ -121,6 +121,7 @@ class EnvironmentDiagnosticsProviderTest {
                 appLogging = true,
                 httpLogging = false,
                 persistentQueueNotification = false,
+                previewQuality = com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED,
             )
         )
 
@@ -128,6 +129,7 @@ class EnvironmentDiagnosticsProviderTest {
         override suspend fun setAppLogging(enabled: Boolean) = error("Not needed in tests")
         override suspend fun setHttpLogging(enabled: Boolean) = error("Not needed in tests")
         override suspend fun setPersistentQueueNotification(enabled: Boolean) = error("Not needed in tests")
+        override suspend fun setPreviewQuality(quality: com.kotopogoda.uploader.core.settings.PreviewQuality) = error("Not needed in tests")
     }
 
     private class FakeNotificationPermissionProvider : NotificationPermissionProvider {
