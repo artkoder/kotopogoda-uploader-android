@@ -1,7 +1,5 @@
 package android.app;
 
-import android.content.IntentSender;
-
 public class RecoverableSecurityException extends SecurityException {
     private final RemoteAction userAction;
 
