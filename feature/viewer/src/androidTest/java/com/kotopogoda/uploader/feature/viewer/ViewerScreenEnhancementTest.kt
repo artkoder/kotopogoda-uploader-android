@@ -452,4 +452,219 @@ class ViewerScreenEnhancementTest {
         // но возможно с ограничениями или визуальным индикатором
         composeRule.onNodeWithTag("enhancement_slider").assertExists()
     }
+
+    @Test
+    fun sliderCallbacksStayWithinRange() {
+        val photo = PhotoItem(
+            id = "test-photo",
+            uri = Uri.parse("content://photo/1"),
+            takenAt = null
+        )
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            var strength by remember { mutableFloatStateOf(0.5f) }
+            val capturedValues = remember { mutableListOf<Float>() }
+            
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenStatus = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = strength,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = { newValue ->
+                    capturedValues.add(newValue)
+                    strength = newValue
+                },
+                onEnhancementStrengthChangeFinished = {}
+            )
+        }
+
+        composeRule.onNodeWithTag("enhancement_slider")
+            .performTouchInput { swipeRight() }
+        
+        composeRule.runOnIdle {
+            assertTrue(capturedValues.isNotEmpty(), "должны быть захвачены значения из слайдера")
+            capturedValues.forEach { value ->
+                assertTrue(value >= 0f, "все значения должны быть >= 0f, получено: $value")
+                assertTrue(value <= 1f, "все значения должны быть <= 1f, получено: $value")
+            }
+        }
+    }
+
+    @Test
+    fun sliderReachesMaximumOnFullSwipe() {
+        val photo = PhotoItem(
+            id = "test-photo",
+            uri = Uri.parse("content://photo/1"),
+            takenAt = null
+        )
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            var strength by remember { mutableFloatStateOf(0f) }
+            var finishedValue by remember { mutableFloatStateOf(0f) }
+            
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenStatus = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = strength,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = { newValue ->
+                    strength = newValue
+                },
+                onEnhancementStrengthChangeFinished = {
+                    finishedValue = strength
+                }
+            )
+        }
+
+        composeRule.onNodeWithTag("enhancement_slider")
+            .performTouchInput { swipeRight(endX = right) }
+        
+        composeRule.runOnIdle {
+            assertTrue(
+                finishedValue >= 0.9f,
+                "после полного свайпа вправо strength должен быть близок к 1f, получено: $finishedValue"
+            )
+        }
+    }
+
+    @Test
+    fun sliderLabelReflectsCorrectPercentage() {
+        val photo = PhotoItem(
+            id = "test-photo",
+            uri = Uri.parse("content://photo/1"),
+            takenAt = null
+        )
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            var strength by remember { mutableFloatStateOf(0.5f) }
+            
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenStatus = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = strength,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = { newValue ->
+                    strength = newValue
+                },
+                onEnhancementStrengthChangeFinished = {}
+            )
+        }
+
+        composeRule.onNodeWithTag("enhancement_strength_label").assertExists()
+        
+        val expectedPercentage = (0.5f * 100).toInt()
+        composeRule.onNodeWithTag("enhancement_strength_label")
+            .assertTextContains("$expectedPercentage", substring = true)
+    }
 }
