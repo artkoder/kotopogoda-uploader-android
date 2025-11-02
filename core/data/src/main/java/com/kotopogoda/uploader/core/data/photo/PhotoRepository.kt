@@ -444,7 +444,7 @@ class PhotoRepository @Inject constructor(
                 }
 
             val pageResult = page
-                ?: LoadResult.Page(
+                ?: LoadResult.Page<Int, PhotoItem>(
                     data = emptyList(),
                     prevKey = null,
                     nextKey = null,
