@@ -394,6 +394,66 @@ class ViewerViewModelEnhancementStateTest {
         assertTrue(finalState.progressByTile.isEmpty()) // После завершения прогресс очищается
     }
 
+    @Test
+    fun `strength clamped to minimum when below zero`() = runTest {
+        val viewModel = createViewModel()
+        
+        val initialState = viewModel.enhancementState.first()
+        assertEquals(0.5f, initialState.strength)
+        
+        viewModel.onEnhancementStrengthChange(-0.3f)
+        advanceUntilIdle()
+        
+        val state = viewModel.enhancementState.first()
+        assertEquals(0f, state.strength, "strength должен быть клампирован к 0f")
+        assertTrue(state.isResultReady, "состояние должно остаться корректным")
+        assertFalse(state.inProgress, "обработка не должна начаться для отрицательных значений")
+    }
+
+    @Test
+    fun `strength clamped to maximum when above one`() = runTest {
+        val photo = PhotoItem(id = "photo1", uri = Uri.parse("content://photo/1"), takenAt = Instant.now())
+        val viewModel = createViewModel()
+        viewModel.updateVisiblePhoto(1, photo)
+        advanceUntilIdle()
+        
+        val initialState = viewModel.enhancementState.first()
+        assertEquals(0.5f, initialState.strength)
+        
+        viewModel.onEnhancementStrengthChange(1.5f)
+        advanceUntilIdle()
+        
+        val state = viewModel.enhancementState.first()
+        assertEquals(1f, state.strength, "strength должен быть клампирован к 1f")
+        assertTrue(state.isResultReady, "состояние должно остаться корректным")
+    }
+
+    @Test
+    fun `clamping preserves state machine consistency`() = runTest {
+        val photo = PhotoItem(id = "photo1", uri = Uri.parse("content://photo/1"), takenAt = Instant.now())
+        val viewModel = createViewModel()
+        viewModel.updateVisiblePhoto(1, photo)
+        advanceUntilIdle()
+        
+        viewModel.onEnhancementStrengthChange(-5f)
+        advanceUntilIdle()
+        val stateAfterNegative = viewModel.enhancementState.first()
+        assertEquals(0f, stateAfterNegative.strength)
+        assertTrue(stateAfterNegative.isResultReady)
+        
+        viewModel.onEnhancementStrengthChange(0.5f)
+        advanceUntilIdle()
+        val stateAfterNormal = viewModel.enhancementState.first()
+        assertEquals(0.5f, stateAfterNormal.strength)
+        assertTrue(stateAfterNormal.isResultReady)
+        
+        viewModel.onEnhancementStrengthChange(10f)
+        advanceUntilIdle()
+        val stateAfterHigh = viewModel.enhancementState.first()
+        assertEquals(1f, stateAfterHigh.strength)
+        assertTrue(stateAfterHigh.isResultReady)
+    }
+
     private fun createViewModel(): ViewerViewModel {
         return ViewerViewModel(
             photoRepository = photoRepository,
