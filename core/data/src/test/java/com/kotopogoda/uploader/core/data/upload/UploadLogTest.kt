@@ -9,9 +9,14 @@ import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.PreviewQuality
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.test.assertContains
 import kotlin.test.assertTrue
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [30])
 class UploadLogTest {
 
     @Before

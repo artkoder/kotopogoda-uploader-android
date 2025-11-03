@@ -15,7 +15,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 @Database(
     entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
     version = 11,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
     abstract fun folderDao(): FolderDao

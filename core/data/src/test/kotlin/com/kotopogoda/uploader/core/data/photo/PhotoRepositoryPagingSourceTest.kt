@@ -11,11 +11,16 @@ import androidx.paging.PagingSource.LoadResult.Page
 import io.mockk.*
 import java.time.Instant
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [30])
 class PhotoRepositoryPagingSourceTest {
 
     @Test

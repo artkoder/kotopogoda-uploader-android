@@ -19,6 +19,9 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.After
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -26,6 +29,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [30])
 class SaFileRepositoryTest {
 
     private val context = mockk<Context>(relaxed = true)
