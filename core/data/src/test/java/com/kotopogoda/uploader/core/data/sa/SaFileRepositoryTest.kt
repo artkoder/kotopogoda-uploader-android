@@ -30,7 +30,7 @@ import kotlinx.coroutines.test.runTest
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [30])
+@Config(sdk = [30], manifest = Config.NONE)
 class SaFileRepositoryTest {
 
     private val context = mockk<Context>(relaxed = true)
@@ -93,11 +93,6 @@ class SaFileRepositoryTest {
         every { destinationFolder.uri } returns destinationFolderUri
         coEvery { processingFolderProvider.ensure() } returns destinationFolder
 
-        mockkStatic(Build.VERSION::class)
-        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
-
-        mockkStatic(MediaStore::class)
-
         mockkStatic(DocumentsContract::class)
         every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "external:Pictures/На обработку"
 
@@ -131,10 +126,7 @@ class SaFileRepositoryTest {
         every { destinationFolder.uri } returns destinationFolderUri
         coEvery { processingFolderProvider.ensure() } returns destinationFolder
 
-        mockkStatic(Build.VERSION::class)
-        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
 
-        mockkStatic(MediaStore::class)
         every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 
@@ -175,10 +167,7 @@ class SaFileRepositoryTest {
         mockkStatic(DocumentFile::class)
         every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
 
-        mockkStatic(Build.VERSION::class)
-        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
 
-        mockkStatic(MediaStore::class)
         every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
@@ -226,10 +215,7 @@ class SaFileRepositoryTest {
         val expectedProcessingUri = Uri.parse("content://com.android.externalstorage.documents/document/$expectedDocumentId")
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
 
-        mockkStatic(Build.VERSION::class)
-        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
 
-        mockkStatic(MediaStore::class)
         every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
 
         mockkStatic(DocumentsContract::class)
@@ -364,10 +350,7 @@ class SaFileRepositoryTest {
         mockkStatic(DocumentFile::class)
         every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
 
-        mockkStatic(Build.VERSION::class)
-        every { Build.VERSION.SDK_INT } returns Build.VERSION_CODES.R
 
-        mockkStatic(MediaStore::class)
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 
