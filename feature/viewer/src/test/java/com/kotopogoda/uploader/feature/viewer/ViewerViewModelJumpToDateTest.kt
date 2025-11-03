@@ -8,6 +8,7 @@ import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
@@ -22,40 +23,24 @@ import io.mockk.just
 import io.mockk.mockk
 import java.time.Instant
 import java.time.ZoneId
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ViewerViewModelJumpToDateTest {
 
-    private val testScheduler = TestCoroutineScheduler()
-    private val dispatcher = StandardTestDispatcher(testScheduler)
-
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(dispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @Test
     fun `jumpToDate scrolls to first photo even when date taken missing`() =
-        runTest(context = dispatcher) {
+        runTest(context = mainDispatcherRule.dispatcher) {
         val environment = createEnvironment()
         advanceUntilIdle()
 
@@ -77,7 +62,7 @@ class ViewerViewModelJumpToDateTest {
     }
 
     @Test
-    fun `jumpToDate emits event when day is empty`() = runTest(context = dispatcher) {
+    fun `jumpToDate emits event when day is empty`() = runTest(context = mainDispatcherRule.dispatcher) {
         val environment = createEnvironment()
         advanceUntilIdle()
 
