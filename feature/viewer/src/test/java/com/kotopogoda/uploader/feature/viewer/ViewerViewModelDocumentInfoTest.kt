@@ -490,6 +490,7 @@ class ViewerViewModelDocumentInfoTest {
                 sourceFile = sourceFile,
                 file = enhancedFile,
                 uri = enhancedFile.toUri(),
+                strength = 0.8f,
                 metrics = metrics,
                 profile = profile,
                 delegate = EnhancementDelegateType.PRIMARY,

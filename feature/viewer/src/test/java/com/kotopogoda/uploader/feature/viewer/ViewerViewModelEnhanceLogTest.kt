@@ -124,6 +124,7 @@ class ViewerViewModelEnhanceLogTest {
             sourceFile = sourceFile,
             file = resultFile,
             uri = Uri.parse(resultFile.toURI().toString()),
+            strength = 0.6f,
             metrics = EnhanceEngine.Metrics(0.4, 0.2, 0.6, 0.1),
             profile = EnhanceEngine.Profile(
                 isLowLight = true,

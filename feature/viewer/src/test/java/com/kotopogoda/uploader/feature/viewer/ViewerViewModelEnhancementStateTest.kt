@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
@@ -139,9 +140,9 @@ class ViewerViewModelEnhancementStateTest {
         every { mockFile.toURI() } returns java.net.URI("file:///tmp/test.jpg")
         every { mockFile.length() } returns 1024L
         every { mockFile.exists() } returns true
-        
+
         mockNativeEnhanceAdapter(mockFile)
-        
+
         val viewModel = createViewModel()
         viewModel.updateVisiblePhoto(1, photo)
         advanceUntilIdle()
@@ -169,6 +170,33 @@ class ViewerViewModelEnhancementStateTest {
         assertNotNull(readyState.result)
         assertEquals(photo.id, readyState.resultPhotoId)
         assertTrue(readyState.isResultForCurrentPhoto)
+    }
+
+    @Test
+    fun `changing strength after result triggers new enhancement request`() = runTest {
+        val photo = PhotoItem(id = "photo1", uri = Uri.parse("content://photo/1"), takenAt = Instant.now())
+        val mockFile = mockk<File>(relaxed = true)
+        every { mockFile.toURI() } returns java.net.URI("file:///tmp/test.jpg")
+        every { mockFile.length() } returns 1024L
+        every { mockFile.exists() } returns true
+
+        mockNativeEnhanceAdapter(mockFile)
+
+        val viewModel = createViewModel()
+        viewModel.updateVisiblePhoto(1, photo)
+        advanceUntilIdle()
+
+        viewModel.onEnhancementStrengthChange(0.6f)
+        viewModel.onEnhancementStrengthChangeFinished()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { nativeEnhanceAdapter.computeFull(any(), any(), any(), any(), any()) }
+
+        viewModel.onEnhancementStrengthChange(0.85f)
+        viewModel.onEnhancementStrengthChangeFinished()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { nativeEnhanceAdapter.computeFull(any(), any(), any(), any(), any()) }
     }
 
     @Test
