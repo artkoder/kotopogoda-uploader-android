@@ -83,6 +83,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.collections.ArrayDeque
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -486,31 +487,55 @@ class ViewerViewModel @Inject constructor(
     fun onEnhancementStrengthChange(value: Float) {
         val clamped = value.coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
         val currentState = _enhancementState.value
-        
+
         if (clamped == 0f) {
             cancelEnhancementJob()
+            disposeEnhancementResult(currentState.result)
             _enhancementState.update { state ->
                 state.copy(
                     strength = 0f,
                     inProgress = false,
                     isResultReady = true,
+                    progressByTile = emptyMap(),
+                    result = null,
+                    resultUri = null,
+                    resultPhotoId = null,
+                    isResultForCurrentPhoto = false,
                 )
             }
             return
         }
-        
+
         if (currentState.isResultReady && currentState.isResultForCurrentPhoto) {
-            _enhancementState.update { state ->
-                state.copy(strength = clamped)
+            val result = currentState.result
+            if (result != null && strengthsEqual(result.strength, clamped)) {
+                _enhancementState.update { state ->
+                    state.copy(strength = clamped)
+                }
+            } else {
+                disposeEnhancementResult(result)
+                _enhancementState.update { state ->
+                    state.copy(
+                        strength = clamped,
+                        inProgress = false,
+                        isResultReady = false,
+                        progressByTile = emptyMap(),
+                        result = null,
+                        resultUri = null,
+                        resultPhotoId = null,
+                        isResultForCurrentPhoto = false,
+                    )
+                }
             }
             return
         }
-        
+
         cancelEnhancementJob()
         disposeEnhancementResult(currentState.result)
         _enhancementState.update { state ->
             state.copy(
                 strength = clamped,
+                inProgress = false,
                 isResultReady = false,
                 progressByTile = emptyMap(),
                 result = null,
@@ -524,15 +549,18 @@ class ViewerViewModel @Inject constructor(
     fun onEnhancementStrengthChangeFinished() {
         val target = currentPhoto.value ?: return
         val currentState = _enhancementState.value
-        
+
         if (currentState.strength == 0f) {
             return
         }
-        
-        if (currentState.isResultReady && currentState.isResultForCurrentPhoto) {
-            return
+
+        val result = currentState.result
+        if (result != null && currentState.isResultReady && currentState.isResultForCurrentPhoto) {
+            if (strengthsEqual(result.strength, currentState.strength)) {
+                return
+            }
         }
-        
+
         startEnhancementJob(target, currentState.strength)
     }
 
@@ -618,13 +646,20 @@ class ViewerViewModel @Inject constructor(
                 val enhancementResult = enhancementSnapshot.result
                 val normalizedStrength = enhancementSnapshot.strength
                     .coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
+                val resultStrength = enhancementResult?.strength
+                    ?.coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
                 val matchesCurrentPhoto = enhancementSnapshot.resultPhotoId == current.id
                 val useEnhancedResult = enhancementSnapshot.isResultReady && matchesCurrentPhoto && enhancementResult != null
+                val publishStrength = if (useEnhancedResult && resultStrength != null) {
+                    resultStrength
+                } else {
+                    normalizedStrength
+                }
                 val publishDetails = mutableListOf(
                     "has_result" to (enhancementResult != null),
                     "matches_photo" to matchesCurrentPhoto,
                     "enhanced" to useEnhancedResult,
-                    "strength" to "%.2f".format(normalizedStrength),
+                    "strength" to "%.2f".format(publishStrength),
                     "cleanup_source" to true,
                     "cleanup_result" to useEnhancedResult,
                     "cleanup_strategy" to "post_upload",
@@ -659,11 +694,11 @@ class ViewerViewModel @Inject constructor(
                     idempotencyKey = idempotencyKeyFromContentSha256(digest)
                     contentSha256 = digest
                     val uploadEnhancement = enhancementResult.uploadInfo?.copy(
-                        strength = normalizedStrength,
+                        strength = publishStrength,
                         delegate = enhancementResult.uploadInfo.delegate.ifBlank { delegateName },
                         fileSize = fileSize ?: enhancementResult.uploadInfo.fileSize,
                     ) ?: UploadEnhancementInfo(
-                        strength = normalizedStrength,
+                        strength = publishStrength,
                         delegate = delegateName,
                         metrics = metricsPayload,
                         fileSize = fileSize,
@@ -707,7 +742,7 @@ class ViewerViewModel @Inject constructor(
                         action = "enhance_result_publish",
                         photo = current,
                         "delegate" to enhancementResult.delegate.name.lowercase(),
-                        "strength" to "%.2f".format(normalizedStrength),
+                        "strength" to "%.2f".format(publishStrength),
                         "sha256" to contentSha256,
                         "size" to (enqueueOptions.overrideSize ?: enhancementResult.file.length()),
                         "tile_used" to enhancementResult.pipeline.tileUsed,
@@ -2007,6 +2042,7 @@ class ViewerViewModel @Inject constructor(
                         sourceFile = workspace.source,
                         file = workspace.output,
                         uri = workspace.output.toUri(),
+                        strength = normalized,
                         metrics = enhancementMetrics,
                         profile = predictedProfile,
                         delegate = EnhancementDelegateType.PRIMARY,
@@ -2034,7 +2070,7 @@ class ViewerViewModel @Inject constructor(
                                 "delegate" to delegatePlan.delegateType.name.lowercase(),
                                 "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                             )
-                            runFallbackEnhancement(workspace, metrics)
+                            runFallbackEnhancement(workspace, metrics, normalized)
                         }
                     } else {
                         fallbackReason = "delegate_unavailable"
@@ -2045,7 +2081,7 @@ class ViewerViewModel @Inject constructor(
                             "delegate" to delegatePlan.delegateType.name.lowercase(),
                             "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                         )
-                        runFallbackEnhancement(workspace, metrics)
+                        runFallbackEnhancement(workspace, metrics, normalized)
                     }
                 } catch (error: CancellationException) {
                     throw error
@@ -2059,7 +2095,7 @@ class ViewerViewModel @Inject constructor(
                         "delegate" to delegatePlan.delegateType.name.lowercase(),
                         "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
                     )
-                    runFallbackEnhancement(workspace, metrics)
+                    runFallbackEnhancement(workspace, metrics, normalized)
                 }
                 producedResult = result
                 latestResult = result
@@ -2075,9 +2111,9 @@ class ViewerViewModel @Inject constructor(
                         isResultForCurrentPhoto = matchesCurrentPhoto,
                     )
                 }
-                logEnhancementDecision(photo, normalized, delegatePlan, analysis, result)
+                logEnhancementDecision(photo, delegatePlan, analysis, result)
                 emitEnhancementMetrics(force = true)
-                logEnhancementResult(photo, result, normalized)
+                logEnhancementResult(photo, result)
                 if (result.delegate == EnhancementDelegateType.FALLBACK) {
                     logEnhancement(
                         action = "enhance_fallback_result",
@@ -2375,6 +2411,7 @@ class ViewerViewModel @Inject constructor(
     private suspend fun runFallbackEnhancement(
         workspace: EnhancementWorkspace,
         metrics: EnhanceEngine.Metrics,
+        strength: Float,
     ): EnhancementResult = withContext(Dispatchers.IO) {
         if (workspace.output.exists()) {
             runCatching { workspace.output.delete() }
@@ -2384,6 +2421,7 @@ class ViewerViewModel @Inject constructor(
             sourceFile = workspace.source,
             file = workspace.output,
             uri = workspace.output.toUri(),
+            strength = strength,
             metrics = metrics,
             profile = FALLBACK_PROFILE,
             delegate = EnhancementDelegateType.FALLBACK,
@@ -2404,6 +2442,10 @@ class ViewerViewModel @Inject constructor(
             timings = EnhanceEngine.Timings(),
             models = EnhanceEngine.ModelsTelemetry(null, null),
         )
+    }
+
+    private fun strengthsEqual(first: Float, second: Float): Boolean {
+        return abs(first - second) < 0.0001f
     }
 
     private fun computeTileCount(width: Int, height: Int, tileSize: Int, overlap: Int): Int {
@@ -2484,7 +2526,6 @@ class ViewerViewModel @Inject constructor(
 
     private fun logEnhancementDecision(
         photo: PhotoItem,
-        normalizedStrength: Float,
         plan: EnhancementDelegatePlan,
         analysis: WorkspaceAnalysis,
         result: EnhancementResult,
@@ -2494,7 +2535,7 @@ class ViewerViewModel @Inject constructor(
         logEnhancement(
             action = "enhance_decision",
             photo = photo,
-            "strength" to normalizedStrength.format2(),
+            "strength" to result.strength.format2(),
             "pipeline" to pipelineStages,
             "delegate_plan" to plan.delegateType.name.lowercase(),
             "delegate_actual" to result.delegate.name.lowercase(),
@@ -2616,7 +2657,6 @@ class ViewerViewModel @Inject constructor(
     private fun logEnhancementResult(
         photo: PhotoItem,
         result: EnhancementResult,
-        normalizedStrength: Float,
     ) {
         val pipelineStages = result.pipeline.stages.joinToString(separator = "+").ifEmpty { "none" }
         val engineDelegateActual = result.engineDelegate?.name?.lowercase() ?: "none"
@@ -2628,7 +2668,7 @@ class ViewerViewModel @Inject constructor(
             "delegate" to result.delegate.name.lowercase(),
             "delegate_actual" to result.delegate.name.lowercase(),
             "engine_delegate" to engineDelegateActual,
-            "strength" to normalizedStrength.format2(),
+            "strength" to result.strength.format2(),
             "file_size" to result.file.length(),
             "zero_dce_backend" to zeroDceBackend(result.models),
             "zero_dce_sha256" to zeroDceSha(result.models),
@@ -2955,6 +2995,7 @@ class ViewerViewModel @Inject constructor(
         val sourceFile: File,
         val file: File,
         val uri: Uri,
+        val strength: Float,
         val metrics: EnhanceEngine.Metrics,
         val profile: EnhanceEngine.Profile,
         val delegate: EnhancementDelegateType,
