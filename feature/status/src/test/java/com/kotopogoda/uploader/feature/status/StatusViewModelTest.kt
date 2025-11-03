@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
 import com.kotopogoda.uploader.core.network.health.HealthMonitor
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus

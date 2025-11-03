@@ -6,6 +6,7 @@ import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import io.mockk.coEvery
 import io.mockk.coVerify

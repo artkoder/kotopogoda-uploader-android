@@ -11,6 +11,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueEntry
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.network.upload.UploadWorkKind

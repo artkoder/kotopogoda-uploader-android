@@ -38,6 +38,7 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
+    implementation(project(":core:logging"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.foundation)
@@ -59,10 +60,8 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    testImplementation(libs.junit)
-    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.truth)
     testImplementation(libs.mockk)
     testImplementation(libs.androidx.compose.ui.test.junit4)
-    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation(project(":core:logging"))
 }
