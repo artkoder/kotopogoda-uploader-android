@@ -350,7 +350,8 @@ class SaFileRepositoryTest {
         mockkStatic(DocumentFile::class)
         every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
 
-
+        mockkStatic(MediaStore::class)
+        every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 

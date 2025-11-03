@@ -34,7 +34,11 @@ android {
         unitTests {
             isIncludeAndroidResources = true
             all {
-                it.jvmArgs("-Xmx1024m", "-XX:MaxMetaspaceSize=512m")
+                it.jvmArgs(
+                    "-Xmx2048m",
+                    "-XX:MaxMetaspaceSize=512m",
+                    "-Dkotlinx.coroutines.debug=off"
+                )
                 it.systemProperty("kotlinx.coroutines.debug", "off")
             }
         }
