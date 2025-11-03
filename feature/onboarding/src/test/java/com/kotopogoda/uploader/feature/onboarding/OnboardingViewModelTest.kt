@@ -7,11 +7,11 @@ import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
-import io.mockk.coAnswers
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,10 +19,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class OnboardingViewModelTest {
 
     @get:Rule
@@ -33,7 +35,7 @@ class OnboardingViewModelTest {
         val folderFlow = MutableStateFlow<Folder?>(null)
         val folderRepository = mockk<FolderRepository>()
         every { folderRepository.observeFolder() } returns folderFlow
-        coEvery { folderRepository.setFolder(any(), any()) } coAnswers {
+        coEvery { folderRepository.setFolder(any(), any()) } answers {
             val uri = firstArg<String>()
             val flags = secondArg<Int>()
             folderFlow.value = Folder(
@@ -159,7 +161,7 @@ class OnboardingViewModelTest {
                 lastViewedAt = null
             )
         )
-        val folderRepository = mockk<FolderRepository>()
+        val folderRepository = mockk<FolderRepository>(relaxed = true)
         every { folderRepository.observeFolder() } returns folderFlow
 
         val photoRepository = mockk<PhotoRepository>()
@@ -183,14 +185,18 @@ class OnboardingViewModelTest {
             indexerRepository = indexerRepository
         )
 
-        advanceUntilIdle()
+        runCurrent()
+
+        // Verify scan is active before attempting folder selection
+        val stateBefore = viewModel.uiState.value as OnboardingUiState.FolderSelected
+        assertThat(stateBefore.scanState).isInstanceOf(OnboardingScanState.InProgress::class.java)
 
         viewModel.onFolderSelected(
             "content://test/new",
             Intent.FLAG_GRANT_READ_URI_PERMISSION
         )
 
-        advanceUntilIdle()
+        runCurrent()
 
         coVerify(exactly = 0) { folderRepository.setFolder(any(), any()) }
     }
