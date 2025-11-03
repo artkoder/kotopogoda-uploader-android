@@ -348,3 +348,46 @@ project(":app") {
         dependsOn(rootFetch)
     }
 }
+
+// Глобальные настройки для JVM unit-тестов
+subprojects {
+    tasks.withType<Test>().configureEach {
+        // Ограничение параллелизма для стабильности
+        maxParallelForks = 1
+        
+        // Форкать процесс каждые 50 тестов для предотвращения утечек памяти
+        forkEvery = 50
+        
+        // Останавливать выполнение при первой ошибке для быстрой обратной связи
+        failFast = true
+        
+        // Ограничение heap для предотвращения OOM
+        maxHeapSize = "1g"
+        
+        // JVM аргументы для ограничения ресурсов и диагностики
+        jvmArgs(
+            // Ограничение RAM
+            "-XX:MaxRAMPercentage=70",
+            // Создать heap dump при OOM для диагностики
+            "-XX:+HeapDumpOnOutOfMemoryError",
+            "-XX:HeapDumpPath=${project.buildDir}/test-heap-dumps/",
+            // Ограничить число потоков в coroutines scheduler
+            "-Dkotlinx.coroutines.scheduler.max.pool.size=2",
+            // Отключить coroutines debug для производительности
+            "-Dkotlinx.coroutines.debug=off"
+        )
+        
+        // Настройка Robolectric
+        systemProperty("robolectric.logging.enabled", "false")
+        systemProperty("robolectric.offline", "true")
+        
+        // Показывать stdout/stderr для лучшей диагностики
+        testLogging {
+            events("passed", "skipped", "failed", "standardOut", "standardError")
+            exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            showExceptions = true
+            showCauses = true
+            showStackTraces = true
+        }
+    }
+}

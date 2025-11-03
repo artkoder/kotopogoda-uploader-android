@@ -1,4 +1,4 @@
-package com.kotopogoda.uploader.feature.onboarding
+package com.kotopogoda.uploader.core.logging.test
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -9,9 +9,18 @@ import kotlinx.coroutines.test.setMain
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 
+/**
+ * JUnit4 правило для автоматической установки Dispatchers.Main в тестах.
+ * 
+ * Использование:
+ * ```
+ * @get:Rule
+ * val mainDispatcherRule = MainDispatcherRule()
+ * ```
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainDispatcherRule(
-    val dispatcher: TestDispatcher = StandardTestDispatcher()
+    val dispatcher: TestDispatcher = StandardTestDispatcher(),
 ) : TestWatcher() {
     override fun starting(description: Description) {
         Dispatchers.setMain(dispatcher)

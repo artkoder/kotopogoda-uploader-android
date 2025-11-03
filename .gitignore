@@ -58,3 +58,7 @@ dist/
 # NCNN artifacts (fetched at build time)
 app/src/main/cpp/ncnn/
 app/src/main/cpp/ncnn-lib/
+
+# Test heap dumps (generated on OOM)
+**/test-heap-dumps/
+*.hprof
