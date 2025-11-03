@@ -1,17 +1,17 @@
 package com.kotopogoda.uploader.feature.viewer
 
 import android.app.PendingIntent
+import android.content.ContentResolver
+import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.core.net.toUri
-import android.test.mock.MockContentResolver
-import android.test.mock.MockContext
-import android.os.Build
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
 import com.kotopogoda.uploader.core.data.folder.Folder
@@ -25,18 +25,21 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
 import com.kotopogoda.uploader.core.data.util.Hashing
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.settings.AppSettings
+import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.core.settings.ReviewPosition
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
+import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.feature.viewer.R
 import com.kotopogoda.uploader.feature.viewer.ViewerViewModel
 import com.kotopogoda.uploader.feature.viewer.ViewerViewModel.EnhancementDelegateType
 import com.kotopogoda.uploader.feature.viewer.ViewerViewModel.EnhancementResult
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import io.mockk.Runs
 import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.eq
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -69,11 +72,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import timber.log.Timber
+import kotlin.io.path.createTempDirectory
 
 class ViewerViewModelDocumentInfoTest {
 
     private val testScheduler = TestCoroutineScheduler()
     private val dispatcher = StandardTestDispatcher(testScheduler)
+    private val tempDirs = mutableListOf<File>()
 
     @Before
     fun setUp() {
@@ -84,6 +89,8 @@ class ViewerViewModelDocumentInfoTest {
     fun tearDown() {
         Dispatchers.resetMain()
         ViewerViewModel.buildVersionOverride = null
+        tempDirs.forEach { dir -> dir.deleteRecursively() }
+        tempDirs.clear()
     }
 
     @Test
@@ -99,14 +106,14 @@ class ViewerViewModelDocumentInfoTest {
         )
         val documentId = "primary:Kotopogoda/Sub/saf.jpg"
         val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2FSub%2Fsaf.jpg")
-        val resolver = TestContentResolver { uri, _ ->
+        val resolver = buildResolver(queryHandler = { uri, _ ->
             if (uri == fileUri) {
                 createSafCursor(documentId, displayName = "saf.jpg", size = 1024L, lastModified = 1234L)
             } else {
                 null
             }
-        }
-        val context = TestContext(resolver)
+        })
+        val context = buildContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -147,7 +154,7 @@ class ViewerViewModelDocumentInfoTest {
             lastViewedAt = null
         )
         val fileUri = Uri.parse("content://media/external/images/media/42")
-        val resolver = TestContentResolver { uri, _ ->
+        val resolver = buildResolver(queryHandler = { uri, _ ->
             if (uri == fileUri) {
                 createMediaStoreCursor(
                     displayName = "media.jpg",
@@ -159,8 +166,8 @@ class ViewerViewModelDocumentInfoTest {
             } else {
                 null
             }
-        }
-        val context = TestContext(resolver)
+        })
+        val context = buildContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -202,7 +209,7 @@ class ViewerViewModelDocumentInfoTest {
             lastViewedAt = null
         )
         val fileUri = Uri.parse("content://media/external/images/media/43")
-        val resolver = TestContentResolver { uri, _ ->
+        val resolver = buildResolver(queryHandler = { uri, _ ->
             if (uri == fileUri) {
                 createMediaStoreCursor(
                     displayName = "media.jpg",
@@ -214,8 +221,8 @@ class ViewerViewModelDocumentInfoTest {
             } else {
                 null
             }
-        }
-        val context = TestContext(resolver)
+        })
+        val context = buildContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -288,7 +295,7 @@ class ViewerViewModelDocumentInfoTest {
         val documentId = "primary:Kotopogoda/saf.jpg"
         val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2Fsaf.jpg")
         val fileBytes = "saf-content".toByteArray()
-        val resolver = TestContentResolver(
+        val resolver = buildResolver(
             queryHandler = { uri, _ ->
                 if (uri == fileUri) {
                     createSafCursor(documentId, displayName = "saf.jpg", size = 4096L, lastModified = 5555L)
@@ -300,7 +307,7 @@ class ViewerViewModelDocumentInfoTest {
                 if (uri == fileUri) ByteArrayInputStream(fileBytes) else null
             }
         )
-        val context = TestContext(resolver)
+        val context = buildContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -310,7 +317,7 @@ class ViewerViewModelDocumentInfoTest {
         val optionsSlot = slot<UploadEnqueueOptions>()
         coEvery {
             environment.uploadEnqueuer.enqueue(
-                eq(fileUri),
+                fileUri,
                 capture(idempotencySlot),
                 capture(displayNameSlot),
                 capture(contentShaSlot),
@@ -325,7 +332,7 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any(), any())
+            environment.uploadEnqueuer.enqueue(fileUri, any(), any(), any(), any())
         }
         assertEquals("saf.jpg", displayNameSlot.captured)
         val expectedKey = buildExpectedIdempotencyKey(fileBytes)
@@ -346,7 +353,7 @@ class ViewerViewModelDocumentInfoTest {
         )
         val fileUri = Uri.parse("content://media/external/images/media/99")
         val fileBytes = "media-content".toByteArray()
-        val resolver = TestContentResolver(
+        val resolver = buildResolver(
             queryHandler = { uri, _ ->
                 if (uri == fileUri) {
                     createMediaStoreCursor(
@@ -364,7 +371,7 @@ class ViewerViewModelDocumentInfoTest {
                 if (uri == fileUri) ByteArrayInputStream(fileBytes) else null
             }
         )
-        val context = TestContext(resolver)
+        val context = buildContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -374,7 +381,7 @@ class ViewerViewModelDocumentInfoTest {
         val optionsSlot = slot<UploadEnqueueOptions>()
         coEvery {
             environment.uploadEnqueuer.enqueue(
-                eq(fileUri),
+                fileUri,
                 capture(idempotencySlot),
                 capture(displayNameSlot),
                 capture(contentShaSlot),
@@ -389,7 +396,7 @@ class ViewerViewModelDocumentInfoTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            environment.uploadEnqueuer.enqueue(eq(fileUri), any(), any(), any(), any())
+            environment.uploadEnqueuer.enqueue(fileUri, any(), any(), any(), any())
         }
         assertEquals("media.jpg", displayNameSlot.captured)
         val expectedKey = buildExpectedIdempotencyKey(fileBytes)
@@ -415,7 +422,7 @@ class ViewerViewModelDocumentInfoTest {
         val sourceFile = File.createTempFile("source_", ".jpg").apply {
             writeText("source-data")
         }
-        val resolver = TestContentResolver(
+        val resolver = buildResolver(
             queryHandler = { uri, _ ->
                 if (uri == fileUri) {
                     createMediaStoreCursor(
@@ -437,7 +444,7 @@ class ViewerViewModelDocumentInfoTest {
                 }
             }
         )
-        val context = TestContext(resolver)
+        val context = buildContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -447,8 +454,8 @@ class ViewerViewModelDocumentInfoTest {
         val optionsSlot = slot<UploadEnqueueOptions>()
         mockkObject(Hashing)
         try {
-            every { Hashing.sha256(any(), eq(enhancedFile.toUri())) } returns "enhanced-digest"
-            every { Hashing.sha256(any(), eq(fileUri)) } returns "original-digest"
+            every { Hashing.sha256(any(), enhancedFile.toUri()) } returns "enhanced-digest"
+            every { Hashing.sha256(any(), fileUri) } returns "original-digest"
             coEvery {
                 environment.uploadEnqueuer.enqueue(
                     any(),
@@ -468,16 +475,41 @@ class ViewerViewModelDocumentInfoTest {
                 bSharpness = 0.82,
                 nNoise = 0.08,
             )
+            val profile = EnhanceEngine.Profile(
+                isLowLight = true,
+                kDce = 0.6f,
+                restormerMix = 0.4f,
+                alphaDetail = 0.7f,
+                sharpenAmount = 0.3f,
+                sharpenRadius = 1.2f,
+                sharpenThreshold = 0.05f,
+                vibranceGain = 0.2f,
+                saturationGain = 1.1f,
+            )
             val enhancementResult = EnhancementResult(
                 sourceFile = sourceFile,
                 file = enhancedFile,
                 uri = enhancedFile.toUri(),
                 metrics = metrics,
-                profile = EnhanceEngine.Profile(1f, 0f, 1f, 0f, 1f, 1f),
+                profile = profile,
                 delegate = EnhancementDelegateType.PRIMARY,
                 engineDelegate = EnhanceEngine.Delegate.GPU,
                 pipeline = EnhanceEngine.Pipeline(),
                 timings = EnhanceEngine.Timings(),
+                models = EnhanceEngine.ModelsTelemetry(
+                    zeroDce = EnhanceEngine.ModelUsage(
+                        backend = EnhanceEngine.ModelBackend.TFLITE,
+                        checksum = "zero",
+                        expectedChecksum = "zero",
+                        checksumOk = true,
+                    ),
+                    restormer = EnhanceEngine.ModelUsage(
+                        backend = EnhanceEngine.ModelBackend.TFLITE,
+                        checksum = "rest",
+                        expectedChecksum = "rest",
+                        checksumOk = true,
+                    ),
+                ),
             )
             val stateField = ViewerViewModel::class.java.getDeclaredField("_enhancementState")
             stateField.isAccessible = true
@@ -531,7 +563,7 @@ class ViewerViewModelDocumentInfoTest {
         )
         val storedIndex = 3
         val storedPosition = ReviewPosition(index = storedIndex, anchorDate = Instant.ofEpochMilli(42))
-        val context = TestContext(MockContentResolver())
+        val context = buildContext()
         val environment = createEnvironment(context, folder, storedPosition)
         advanceUntilIdle()
 
@@ -553,7 +585,7 @@ class ViewerViewModelDocumentInfoTest {
             lastViewedAt = null
         )
         val storedPosition = ReviewPosition(index = 5, anchorDate = Instant.ofEpochMilli(10))
-        val context = TestContext(MockContentResolver())
+        val context = buildContext()
         val environment = createEnvironment(context, folder, storedPosition)
         advanceUntilIdle()
 
@@ -580,7 +612,7 @@ class ViewerViewModelDocumentInfoTest {
     }
 
     private fun createEnvironment(
-        context: TestContext,
+        context: Context,
         folder: Folder,
         storedPosition: ReviewPosition? = null
     ): ViewModelEnvironment {
@@ -589,6 +621,8 @@ class ViewerViewModelDocumentInfoTest {
         val saFileRepository = mockk<SaFileRepository>()
         val uploadEnqueuer = mockk<UploadEnqueuer>()
         val uploadQueueRepository = mockk<UploadQueueRepository>()
+        val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
+        val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
 
@@ -601,6 +635,17 @@ class ViewerViewModelDocumentInfoTest {
         every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
         every { uploadQueueRepository.observeQueuedOrProcessing(any<String>()) } returns flowOf(false)
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
+        every { settingsRepository.flow } returns flowOf(
+            AppSettings(
+                baseUrl = "https://example.com",
+                appLogging = true,
+                httpLogging = true,
+                persistentQueueNotification = false,
+                previewQuality = PreviewQuality.BALANCED,
+            )
+        )
+        every { nativeEnhanceAdapter.isReady() } returns false
+        coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
 
         val viewModel = ViewerViewModel(
             photoRepository = photoRepository,
@@ -610,6 +655,8 @@ class ViewerViewModelDocumentInfoTest {
             uploadQueueRepository = uploadQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
+            nativeEnhanceAdapter = nativeEnhanceAdapter,
+            settingsRepository = settingsRepository,
             savedStateHandle = savedStateHandle
         )
 
@@ -632,7 +679,7 @@ class ViewerViewModelDocumentInfoTest {
             lastViewedPhotoId = null,
             lastViewedAt = null
         )
-        val context = TestContext(MockContentResolver())
+        val context = buildContext()
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -655,7 +702,7 @@ class ViewerViewModelDocumentInfoTest {
             lastViewedPhotoId = null,
             lastViewedAt = null
         )
-        val context = TestContext(MockContentResolver())
+        val context = buildContext()
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -687,7 +734,7 @@ class ViewerViewModelDocumentInfoTest {
             lastViewedPhotoId = null,
             lastViewedAt = null
         )
-        val context = TestContext(MockContentResolver())
+        val context = buildContext()
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -732,14 +779,14 @@ class ViewerViewModelDocumentInfoTest {
         )
         val documentId = "primary:Kotopogoda/Sub/saf.jpg"
         val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2FSub%2Fsaf.jpg")
-        val resolver = TestContentResolver { uri, _ ->
+        val resolver = buildResolver(queryHandler = { uri, _ ->
             if (uri == fileUri) {
                 createSafCursor(documentId, displayName = "saf.jpg", size = 1024L, lastModified = 1234L)
             } else {
                 null
             }
-        }
-        val context = TestContext(resolver)
+        })
+        val context = buildContext(resolver)
         val environment = createEnvironment(context, folder)
         advanceUntilIdle()
 
@@ -800,6 +847,27 @@ class ViewerViewModelDocumentInfoTest {
         }
     }
 
+    private fun buildContext(resolver: ContentResolver = mockk(relaxed = true)): Context {
+        val cacheDir = createTempDirectory("viewer-doc").toFile()
+        tempDirs += cacheDir
+        val context = mockk<Context>(relaxed = true)
+        every { context.contentResolver } returns resolver
+        every { context.cacheDir } returns cacheDir
+        return context
+    }
+
+    private fun buildResolver(
+        queryHandler: (Uri, Array<out String>?) -> Cursor? = { _, _ -> null },
+        inputStreamHandler: (Uri) -> InputStream? = { null },
+    ): ContentResolver {
+        val resolver = mockk<ContentResolver>(relaxed = true)
+        every {
+            resolver.query(any(), any(), any(), any(), any())
+        } answers { queryHandler(firstArg(), secondArg()) }
+        every { resolver.openInputStream(any()) } answers { inputStreamHandler(firstArg()) }
+        return resolver
+    }
+
     private fun buildExpectedIdempotencyKey(content: ByteArray): String {
         return "upload:${expectedDigest(content)}"
     }
@@ -808,27 +876,6 @@ class ViewerViewModelDocumentInfoTest {
         val digest = MessageDigest.getInstance("SHA-256")
         val bytes = digest.digest(content)
         return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
-    }
-
-    private class TestContext(
-        private val resolver: TestContentResolver
-    ) : MockContext() {
-        override fun getContentResolver(): TestContentResolver = resolver
-    }
-
-    private class TestContentResolver(
-        private val handler: (Uri, Array<out String>?) -> Cursor?,
-        private val inputStreamHandler: (Uri) -> InputStream? = { null }
-    ) : MockContentResolver() {
-        override fun query(
-            uri: Uri,
-            projection: Array<out String>?,
-            selection: String?,
-            selectionArgs: Array<out String>?,
-            sortOrder: String?
-        ): Cursor? = handler(uri, projection)
-
-        override fun openInputStream(uri: Uri): InputStream? = inputStreamHandler(uri)
     }
 
     private data class ViewModelEnvironment(

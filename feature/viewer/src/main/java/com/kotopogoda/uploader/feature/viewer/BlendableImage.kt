@@ -36,6 +36,9 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
@@ -116,6 +119,9 @@ fun BlendableImage(
 
     Box(
         modifier = modifier
+            .semantics {
+                blendDisplayedUri = displayedUri.toString()
+            }
             .background(Color.Black)
             .onSizeChanged { size -> containerSize = size }
             .clipToBounds()
@@ -168,6 +174,10 @@ fun BlendableImage(
         }
     }
 }
+
+internal val BlendDisplayedUriKey = SemanticsPropertyKey<String>("BlendableImageDisplayedUri")
+
+internal var SemanticsPropertyReceiver.blendDisplayedUri by BlendDisplayedUriKey
 
 @Composable
 private fun BlendedImageContent(

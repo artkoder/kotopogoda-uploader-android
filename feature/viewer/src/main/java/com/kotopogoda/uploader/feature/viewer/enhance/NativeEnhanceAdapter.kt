@@ -7,6 +7,10 @@ import android.media.ExifInterface
 import com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo
 import com.kotopogoda.uploader.core.data.upload.UploadEnhancementMetrics
 import com.kotopogoda.uploader.core.settings.PreviewQuality
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine.ModelBackend
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine.ModelUsage
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceLogging
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +37,23 @@ class NativeEnhanceAdapter @Inject constructor(
     private var currentPhotoPath: String? = null
     private var currentStrength: Float = 0f
     private var previewResult: NativeEnhanceController.PreviewResult? = null
+
+    fun isReady(): Boolean = isInitialized && controller.isInitialized()
+
+    fun modelsTelemetry(): EnhanceEngine.ModelsTelemetry = EnhanceEngine.ModelsTelemetry(
+        zeroDce = ModelUsage(
+            backend = ModelBackend.NCNN,
+            checksum = zeroDceChecksum,
+            expectedChecksum = zeroDceChecksum,
+            checksumOk = true,
+        ),
+        restormer = ModelUsage(
+            backend = ModelBackend.NCNN,
+            checksum = restormerChecksum,
+            expectedChecksum = restormerChecksum,
+            checksumOk = true,
+        ),
+    )
 
     suspend fun initialize(previewQuality: PreviewQuality) = withContext(dispatcher) {
         if (isInitialized) {
@@ -91,6 +112,11 @@ class NativeEnhanceAdapter @Inject constructor(
                 sourceBitmap = sourceBitmap,
                 strength = strength,
                 onProgress = { info ->
+                    EnhanceLogging.logEvent(
+                        "native_preview_progress",
+                        "progress" to info.progress,
+                        "stage" to info.currentStage,
+                    )
                     onProgress(info.progress)
                 },
             )
@@ -149,6 +175,11 @@ class NativeEnhanceAdapter @Inject constructor(
                 outputFile = outputFile,
                 quality = 95,
                 onProgress = { info ->
+                    EnhanceLogging.logEvent(
+                        "native_full_progress",
+                        "progress" to info.progress,
+                        "stage" to info.currentStage,
+                    )
                     onProgress(info.progress)
                 },
             )
@@ -206,12 +237,9 @@ class NativeEnhanceAdapter @Inject constructor(
         outputFile: File,
         fullResult: NativeEnhanceController.FullResult? = null,
     ): UploadEnhancementInfo {
-        val metrics = UploadEnhancementMetrics(
-            lMean = 0.5f,
-            pDark = 0.3f,
-            bSharpness = 0.7f,
-            nNoise = 0.2f,
-        )
+        val metrics = fullResult?.bitmap?.let(::computeMetricsForBitmap)
+            ?: cachedFullBitmap?.let(::computeMetricsForBitmap)
+            ?: computeMetricsFromFile(outputFile)
 
         return UploadEnhancementInfo(
             strength = strength,
@@ -225,6 +253,36 @@ class NativeEnhanceAdapter @Inject constructor(
             cancelled = fullResult?.cancelled,
         )
     }
+
+    private fun computeMetricsFromFile(file: File): UploadEnhancementMetrics {
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return emptyMetrics()
+        return computeMetricsForBitmap(bitmap).also { bitmap.recycle() }
+    }
+
+    private fun computeMetricsForBitmap(bitmap: Bitmap): UploadEnhancementMetrics {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= 0 || height <= 0) {
+            return emptyMetrics()
+        }
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        val buffer = EnhanceEngine.ImageBuffer(width, height, pixels)
+        val metrics = EnhanceEngine.MetricsCalculator.calculate(buffer)
+        return UploadEnhancementMetrics(
+            lMean = metrics.lMean.toFloat(),
+            pDark = metrics.pDark.toFloat(),
+            bSharpness = metrics.bSharpness.toFloat(),
+            nNoise = metrics.nNoise.toFloat(),
+        )
+    }
+
+    private fun emptyMetrics(): UploadEnhancementMetrics = UploadEnhancementMetrics(
+        lMean = 0f,
+        pDark = 0f,
+        bSharpness = 0f,
+        nNoise = 0f,
+    )
 
     private fun copyExif(exif: ExifInterface?, sourceFile: File, outputFile: File) {
         try {
