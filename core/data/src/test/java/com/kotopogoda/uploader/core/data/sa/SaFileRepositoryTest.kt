@@ -30,7 +30,7 @@ import kotlinx.coroutines.test.runTest
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [30], manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class SaFileRepositoryTest {
 
     private val context = mockk<Context>(relaxed = true)

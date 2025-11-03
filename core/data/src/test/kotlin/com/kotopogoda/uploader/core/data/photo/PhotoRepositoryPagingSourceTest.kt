@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [30])
+@Config(sdk = [34])
 class PhotoRepositoryPagingSourceTest {
 
     @Test
@@ -55,7 +55,7 @@ class PhotoRepositoryPagingSourceTest {
         }
 
         every {
-            contentResolver.query(baseUri, any(), any(), any(), any())
+            contentResolver.query(baseUri, any(), any<Bundle>(), isNull())
         } returns cursor
         every {
             contentResolver.query(baseUri, any(), any(), any(), any())
@@ -105,7 +105,7 @@ class PhotoRepositoryPagingSourceTest {
         }
 
         every {
-            contentResolver.query(baseUri, any(), any(), any(), any())
+            contentResolver.query(baseUri, any(), any<Bundle>(), isNull())
         } returns cursor
         every {
             contentResolver.query(baseUri, any(), any(), any(), any())
