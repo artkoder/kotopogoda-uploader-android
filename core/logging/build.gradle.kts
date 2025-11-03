@@ -35,7 +35,12 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.com.squareup.okhttp3.logging.interceptor)
 
+    // Экспортируем test utilities для использования в других модулях
+    api(libs.kotlinx.coroutines.test)
+    api(libs.junit)
+    api("org.robolectric:robolectric:4.12.1")
+    api("androidx.test:core-ktx:1.5.0")
+
     testImplementation(kotlin("test"))
-    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.org.json)
 }
