@@ -15,7 +15,11 @@ import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
+import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
+import com.kotopogoda.uploader.core.settings.SettingsRepository
+import com.kotopogoda.uploader.core.settings.PreviewQuality
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -129,6 +133,8 @@ class ViewerViewModelBatchDeleteTest {
         val saFileRepository = mockk<SaFileRepository>()
         val uploadEnqueuer = mockk<UploadEnqueuer>()
         val uploadQueueRepository = mockk<UploadQueueRepository>()
+        val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
+        val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
 
@@ -141,6 +147,17 @@ class ViewerViewModelBatchDeleteTest {
         coEvery { folderRepository.getFolder() } returns null
         coEvery { reviewProgressStore.loadPosition(any()) } returns null
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
+        every { settingsRepository.flow } returns flowOf(
+            AppSettings(
+                baseUrl = "https://example.com",
+                appLogging = true,
+                httpLogging = true,
+                persistentQueueNotification = false,
+                previewQuality = PreviewQuality.BALANCED,
+            )
+        )
+        every { nativeEnhanceAdapter.isReady() } returns false
+        coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
 
         val resolver = mockk<ContentResolver>(relaxed = true)
         val context = mockk<Context>(relaxed = true)
@@ -155,6 +172,8 @@ class ViewerViewModelBatchDeleteTest {
             uploadQueueRepository = uploadQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
+            nativeEnhanceAdapter = nativeEnhanceAdapter,
+            settingsRepository = settingsRepository,
             savedStateHandle = savedStateHandle
         )
 

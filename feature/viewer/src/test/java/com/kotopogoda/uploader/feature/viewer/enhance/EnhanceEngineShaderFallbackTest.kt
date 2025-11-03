@@ -228,8 +228,8 @@ class EnhanceEngineShaderFallbackTest {
         return (0xFF shl 24) or (rr shl 16) or (gg shl 8) or bb
     }
 
-    private class QueueDecoder(private val buffers: MutableList<EnhanceEngine.ImageBuffer>) : EnhanceEngine.ImageDecoder {
-        constructor(buffers: List<EnhanceEngine.ImageBuffer>) : this(buffers.toMutableList())
+    private class QueueDecoder(buffers: List<EnhanceEngine.ImageBuffer>) : EnhanceEngine.ImageDecoder {
+        private val buffers = buffers.toMutableList()
         override fun decode(file: File): EnhanceEngine.ImageBuffer {
             if (buffers.isEmpty()) error("no buffers left")
             return buffers.removeAt(0).copy()

@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.feature.viewer
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
@@ -13,16 +14,16 @@ import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.PreviewQuality
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.unmockkObject
 import java.io.File
 import java.time.Instant
+import java.io.ByteArrayInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -30,8 +31,10 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -80,13 +83,25 @@ class ViewerViewModelEnhancementStateTest {
     private lateinit var settingsRepository: SettingsRepository
 
     private lateinit var testDispatcher: TestDispatcher
+    private lateinit var cacheDir: File
+    private lateinit var contentResolver: ContentResolver
 
     @BeforeTest
     fun setUp() {
         MockKAnnotations.init(this, relaxUnitFun = true)
         testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
-        
+
+        cacheDir = createTempDirectory("viewer-enhance").toFile()
+        contentResolver = mockk(relaxed = true)
+
+        every { context.cacheDir } returns cacheDir
+        every { context.contentResolver } returns contentResolver
+        every { contentResolver.persistedUriPermissions } returns emptyList()
+        every { contentResolver.openInputStream(any()) } answers {
+            ByteArrayInputStream(ByteArray(32) { 0x42 })
+        }
+
         val defaultSettings = AppSettings(
             baseUrl = "https://example.com",
             appLogging = true,
@@ -99,7 +114,8 @@ class ViewerViewModelEnhancementStateTest {
 
     @AfterTest
     fun tearDown() {
-        runCatching { unmockkObject() }
+        Dispatchers.resetMain()
+        runCatching { cacheDir.deleteRecursively() }
     }
 
     @Test
@@ -124,7 +140,7 @@ class ViewerViewModelEnhancementStateTest {
         every { mockFile.length() } returns 1024L
         every { mockFile.exists() } returns true
         
-        mockEnhanceEngine(mockFile)
+        mockNativeEnhanceAdapter(mockFile)
         
         val viewModel = createViewModel()
         viewModel.updateVisiblePhoto(1, photo)
@@ -136,7 +152,8 @@ class ViewerViewModelEnhancementStateTest {
         assertFalse(initialState.inProgress)
         
         // Меняем strength - должен начаться переход в ComputingPreview
-        viewModel.onEnhancementStrengthChangeFinished(0.7f)
+        viewModel.onEnhancementStrengthChange(0.7f)
+        viewModel.onEnhancementStrengthChangeFinished()
         advanceTimeBy(100)
         
         val computingState = viewModel.enhancementState.first()
@@ -163,14 +180,15 @@ class ViewerViewModelEnhancementStateTest {
         every { mockFile.length() } returns 1024L
         every { mockFile.exists() } returns true
         
-        mockEnhanceEngine(mockFile)
+        mockNativeEnhanceAdapter(mockFile)
         
         val viewModel = createViewModel()
         viewModel.updateVisiblePhoto(1, photo1)
         advanceUntilIdle()
         
         // Запускаем enhancement для photo1
-        viewModel.onEnhancementStrengthChangeFinished(0.6f)
+        viewModel.onEnhancementStrengthChange(0.6f)
+        viewModel.onEnhancementStrengthChangeFinished()
         advanceTimeBy(50)
         
         // Проверяем что началась обработка
@@ -197,14 +215,15 @@ class ViewerViewModelEnhancementStateTest {
         every { mockFile.length() } returns 1024L
         every { mockFile.exists() } returns true
         
-        mockEnhanceEngine(mockFile)
+        mockNativeEnhanceAdapter(mockFile)
         
         val viewModel = createViewModel()
         viewModel.updateVisiblePhoto(1, photo)
         advanceUntilIdle()
         
         // Первое enhancement с strength 0.8
-        viewModel.onEnhancementStrengthChangeFinished(0.8f)
+        viewModel.onEnhancementStrengthChange(0.8f)
+        viewModel.onEnhancementStrengthChangeFinished()
         advanceUntilIdle()
         
         val firstResult = viewModel.enhancementState.first()
@@ -214,7 +233,8 @@ class ViewerViewModelEnhancementStateTest {
         
         // Сбрасываем strength на 0.5
         viewModel.onEnhancementStrengthChange(0.5f)
-        viewModel.onEnhancementStrengthChangeFinished(0.5f)
+        viewModel.onEnhancementStrengthChange(0.5f)
+        viewModel.onEnhancementStrengthChangeFinished()
         advanceUntilIdle()
         
         val resetResult = viewModel.enhancementState.first()
@@ -231,14 +251,15 @@ class ViewerViewModelEnhancementStateTest {
         every { mockFile.length() } returns 1024L
         every { mockFile.exists() } returns true
         
-        mockEnhanceEngine(mockFile)
+        mockNativeEnhanceAdapter(mockFile)
         
         val viewModel = createViewModel()
         viewModel.updateVisiblePhoto(1, photo)
         advanceUntilIdle()
         
         // Первое enhancement
-        viewModel.onEnhancementStrengthChangeFinished(0.6f)
+        viewModel.onEnhancementStrengthChange(0.6f)
+        viewModel.onEnhancementStrengthChangeFinished()
         advanceUntilIdle()
         
         val firstState = viewModel.enhancementState.first()
@@ -246,7 +267,8 @@ class ViewerViewModelEnhancementStateTest {
         assertNotNull(firstResultFile)
         
         // Второе enhancement (другая сила)
-        viewModel.onEnhancementStrengthChangeFinished(0.8f)
+        viewModel.onEnhancementStrengthChange(0.8f)
+        viewModel.onEnhancementStrengthChangeFinished()
         advanceUntilIdle()
         
         val secondState = viewModel.enhancementState.first()
@@ -266,33 +288,6 @@ class ViewerViewModelEnhancementStateTest {
         every { mockFile.length() } returns 1024L
         every { mockFile.exists() } returns true
         
-        val expectedPipeline = EnhanceEngine.Pipeline(
-            stages = listOf("zero-dce", "restormer", "sharpen"),
-            tileSize = 512,
-            overlap = 64,
-            tileSizeActual = 512,
-            overlapActual = 64,
-            mixingWindow = 128,
-            mixingWindowActual = 128,
-            tileCount = 4,
-            tilesCompleted = 4,
-            tileProgress = 1.0f,
-            tileUsed = true,
-            zeroDceIterations = 8,
-            zeroDceApplied = true,
-            zeroDceDelegateFallback = false,
-            restormerMix = 0.5f,
-            restormerApplied = true,
-            restormerDelegateFallback = false,
-            hasSeamFix = true,
-            seamMaxDelta = 0.25f,
-            seamMeanDelta = 0.12f,
-            seamArea = 1024,
-            seamZeroArea = 100,
-            seamMinWeight = 0.1f,
-            seamMaxWeight = 1.9f,
-        )
-        
         val expectedModels = EnhanceEngine.ModelsTelemetry(
             zeroDce = EnhanceEngine.ModelUsage(
                 backend = EnhanceEngine.ModelBackend.NCNN,
@@ -308,31 +303,33 @@ class ViewerViewModelEnhancementStateTest {
             ),
         )
         
-        mockEnhanceEngine(mockFile, expectedPipeline, expectedModels)
+        mockNativeEnhanceAdapter(mockFile)
         
         val viewModel = createViewModel()
         viewModel.updateVisiblePhoto(1, photo)
         advanceUntilIdle()
         
-        viewModel.onEnhancementStrengthChangeFinished(0.7f)
+        viewModel.onEnhancementStrengthChange(0.7f)
+        viewModel.onEnhancementStrengthChangeFinished()
         advanceUntilIdle()
         
         val state = viewModel.enhancementState.first()
         val result = state.result
         assertNotNull(result)
-        
+
         // Проверяем что телеметрия распространилась
-        assertEquals(expectedPipeline.tileCount, result.pipeline.tileCount)
-        assertEquals(expectedPipeline.tileUsed, result.pipeline.tileUsed)
-        assertEquals(expectedPipeline.seamMaxDelta, result.pipeline.seamMaxDelta)
-        assertEquals(expectedPipeline.seamMeanDelta, result.pipeline.seamMeanDelta)
-        assertEquals(expectedPipeline.zeroDceApplied, result.pipeline.zeroDceApplied)
-        assertEquals(expectedPipeline.restormerApplied, result.pipeline.restormerApplied)
-        
+        assertEquals(listOf("native_preview", "native_full"), result.pipeline.stages)
+        assertEquals(1, result.pipeline.tileCount)
+        assertEquals(1f, result.pipeline.tileProgress)
+        assertTrue(result.pipeline.zeroDceApplied)
+        assertTrue(result.pipeline.restormerApplied)
+
         assertEquals(expectedModels.zeroDce?.checksum, result.models.zeroDce?.checksum)
         assertEquals(expectedModels.zeroDce?.checksumOk, result.models.zeroDce?.checksumOk)
         assertEquals(expectedModels.restormer?.checksum, result.models.restormer?.checksum)
         assertEquals(expectedModels.restormer?.checksumOk, result.models.restormer?.checksumOk)
+        assertNotNull(result.uploadInfo)
+        assertEquals(0.5f, result.uploadInfo?.strength)
     }
 
     @Test
@@ -342,56 +339,27 @@ class ViewerViewModelEnhancementStateTest {
         every { mockFile.toURI() } returns java.net.URI("file:///tmp/test.jpg")
         every { mockFile.length() } returns 1024L
         every { mockFile.exists() } returns true
-        
-        var progressCallback: ((EnhanceEngine.TileProgress) -> Unit)? = null
-        
-        coEvery {
-            enhanceEngine.enhance(any())
-        } answers {
-            val request = firstArg<EnhanceEngine.Request>()
-            progressCallback = request.onTileProgress
-            
-            // Симулируем прогресс по тайлам
-            progressCallback?.invoke(EnhanceEngine.TileProgress(0, 4, 0.5f, null))
-            progressCallback?.invoke(EnhanceEngine.TileProgress(1, 4, 0.25f, null))
-            
-            EnhanceEngine.Result(
-                file = mockFile,
-                metrics = EnhanceEngine.Metrics(0.5, 0.3, 0.4, 0.2),
-                profile = EnhanceEngine.Profile(
-                    isLowLight = false,
-                    kDce = 0f,
-                    restormerMix = 0.5f,
-                    alphaDetail = 0.3f,
-                    sharpenAmount = 0.4f,
-                    sharpenRadius = 1.2f,
-                    sharpenThreshold = 0.05f,
-                    vibranceGain = 0.2f,
-                    saturationGain = 1.1f,
-                ),
-                delegate = EnhanceEngine.Delegate.GPU,
-                pipeline = EnhanceEngine.Pipeline(tileCount = 4),
-                timings = EnhanceEngine.Timings(),
-                models = EnhanceEngine.ModelsTelemetry(null, null),
-            )
-        }
-        
+
+        mockNativeEnhanceAdapter(mockFile)
+
         val viewModel = createViewModel()
         viewModel.updateVisiblePhoto(1, photo)
         advanceUntilIdle()
-        
-        viewModel.onEnhancementStrengthChangeFinished(0.7f)
-        advanceTimeBy(100)
-        
-        // Прогресс должен обновляться
+
+        viewModel.onEnhancementStrengthChange(0.7f)
+        viewModel.onEnhancementStrengthChangeFinished()
+        advanceTimeBy(50)
+
         val progressState = viewModel.enhancementState.first()
         assertTrue(progressState.inProgress)
-        
+        assertEquals(0, progressState.progressByTile.keys.minOrNull())
+        assertTrue((progressState.progressByTile[0] ?: 0f) > 0f)
+
         advanceUntilIdle()
-        
+
         val finalState = viewModel.enhancementState.first()
         assertTrue(finalState.isResultReady)
-        assertTrue(finalState.progressByTile.isEmpty()) // После завершения прогресс очищается
+        assertTrue(finalState.progressByTile.isEmpty())
     }
 
     @Test
@@ -470,23 +438,53 @@ class ViewerViewModelEnhancementStateTest {
     }
 
     private fun mockNativeEnhanceAdapter(resultFile: File) {
-        coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
-        coEvery { nativeEnhanceAdapter.computePreview(any(), any(), any()) } returns true
-        coEvery { nativeEnhanceAdapter.computeFull(any(), any(), any(), any(), any()) } returns com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo(
-            strength = 0.5f,
-            delegate = "cpu",
-            metrics = com.kotopogoda.uploader.core.data.upload.UploadEnhancementMetrics(
-                lMean = 0.5f,
-                pDark = 0.3f,
-                bSharpness = 0.4f,
-                nNoise = 0.2f,
+        val modelsTelemetry = EnhanceEngine.ModelsTelemetry(
+            zeroDce = EnhanceEngine.ModelUsage(
+                backend = EnhanceEngine.ModelBackend.NCNN,
+                checksum = "abc123",
+                expectedChecksum = "abc123",
+                checksumOk = true,
             ),
-            fileSize = 1000L,
-            previewTimingMs = 100L,
-            fullTimingMs = 500L,
-            usedVulkan = false,
-            peakMemoryMb = 50f,
-            cancelled = false,
+            restormer = EnhanceEngine.ModelUsage(
+                backend = EnhanceEngine.ModelBackend.NCNN,
+                checksum = "def456",
+                expectedChecksum = "def456",
+                checksumOk = true,
+            ),
         )
+
+        every { nativeEnhanceAdapter.isReady() } returns true
+        every { nativeEnhanceAdapter.modelsTelemetry() } returns modelsTelemetry
+        coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
+        coEvery { nativeEnhanceAdapter.computePreview(any(), any(), any()) } coAnswers {
+            val progress = thirdArg<(Float) -> Unit>()
+            progress(0.25f)
+            true
+        }
+        coEvery {
+            nativeEnhanceAdapter.computeFull(any(), any(), any(), any(), any())
+        } coAnswers {
+            val output = thirdArg<File>()
+            @Suppress("UNCHECKED_CAST")
+            val onProgress = args[4] as (Float) -> Unit
+            output.writeBytes(ByteArray(128) { 0x11 })
+            onProgress(0.6f)
+            com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo(
+                strength = 0.5f,
+                delegate = "cpu",
+                metrics = com.kotopogoda.uploader.core.data.upload.UploadEnhancementMetrics(
+                    lMean = 0.52f,
+                    pDark = 0.28f,
+                    bSharpness = 0.45f,
+                    nNoise = 0.18f,
+                ),
+                fileSize = output.length(),
+                previewTimingMs = 80L,
+                fullTimingMs = 420L,
+                usedVulkan = false,
+                peakMemoryMb = 48f,
+                cancelled = false,
+            )
+        }
     }
 }

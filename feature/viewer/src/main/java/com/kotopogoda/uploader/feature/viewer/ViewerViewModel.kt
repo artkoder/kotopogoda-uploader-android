@@ -658,16 +658,21 @@ class ViewerViewModel @Inject constructor(
                     enqueueUri = enhancementResult.uri
                     idempotencyKey = idempotencyKeyFromContentSha256(digest)
                     contentSha256 = digest
+                    val uploadEnhancement = enhancementResult.uploadInfo?.copy(
+                        strength = normalizedStrength,
+                        delegate = enhancementResult.uploadInfo.delegate.ifBlank { delegateName },
+                        fileSize = fileSize ?: enhancementResult.uploadInfo.fileSize,
+                    ) ?: UploadEnhancementInfo(
+                        strength = normalizedStrength,
+                        delegate = delegateName,
+                        metrics = metricsPayload,
+                        fileSize = fileSize,
+                    )
                     enqueueOptions = UploadEnqueueOptions(
                         photoId = current.id,
                         overrideDisplayName = documentInfo.displayName,
                         overrideSize = fileSize ?: documentInfo.size,
-                        enhancement = UploadEnhancementInfo(
-                            strength = normalizedStrength,
-                            delegate = delegateName,
-                            metrics = metricsPayload,
-                            fileSize = fileSize,
-                        ),
+                        enhancement = uploadEnhancement,
                     )
                 } else {
                     val builtKey = buildIdempotencyKey(documentInfo)
@@ -1905,17 +1910,143 @@ class ViewerViewModel @Inject constructor(
                         emitEnhancementMetrics()
                     }
                 }
+                fun updateNativeProgress(progress: Float) {
+                    val clamped = progress.coerceIn(0f, 1f)
+                    viewModelScope.launch {
+                        _enhancementState.update { state ->
+                            val updated = if (state.progressByTile.isEmpty()) {
+                                mutableMapOf<Int, Float>().apply { put(0, clamped) }
+                            } else {
+                                state.progressByTile.toMutableMap().apply { put(0, clamped) }
+                            }
+                            state.copy(progressByTile = updated)
+                        }
+                        if (progressSamples.isNotEmpty()) {
+                            progressSamples[0] = clamped
+                        }
+                        emitEnhancementMetrics()
+                    }
+                }
+
                 var fallbackReason: String? = null
-                val result = try {
-                    fallbackReason = "precondition"
-                    logEnhancement(
-                        action = "delegate_fallback",
-                        photo = photo,
-                        "reason" to "precondition",
-                        "delegate" to delegatePlan.delegateType.name.lowercase(),
-                        "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
+
+                suspend fun tryNativeEnhancement(): EnhancementResult? {
+                    val previewOk = nativeEnhanceAdapter.computePreview(
+                        sourceFile = workspace.source,
+                        strength = normalized,
+                    ) { value -> updateNativeProgress(value) }
+                    if (!previewOk) {
+                        fallbackReason = "preview_failed"
+                        return null
+                    }
+                    val info = nativeEnhanceAdapter.computeFull(
+                        sourceFile = workspace.source,
+                        strength = normalized,
+                        outputFile = workspace.output,
+                        exif = workspace.exif,
+                    ) { value -> updateNativeProgress(value) } ?: run {
+                        if (fallbackReason == null) {
+                            fallbackReason = "full_failed"
+                        }
+                        return null
+                    }
+                    if (info.cancelled == true) {
+                        fallbackReason = "cancelled"
+                        return null
+                    }
+                    val metricsResult = info.metrics
+                    val enhancementMetrics = EnhanceEngine.Metrics(
+                        lMean = metricsResult.lMean.toDouble(),
+                        pDark = metricsResult.pDark.toDouble(),
+                        bSharpness = metricsResult.bSharpness.toDouble(),
+                        nNoise = metricsResult.nNoise.toDouble(),
                     )
-                    runFallbackEnhancement(workspace, metrics)
+                    val previewMs = info.previewTimingMs ?: 0L
+                    val fullMs = info.fullTimingMs ?: 0L
+                    val totalTiming = previewMs + fullMs
+                    val actualTileSize = if (analysis.width > 0) analysis.width else tileSize
+                    val nativeTileCount = max(1, totalTiles)
+                    val pipeline = EnhanceEngine.Pipeline(
+                        stages = listOf(
+                            "native_preview",
+                            if (info.usedVulkan == true) "native_full_vulkan" else "native_full",
+                        ),
+                        tileSize = tileSize,
+                        overlap = tileOverlap,
+                        tileSizeActual = actualTileSize,
+                        overlapActual = tileOverlap,
+                        mixingWindow = 0,
+                        mixingWindowActual = 0,
+                        tileCount = nativeTileCount,
+                        tilesCompleted = nativeTileCount,
+                        tileProgress = 1f,
+                        tileUsed = false,
+                        zeroDceIterations = 0,
+                        zeroDceApplied = true,
+                        zeroDceDelegateFallback = false,
+                        restormerMix = predictedProfile.restormerMix,
+                        restormerApplied = true,
+                        restormerDelegateFallback = false,
+                        hasSeamFix = false,
+                    )
+                    val timings = EnhanceEngine.Timings(
+                        decode = previewMs,
+                        metrics = 0,
+                        zeroDce = 0,
+                        restormer = 0,
+                        blend = 0,
+                        sharpen = 0,
+                        vibrance = 0,
+                        encode = fullMs,
+                        exif = 0,
+                        total = totalTiming,
+                        elapsed = totalTiming,
+                        eta = 0L,
+                    )
+                    val result = EnhancementResult(
+                        sourceFile = workspace.source,
+                        file = workspace.output,
+                        uri = workspace.output.toUri(),
+                        metrics = enhancementMetrics,
+                        profile = predictedProfile,
+                        delegate = EnhancementDelegateType.PRIMARY,
+                        engineDelegate = delegatePlan.engineDelegate,
+                        pipeline = pipeline,
+                        timings = timings,
+                        models = nativeEnhanceAdapter.modelsTelemetry(),
+                        uploadInfo = info,
+                    )
+                    pipelineSnapshot = pipeline
+                    return result
+                }
+
+                val result = try {
+                    if (delegatePlan.delegateType == EnhancementDelegateType.PRIMARY) {
+                        val nativeResult = tryNativeEnhancement()
+                        if (nativeResult != null) {
+                            nativeResult
+                        } else {
+                            val reason = fallbackReason ?: "native_failed"
+                            logEnhancement(
+                                action = "delegate_fallback",
+                                photo = photo,
+                                "reason" to reason,
+                                "delegate" to delegatePlan.delegateType.name.lowercase(),
+                                "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
+                            )
+                            runFallbackEnhancement(workspace, metrics)
+                        }
+                    } else {
+                        fallbackReason = "delegate_unavailable"
+                        logEnhancement(
+                            action = "delegate_fallback",
+                            photo = photo,
+                            "reason" to fallbackReason,
+                            "delegate" to delegatePlan.delegateType.name.lowercase(),
+                            "engine_delegate" to delegatePlan.engineDelegate.name.lowercase(),
+                        )
+                        runFallbackEnhancement(workspace, metrics)
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -2220,9 +2351,16 @@ class ViewerViewModel @Inject constructor(
         metrics: EnhanceEngine.Metrics,
         strength: Float,
     ): EnhancementDelegatePlan {
-        val delegateType = EnhancementDelegateType.FALLBACK
-        val engineDelegate = EnhanceEngine.Delegate.CPU
-        return EnhancementDelegatePlan(delegateType, engineDelegate)
+        if (nativeEnhanceAdapter.isReady()) {
+            return EnhancementDelegatePlan(
+                delegateType = EnhancementDelegateType.PRIMARY,
+                engineDelegate = selectEngineDelegate(),
+            )
+        }
+        return EnhancementDelegatePlan(
+            delegateType = EnhancementDelegateType.FALLBACK,
+            engineDelegate = EnhanceEngine.Delegate.CPU,
+        )
     }
 
     private fun selectEngineDelegate(): EnhanceEngine.Delegate {
@@ -2824,6 +2962,7 @@ class ViewerViewModel @Inject constructor(
         val pipeline: EnhanceEngine.Pipeline,
         val timings: EnhanceEngine.Timings,
         val models: EnhanceEngine.ModelsTelemetry,
+        val uploadInfo: UploadEnhancementInfo? = null,
     )
 
     enum class EnhancementDelegateType { PRIMARY, FALLBACK }

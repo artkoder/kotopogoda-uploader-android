@@ -201,7 +201,7 @@ class EnhanceEngineTest {
         assertEquals(EnhanceEngine.Delegate.GPU, zeroDce.calls.single().delegate)
         val firstBuffer = encoder.lastBuffer
         assertNotNull(firstBuffer)
-        val luma = firstBuffer.pixels.map { pixel ->
+        val luma = firstBuffer!!.pixels.map { pixel ->
             luminance(
                 Color.red(pixel) / 255f,
                 Color.green(pixel) / 255f,
@@ -465,11 +465,11 @@ class EnhanceEngineTest {
             ),
         )
 
-        assertTrue(progressUpdates.isNotEmpty(), "должны быть обновления прогресса")
+        assertTrue("должны быть обновления прогресса", progressUpdates.isNotEmpty())
         progressUpdates.forEach { progress ->
-            assertTrue(progress.progress >= 0f && progress.progress <= 1f, "прогресс должен быть в диапазоне [0, 1]")
-            assertTrue(progress.index >= 0, "индекс тайла должен быть неотрицательным")
-            assertTrue(progress.total >= 0, "общее количество тайлов должно быть неотрицательным")
+            assertTrue("прогресс должен быть в диапазоне [0, 1]", progress.progress >= 0f && progress.progress <= 1f)
+            assertTrue("индекс тайла должен быть неотрицательным", progress.index >= 0)
+            assertTrue("общее количество тайлов должно быть неотрицательным", progress.total >= 0)
         }
 
         input.delete()
@@ -503,11 +503,11 @@ class EnhanceEngineTest {
         )
 
         val pipeline = result.pipeline
-        assertTrue(pipeline.tileUsed, "тайлинг должен быть использован")
-        assertTrue(pipeline.hasSeamFix, "seam fix должен быть применен при overlap > 0")
-        assertTrue(pipeline.seamMaxDelta >= 0f, "seamMaxDelta должен быть неотрицательным")
-        assertTrue(pipeline.seamMeanDelta >= 0f, "seamMeanDelta должен быть неотрицательным")
-        assertTrue(pipeline.seamArea >= 0, "seamArea должен быть неотрицательным")
+        assertTrue("тайлинг должен быть использован", pipeline.tileUsed)
+        assertTrue("seam fix должен быть применен при overlap > 0", pipeline.hasSeamFix)
+        assertTrue("seamMaxDelta должен быть неотрицательным", pipeline.seamMaxDelta >= 0f)
+        assertTrue("seamMeanDelta должен быть неотрицательным", pipeline.seamMeanDelta >= 0f)
+        assertTrue("seamArea должен быть неотрицательным", pipeline.seamArea >= 0)
 
         input.delete()
         output.delete()
@@ -541,20 +541,20 @@ class EnhanceEngineTest {
         )
 
         val timings = result.timings
-        assertTrue(timings.decode >= 0, "decode time должен быть неотрицательным")
-        assertTrue(timings.metrics >= 0, "metrics time должен быть неотрицательным")
-        assertTrue(timings.zeroDce >= 0, "zeroDce time должен быть неотрицательным")
-        assertTrue(timings.restormer >= 0, "restormer time должен быть неотрицательным")
-        assertTrue(timings.sharpen >= 0, "sharpen time должен быть неотрицательным")
-        assertTrue(timings.vibrance >= 0, "vibrance time должен быть неотрицательным")
-        assertTrue(timings.encode >= 0, "encode time должен быть неотрицательным")
-        assertTrue(timings.total >= 0, "total time должен быть неотрицательным")
-        assertTrue(timings.elapsed >= 0, "elapsed time должен быть неотрицательным")
+        assertTrue("decode time должен быть неотрицательным", timings.decode >= 0)
+        assertTrue("metrics time должен быть неотрицательным", timings.metrics >= 0)
+        assertTrue("zeroDce time должен быть неотрицательным", timings.zeroDce >= 0)
+        assertTrue("restormer time должен быть неотрицательным", timings.restormer >= 0)
+        assertTrue("sharpen time должен быть неотрицательным", timings.sharpen >= 0)
+        assertTrue("vibrance time должен быть неотрицательным", timings.vibrance >= 0)
+        assertTrue("encode time должен быть неотрицательным", timings.encode >= 0)
+        assertTrue("total time должен быть неотрицательным", timings.total >= 0)
+        assertTrue("elapsed time должен быть неотрицательным", timings.elapsed >= 0)
 
         val sum = timings.decode + timings.metrics + timings.zeroDce + 
                   timings.restormer + timings.blend + timings.sharpen + 
                   timings.vibrance + timings.encode + timings.exif
-        assertTrue(sum <= timings.total + 10, "сумма отдельных этапов не должна сильно превышать total")
+        assertTrue("сумма отдельных этапов не должна сильно превышать total", sum <= timings.total + 10)
 
         input.delete()
         output.delete()
@@ -600,9 +600,8 @@ class EnhanceEngineTest {
             ),
         )
 
-        val bufferLow = encoder.lastBuffer
-        assertNotNull(bufferLow, "результат с низкой силой должен быть записан")
-        
+        val bufferLow = encoder.lastBuffer ?: error("результат с низкой силой должен быть записан")
+
         val averageLuminanceLow = bufferLow.pixels.map { pixel ->
             luminance(
                 Color.red(pixel) / 255f,
@@ -612,8 +611,7 @@ class EnhanceEngineTest {
         }.average()
 
         val averageLuminanceHigh = resultHigh.file.let {
-            val buffer = encoder.lastBuffer
-            assertNotNull(buffer, "результат с высокой силой должен быть записан")
+            val buffer = encoder.lastBuffer ?: error("результат с высокой силой должен быть записан")
             buffer.pixels.map { pixel ->
                 luminance(
                     Color.red(pixel) / 255f,
@@ -624,14 +622,14 @@ class EnhanceEngineTest {
         }
 
         assertTrue(
-            averageLuminanceHigh > averageLuminanceLow,
             "высокая сила (0.9) должна давать более яркий результат чем низкая (0.2): " +
                 "low=$averageLuminanceLow high=$averageLuminanceHigh",
+            averageLuminanceHigh > averageLuminanceLow,
         )
 
         assertTrue(
-            averageLuminanceHigh - averageLuminanceLow > 0.01,
             "разница яркости должна быть заметной (>1%): difference=${averageLuminanceHigh - averageLuminanceLow}",
+            averageLuminanceHigh - averageLuminanceLow > 0.01,
         )
 
         input.delete()
@@ -639,17 +637,10 @@ class EnhanceEngineTest {
         outputHigh.delete()
     }
 
-    private fun argb(r: Int, g: Int, b: Int): Int {
-        val rr = (r and 0xFF)
-        val gg = (g and 0xFF)
-        val bb = (b and 0xFF)
-        return (0xFF shl 24) or (rr shl 16) or (gg shl 8) or bb
-    }
-
     private fun assertClose(expected: Float, actual: Float, epsilon: Float) {
         assertTrue(
-            abs(expected - actual) <= epsilon,
             "expected=$expected actual=$actual",
+            abs(expected - actual) <= epsilon,
         )
     }
 
@@ -662,8 +653,8 @@ class EnhanceEngineTest {
         }
     }
 
-    private class QueueDecoder(private val buffers: MutableList<EnhanceEngine.ImageBuffer>) : EnhanceEngine.ImageDecoder {
-        constructor(buffers: List<EnhanceEngine.ImageBuffer>) : this(buffers.toMutableList())
+    private class QueueDecoder(buffers: List<EnhanceEngine.ImageBuffer>) : EnhanceEngine.ImageDecoder {
+        private val buffers = buffers.toMutableList()
         override fun decode(file: File): EnhanceEngine.ImageBuffer {
             if (buffers.isEmpty()) error("no buffers left")
             return buffers.removeAt(0).copy()
@@ -749,6 +740,13 @@ class EnhanceEngineTest {
             )
         }
     }
+}
+
+private fun argb(r: Int, g: Int, b: Int): Int {
+    val rr = (r and 0xFF)
+    val gg = (g and 0xFF)
+    val bb = (b and 0xFF)
+    return (0xFF shl 24) or (rr shl 16) or (gg shl 8) or bb
 }
 
 private fun luminance(r: Float, g: Float, b: Float): Float = 0.2126f * r + 0.7152f * g + 0.0722f * b

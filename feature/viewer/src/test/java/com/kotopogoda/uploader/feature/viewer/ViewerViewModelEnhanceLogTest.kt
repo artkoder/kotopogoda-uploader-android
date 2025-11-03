@@ -15,6 +15,7 @@ import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
+import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import io.mockk.MockKAnnotations
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
