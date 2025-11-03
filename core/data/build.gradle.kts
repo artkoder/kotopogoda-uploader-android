@@ -33,6 +33,10 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            all {
+                it.jvmArgs("-Xmx1024m", "-XX:MaxMetaspaceSize=512m")
+                it.systemProperty("kotlinx.coroutines.debug", "off")
+            }
         }
     }
 
@@ -62,6 +66,7 @@ dependencies {
     testImplementation(project(":core:settings"))
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation("io.mockk:mockk-agent-jvm:1.13.8")
     testImplementation("androidx.room:room-testing:${libs.versions.room.get()}")
     testImplementation("androidx.test:core-ktx:1.5.0")
     testImplementation("org.robolectric:robolectric:4.12.1")
