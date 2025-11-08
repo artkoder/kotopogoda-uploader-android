@@ -379,7 +379,10 @@ subprojects {
         
         // Настройка Robolectric
         systemProperty("robolectric.logging.enabled", "false")
-        systemProperty("robolectric.offline", "true")
+        systemProperty(
+            "robolectric.offline",
+            System.getenv("ROBOLECTRIC_OFFLINE")?.ifBlank { null } ?: "false"
+        )
         
         // Показывать stdout/stderr для лучшей диагностики
         testLogging {

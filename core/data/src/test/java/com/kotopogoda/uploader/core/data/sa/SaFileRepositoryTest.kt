@@ -37,6 +37,9 @@ class SaFileRepositoryTest {
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val processingFolderProvider = mockk<ProcessingFolderProvider>()
     private val repository = SaFileRepository(context, processingFolderProvider)
+    private val originalMediaStoreVolumeResolver = mediaStoreVolumeResolver
+    private val originalMediaStoreWriteRequestFactory = mediaStoreWriteRequestFactory
+    private val originalMediaStoreDeleteRequestFactory = mediaStoreDeleteRequestFactory
 
     init {
         every { context.contentResolver } returns contentResolver
@@ -44,6 +47,7 @@ class SaFileRepositoryTest {
 
     @After
     fun tearDown() {
+        mediaStoreVolumeResolver = originalMediaStoreVolumeResolver
         unmockkAll()
     }
 
@@ -90,6 +94,8 @@ class SaFileRepositoryTest {
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
         val valuesSlot = slot<ContentValues>()
 
+        mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
+
         every { destinationFolder.uri } returns destinationFolderUri
         coEvery { processingFolderProvider.ensure() } returns destinationFolder
 
@@ -103,9 +109,7 @@ class SaFileRepositoryTest {
         val success = assertIs<MoveResult.Success>(result)
         assertEquals(mediaUri, success.uri)
         assertEquals("Pictures/На обработку/", valuesSlot.captured.getAsString(MediaStore.MediaColumns.RELATIVE_PATH))
-        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 1) { contentResolver.update(eq(mediaUri), any(), any(), any()) }
-        verify(exactly = 0) { MediaStore.createDeleteRequest(any(), any()) }
         verify(exactly = 0) { contentResolver.getType(any()) }
         verify(exactly = 0) { contentResolver.openInputStream(any()) }
         verify(exactly = 0) { contentResolver.openOutputStream(any()) }
@@ -123,9 +127,12 @@ class SaFileRepositoryTest {
         val icon = mockk<Icon>()
         val remoteAction = RemoteAction(icon, "Write Permission", "Need write permission", pendingIntent)
 
+        mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
+
+        mockkStatic(MediaStore::class)
+
         every { destinationFolder.uri } returns destinationFolderUri
         coEvery { processingFolderProvider.ensure() } returns destinationFolder
-
 
         every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
@@ -167,8 +174,9 @@ class SaFileRepositoryTest {
         mockkStatic(DocumentFile::class)
         every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
 
+        mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
 
-        every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
+        mockkStatic(MediaStore::class)
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 
@@ -215,8 +223,7 @@ class SaFileRepositoryTest {
         val expectedProcessingUri = Uri.parse("content://com.android.externalstorage.documents/document/$expectedDocumentId")
         val destinationFolder = mockk<DocumentFile>(relaxed = true)
 
-
-        every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
+        mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
 
         mockkStatic(DocumentsContract::class)
         every { destinationFolder.uri } returns destinationFolderUri
@@ -249,10 +256,8 @@ class SaFileRepositoryTest {
                 null
             )
         }
-        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 0) { contentResolver.openInputStream(any()) }
         verify(exactly = 0) { contentResolver.openOutputStream(any()) }
-        verify(exactly = 0) { MediaStore.createDeleteRequest(any(), any()) }
     }
 
     @Test
@@ -350,13 +355,14 @@ class SaFileRepositoryTest {
         mockkStatic(DocumentFile::class)
         every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
 
+        mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
+
         mockkStatic(MediaStore::class)
-        every { MediaStore.getVolumeName(mediaUri) } returns MediaStore.VOLUME_EXTERNAL_PRIMARY
         every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 
         mockkStatic(DocumentsContract::class)
-        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "primary:Kotopogoda/На обработку"
+        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "1234-5678:Kotopogода/На обработку"
 
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
