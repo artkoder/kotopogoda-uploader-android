@@ -371,8 +371,8 @@ subprojects {
             // Создать heap dump при OOM для диагностики
             "-XX:+HeapDumpOnOutOfMemoryError",
             "-XX:HeapDumpPath=${project.buildDir}/test-heap-dumps/",
-            // Ограничить число потоков в coroutines scheduler
-            "-Dkotlinx.coroutines.scheduler.max.pool.size=2",
+            // Ограничить число потоков в coroutines scheduler (>=4 для совместимости с core pool size)
+            "-Dkotlinx.coroutines.scheduler.max.pool.size=8",
             // Отключить coroutines debug для производительности
             "-Dkotlinx.coroutines.debug=off"
         )
