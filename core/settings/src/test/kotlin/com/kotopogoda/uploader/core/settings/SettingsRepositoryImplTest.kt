@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlinx.coroutines.CoroutineDispatcher
@@ -11,22 +12,24 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.advanceUntilIdle
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsRepositoryImplTest {
 
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
     @Test
     fun appLogging_defaultTrue_whenNotPersisted() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = true)
         val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
 
         val settings = repository.flow.first()
 
@@ -37,8 +40,7 @@ class SettingsRepositoryImplTest {
     fun appLogging_updatesWhenPreferenceChanges() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = true)
         val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
 
         repository.setAppLogging(false)
         advanceUntilIdle()
@@ -55,8 +57,7 @@ class SettingsRepositoryImplTest {
     fun httpLogging_defaultTrue_whenNotPersisted() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = true)
         val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
 
         val settings = repository.flow.first()
 
@@ -67,8 +68,7 @@ class SettingsRepositoryImplTest {
     fun persistentQueueNotification_defaultFalse_whenPermissionMissing() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = false)
         val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
 
         val settings = repository.flow.first()
 
@@ -79,8 +79,7 @@ class SettingsRepositoryImplTest {
     fun persistentQueueNotification_defaultsToTrue_whenPermissionGranted() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = true)
         val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
 
         val settings = repository.flow.first()
 
@@ -91,8 +90,7 @@ class SettingsRepositoryImplTest {
     fun persistentQueueNotification_updates_whenPermissionChanges() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = false)
         val dataStore = createDataStore(backgroundScope)
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val repository = createRepository(dataStore, permissionProvider, dispatcher)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
 
         val initial = repository.flow.first()
         assertFalse(initial.persistentQueueNotification)
