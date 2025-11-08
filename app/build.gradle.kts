@@ -126,6 +126,8 @@ android {
             excludes += "**/*.sh"
             excludes += "**/jq*"
             excludes += "**/checksums/**"
+            excludes += "assets/**/checksums/**"
+            excludes += "assets/models/checksums/**"
             // Исключаем файлы, которые не нужны на мобильном устройстве
             excludes += "native/**" // Robolectric native runtime для тестов
             excludes += "**/*.dylib" // macOS libraries
