@@ -120,6 +120,21 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "lib/libRapidOcr.dylib"
+            excludes += "lib/RapidOcr.dll"
+            excludes += "**/SHA256SUMS.txt"
+            excludes += "**/sha256sum.txt"
+            excludes += "**/*.sh"
+            excludes += "**/jq*"
+            excludes += "**/checksums/**"
+            // Исключаем файлы, которые не нужны на мобильном устройстве
+            excludes += "native/**" // Robolectric native runtime для тестов
+            excludes += "**/*.dylib" // macOS libraries
+            excludes += "**/*.dll" // Windows libraries
+            excludes += "sqlite4java/**" // Неиспользуемые SQLite4Java библиотеки
+            excludes += "META-INF/native/**" // Conscrypt Windows/macOS natives
+            excludes += "models/**" // OCR модели от ML Kit
+            excludes += "icu/**" // ICU data files
+            excludes += "fonts/NotoSans**" // Шрифты (NotoSansCJK занимают ~120 МБ)
         }
         jniLibs {
             useLegacyPackaging = true
