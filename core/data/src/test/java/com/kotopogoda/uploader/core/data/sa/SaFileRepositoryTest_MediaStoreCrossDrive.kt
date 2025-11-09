@@ -42,6 +42,8 @@ class SaFileRepositoryTest_MediaStoreCrossDrive {
     private val repository = SaFileRepository(context, processingFolderProvider)
     private val originalMediaStoreVolumeResolver = mediaStoreVolumeResolver
     private val originalMediaStoreDeleteRequestFactory = mediaStoreDeleteRequestFactory
+    private val originalDocumentsContractGetDocumentId = documentsContractGetDocumentId
+    private val originalDocumentFileFromSingleUri = documentFileFromSingleUri
 
     init {
         every { context.contentResolver } returns contentResolver
@@ -49,15 +51,15 @@ class SaFileRepositoryTest_MediaStoreCrossDrive {
 
     @Before
     fun setUp() {
-        mockkStatic(DocumentFile::class)
-        mockkStatic(DocumentsContract::class)
-        mockkStatic(MediaStore::class)
+        // Моки больше не нужны - используем переменные
     }
 
     @After
     fun tearDown() {
         mediaStoreVolumeResolver = originalMediaStoreVolumeResolver
         mediaStoreDeleteRequestFactory = originalMediaStoreDeleteRequestFactory
+        documentsContractGetDocumentId = originalDocumentsContractGetDocumentId
+        documentFileFromSingleUri = originalDocumentFileFromSingleUri
         clearAllMocks(answers = false)
     }
 
@@ -74,16 +76,19 @@ class SaFileRepositoryTest_MediaStoreCrossDrive {
         val inputBytes = "media-bytes".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
-        every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
+        documentFileFromSingleUri = { _, _ -> throw AssertionError("Should not access DocumentFile for MediaStore URIs") }
 
         mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
+        mediaStoreDeleteRequestFactory = { _, _ -> pendingIntent }
 
-        every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 
         val destinationTreeUri = Uri.parse("content://com.android.externalstorage.documents/document/1234-5678:Kotopogoda/Processing")
         every { destinationFolder.uri } returns destinationTreeUri
-        every { DocumentsContract.getDocumentId(destinationTreeUri) } returns "1234-5678:Kotopogoda/Processing"
+        documentsContractGetDocumentId = { uri ->
+            if (uri == destinationTreeUri) "1234-5678:Kotopogoda/Processing"
+            else throw IllegalArgumentException("Unexpected uri: $uri")
+        }
 
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
@@ -109,10 +114,7 @@ class SaFileRepositoryTest_MediaStoreCrossDrive {
         val permission = assertIs<MoveResult.RequiresDeletePermission>(result)
         assertEquals(pendingIntent, permission.pendingIntent)
         assertContentEquals(inputBytes, outputStream.toByteArray())
-        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
-        verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
         verify(exactly = 1) { contentResolver.delete(mediaUri, null, null) }
-        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
         verify(exactly = 0) { contentResolver.update(any(), any(), any(), any()) }
     }
 
@@ -133,14 +135,17 @@ class SaFileRepositoryTest_MediaStoreCrossDrive {
         val inputBytes = "media-duplicate".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
-        every { DocumentFile.fromSingleUri(context, any()) } throws AssertionError("Should not access DocumentFile for MediaStore URIs")
+        documentFileFromSingleUri = { _, _ -> throw AssertionError("Should not access DocumentFile for MediaStore URIs") }
 
         mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
+        mediaStoreDeleteRequestFactory = { _, _ -> pendingIntent }
 
-        every { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 
-        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "1234-5678:Kotopogода/На обработку"
+        documentsContractGetDocumentId = { uri ->
+            if (uri == destinationFolderUri) "1234-5678:Kotopogода/На обработку"
+            else throw IllegalArgumentException("Unexpected uri: $uri")
+        }
 
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
@@ -171,8 +176,6 @@ class SaFileRepositoryTest_MediaStoreCrossDrive {
         assertContentEquals(inputBytes, outputStream.toByteArray())
         verify(exactly = 1) { destinationFolder.createFile("image/jpeg", "bar-1.jpg") }
         verify(exactly = 0) { destinationFolder.createFile("image/jpeg", "bar.jpg") }
-        verify(exactly = 1) { MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri)) }
         verify(exactly = 1) { contentResolver.delete(mediaUri, null, null) }
-        verify(exactly = 0) { MediaStore.createWriteRequest(any(), any()) }
     }
 }

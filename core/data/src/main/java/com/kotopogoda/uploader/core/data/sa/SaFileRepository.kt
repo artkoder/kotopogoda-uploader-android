@@ -82,9 +82,9 @@ class SaFileRepository @Inject constructor(
                     ),
                 ),
             )
-            val source = DocumentFile.fromSingleUri(context, srcInProcessing)
+            val source = documentFileFromSingleUri(context, srcInProcessing)
                 ?: throw IllegalStateException("Source document not found for $srcInProcessing")
-            val parent = DocumentFile.fromTreeUri(context, originalParent)
+            val parent = documentFileFromTreeUri(context, originalParent)
                 ?: throw IllegalStateException("Original parent document missing for $originalParent")
 
             val mimeType = source.type ?: DEFAULT_MIME
@@ -140,7 +140,7 @@ class SaFileRepository @Inject constructor(
     }
 
     private fun moveSafDocument(src: Uri, destinationDirectory: DocumentFile): MoveResult {
-        val source = DocumentFile.fromSingleUri(context, src)
+        val source = documentFileFromSingleUri(context, src)
             ?: throw IllegalStateException("Source document not found for $src")
 
         val mimeType = source.type ?: DEFAULT_MIME
@@ -200,7 +200,7 @@ class SaFileRepository @Inject constructor(
 
             val targetDocumentId = "$destinationDocumentId/$uniqueDisplayName"
             return MoveResult.Success(
-                DocumentsContract.buildDocumentUriUsingTree(destinationDirectory.uri, targetDocumentId)
+                documentsContractBuildDocumentUri(destinationDirectory.uri, targetDocumentId)
             )
         }
 
@@ -319,7 +319,7 @@ class SaFileRepository @Inject constructor(
     }
 
     private fun resolveDocumentLocation(document: DocumentFile): DocumentLocation? {
-        val documentId = runCatching { DocumentsContract.getDocumentId(document.uri) }.getOrNull()
+        val documentId = runCatching { documentsContractGetDocumentId(document.uri) }.getOrNull()
             ?: return null
         val separatorIndex = documentId.indexOf(':')
         if (separatorIndex <= 0 || separatorIndex >= documentId.lastIndex) {
@@ -472,6 +472,22 @@ internal var mediaStoreDeleteRequestFactory: (ContentResolver, List<Uri>) -> Pen
     MediaStore.createDeleteRequest(resolver, uris)
 }
 
+internal var documentsContractGetDocumentId: (Uri) -> String = { uri ->
+    DocumentsContract.getDocumentId(uri)
+}
+
+internal var documentsContractBuildDocumentUri: (Uri, String) -> Uri = { treeUri, documentId ->
+    DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+}
+
+internal var documentFileFromSingleUri: (Context, Uri) -> DocumentFile? = { context, uri ->
+    DocumentFile.fromSingleUri(context, uri)
+}
+
+internal var documentFileFromTreeUri: (Context, Uri) -> DocumentFile? = { context, uri ->
+    DocumentFile.fromTreeUri(context, uri)
+}
+
 private fun areSameVolume(destinationVolume: String, mediaStoreVolume: String): Boolean {
     val normalizedDestination = destinationVolume.lowercase()
     val normalizedSource = when (mediaStoreVolume.lowercase()) {
@@ -497,7 +513,7 @@ private fun buildRelativePath(destinationDocumentId: String): String? {
 }
 
 private fun resolveDocumentId(document: DocumentFile): String? {
-    return runCatching { DocumentsContract.getDocumentId(document.uri) }.getOrNull()
+    return runCatching { documentsContractGetDocumentId(document.uri) }.getOrNull()
 }
 
 private data class DisplayNameComponents(
