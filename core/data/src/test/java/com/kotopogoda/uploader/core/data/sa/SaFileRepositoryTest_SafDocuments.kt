@@ -33,6 +33,8 @@ class SaFileRepositoryTest_SafDocuments {
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val processingFolderProvider = mockk<ProcessingFolderProvider>(relaxed = true)
     private val repository = SaFileRepository(context, processingFolderProvider)
+    private val originalDocumentFileFromSingleUri = documentFileFromSingleUri
+    private val originalDocumentFileFromTreeUri = documentFileFromTreeUri
 
     init {
         every { context.contentResolver } returns contentResolver
@@ -40,13 +42,14 @@ class SaFileRepositoryTest_SafDocuments {
 
     @Before
     fun setUp() {
-        mockkStatic(DocumentFile::class)
+        // Моки больше не нужны - используем переменные
     }
 
     @After
     fun tearDown() {
-        // Не очищаем моки для экономии памяти - static моки остаются активными
-        // Каждый тест создает свои экземпляры mock объектов
+        documentFileFromSingleUri = originalDocumentFileFromSingleUri
+        documentFileFromTreeUri = originalDocumentFileFromTreeUri
+        clearAllMocks(answers = false)
     }
 
     @Test
@@ -59,7 +62,10 @@ class SaFileRepositoryTest_SafDocuments {
         val inputBytes = "hello-world".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
-        every { DocumentFile.fromSingleUri(context, safUri) } returns sourceDocument
+        documentFileFromSingleUri = { _, uri ->
+            if (uri == safUri) sourceDocument
+            else null
+        }
 
         every { sourceDocument.type } returns "image/jpeg"
         every { sourceDocument.name } returns "foo.jpg"
@@ -93,7 +99,10 @@ class SaFileRepositoryTest_SafDocuments {
         val inputBytes = "duplicate".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
-        every { DocumentFile.fromSingleUri(context, safUri) } returns sourceDocument
+        documentFileFromSingleUri = { _, uri ->
+            if (uri == safUri) sourceDocument
+            else null
+        }
 
         every { sourceDocument.type } returns "image/jpeg"
         every { sourceDocument.name } returns "foo.jpg"
@@ -132,7 +141,10 @@ class SaFileRepositoryTest_SafDocuments {
         val inputBytes = "suffix".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
-        every { DocumentFile.fromSingleUri(context, safUri) } returns sourceDocument
+        documentFileFromSingleUri = { _, uri ->
+            if (uri == safUri) sourceDocument
+            else null
+        }
 
         every { sourceDocument.type } returns "image/jpeg"
         every { sourceDocument.name } returns "foo-2.jpg"
@@ -174,8 +186,14 @@ class SaFileRepositoryTest_SafDocuments {
         val inputBytes = "restore".toByteArray()
         val outputStream = ByteArrayOutputStream()
 
-        every { DocumentFile.fromSingleUri(context, processingUri) } returns sourceDocument
-        every { DocumentFile.fromTreeUri(context, originalParentUri) } returns parentDocument
+        documentFileFromSingleUri = { _, uri ->
+            if (uri == processingUri) sourceDocument
+            else null
+        }
+        documentFileFromTreeUri = { _, uri ->
+            if (uri == originalParentUri) parentDocument
+            else null
+        }
 
         every { sourceDocument.type } returns "image/jpeg"
         every { sourceDocument.delete() } returns true

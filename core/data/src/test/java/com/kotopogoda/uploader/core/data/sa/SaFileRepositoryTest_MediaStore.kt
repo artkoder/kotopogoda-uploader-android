@@ -44,6 +44,8 @@ class SaFileRepositoryTest_MediaStore {
     private val originalMediaStoreVolumeResolver = mediaStoreVolumeResolver
     private val originalMediaStoreWriteRequestFactory = mediaStoreWriteRequestFactory
     private val originalMediaStoreDeleteRequestFactory = mediaStoreDeleteRequestFactory
+    private val originalDocumentsContractGetDocumentId = documentsContractGetDocumentId
+    private val originalDocumentsContractBuildDocumentUri = documentsContractBuildDocumentUri
 
     init {
         every { context.contentResolver } returns contentResolver
@@ -51,9 +53,7 @@ class SaFileRepositoryTest_MediaStore {
 
     @Before
     fun setUp() {
-        mockkStatic(DocumentFile::class)
-        mockkStatic(DocumentsContract::class)
-        mockkStatic(MediaStore::class)
+        // Моки больше не нужны - используем переменные
     }
 
     @After
@@ -61,6 +61,8 @@ class SaFileRepositoryTest_MediaStore {
         mediaStoreVolumeResolver = originalMediaStoreVolumeResolver
         mediaStoreWriteRequestFactory = originalMediaStoreWriteRequestFactory
         mediaStoreDeleteRequestFactory = originalMediaStoreDeleteRequestFactory
+        documentsContractGetDocumentId = originalDocumentsContractGetDocumentId
+        documentsContractBuildDocumentUri = originalDocumentsContractBuildDocumentUri
         clearAllMocks(answers = false)
     }
 
@@ -78,7 +80,10 @@ class SaFileRepositoryTest_MediaStore {
         every { destinationFolder.uri } returns destinationFolderUri
         coEvery { processingFolderProvider.ensure() } returns destinationFolder
 
-        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "external:Pictures/На обработку"
+        documentsContractGetDocumentId = { uri ->
+            if (uri == destinationFolderUri) "external:Pictures/На обработку"
+            else throw IllegalArgumentException("Unexpected uri: $uri")
+        }
 
         every { contentResolver.update(eq(mediaUri), capture(valuesSlot), any(), any()) } returns 1
 
@@ -106,14 +111,17 @@ class SaFileRepositoryTest_MediaStore {
         val remoteAction = RemoteAction(icon, "Write Permission", "Need write permission", pendingIntent)
 
         mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
+        mediaStoreWriteRequestFactory = { _, _ -> pendingIntent }
 
         every { destinationFolder.uri } returns destinationFolderUri
         coEvery { processingFolderProvider.ensure() } returns destinationFolder
 
-        every { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) } returns pendingIntent
         every { pendingIntent.intentSender } returns intentSender
 
-        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "external:Pictures/На обработку"
+        documentsContractGetDocumentId = { uri ->
+            if (uri == destinationFolderUri) "external:Pictures/На обработку"
+            else throw IllegalArgumentException("Unexpected uri: $uri")
+        }
 
         every {
             contentResolver.update(eq(mediaUri), any(), any(), any())
@@ -127,7 +135,6 @@ class SaFileRepositoryTest_MediaStore {
 
         val confirmation = assertIs<MoveResult.RequiresWritePermission>(result)
         assertEquals(pendingIntent, confirmation.pendingIntent)
-        verify(exactly = 1) { MediaStore.createWriteRequest(contentResolver, listOf(mediaUri)) }
         verify(exactly = 1) { contentResolver.update(eq(mediaUri), any(), any(), any()) }
         verify(exactly = 0) { contentResolver.getType(any()) }
         verify(exactly = 0) { contentResolver.openInputStream(any()) }
@@ -145,8 +152,14 @@ class SaFileRepositoryTest_MediaStore {
         mediaStoreVolumeResolver = { MediaStore.VOLUME_EXTERNAL_PRIMARY }
 
         every { destinationFolder.uri } returns destinationFolderUri
-        every { DocumentsContract.getDocumentId(destinationFolderUri) } returns "primary:Kotopogoda/Processing"
-        every { DocumentsContract.buildDocumentUriUsingTree(destinationFolderUri, expectedDocumentId) } returns expectedProcessingUri
+        documentsContractGetDocumentId = { uri ->
+            if (uri == destinationFolderUri) "primary:Kotopogoda/Processing"
+            else throw IllegalArgumentException("Unexpected uri: $uri")
+        }
+        documentsContractBuildDocumentUri = { treeUri, documentId ->
+            if (treeUri == destinationFolderUri && documentId == expectedDocumentId) expectedProcessingUri
+            else throw IllegalArgumentException("Unexpected arguments: $treeUri, $documentId")
+        }
 
         val cursor = MatrixCursor(arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)).apply {
             addRow(arrayOf<Any>("bar.jpg"))
