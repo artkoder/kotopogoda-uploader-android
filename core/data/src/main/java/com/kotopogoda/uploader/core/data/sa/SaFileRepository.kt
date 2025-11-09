@@ -170,7 +170,7 @@ class SaFileRepository @Inject constructor(
         val displayName = resolveMediaStoreDisplayName(resolver, src) ?: DEFAULT_FILE_NAME
         val destinationDocumentId = resolveDocumentId(destinationDirectory)
         val destinationVolume = destinationDocumentId?.substringBefore(':')
-        val mediaStoreVolume = runCatching { MediaStore.getVolumeName(src) }.getOrNull()
+        val mediaStoreVolume = mediaStoreVolumeResolver(src)
 
         if (
             destinationDocumentId != null &&
@@ -264,7 +264,7 @@ class SaFileRepository @Inject constructor(
                 throw IllegalStateException("Unable to delete source document $uri", error)
             }
             return MoveResult.RequiresDeletePermission(
-                MediaStore.createDeleteRequest(resolver, listOf(uri))
+                mediaStoreDeleteRequestFactory(resolver, listOf(uri))
             )
         }
         if (deleted <= 0) {
@@ -285,7 +285,7 @@ class SaFileRepository @Inject constructor(
     ): MoveResult? {
         if (error !is RecoverableSecurityException) return null
         val pendingIntent = runCatching {
-            MediaStore.createWriteRequest(resolver, listOf(uri))
+            mediaStoreWriteRequestFactory(resolver, listOf(uri))
         }.getOrNull()
         return pendingIntent?.let { MoveResult.RequiresWritePermission(it) }
     }
@@ -458,6 +458,18 @@ sealed class MoveResult {
     data class Success(val uri: Uri) : MoveResult()
     data class RequiresWritePermission(val pendingIntent: PendingIntent) : MoveResult()
     data class RequiresDeletePermission(val pendingIntent: PendingIntent) : MoveResult()
+}
+
+internal var mediaStoreVolumeResolver: (Uri) -> String? = { uri ->
+    runCatching { MediaStore.getVolumeName(uri) }.getOrNull()
+}
+
+internal var mediaStoreWriteRequestFactory: (ContentResolver, List<Uri>) -> PendingIntent = { resolver, uris ->
+    MediaStore.createWriteRequest(resolver, uris)
+}
+
+internal var mediaStoreDeleteRequestFactory: (ContentResolver, List<Uri>) -> PendingIntent = { resolver, uris ->
+    MediaStore.createDeleteRequest(resolver, uris)
 }
 
 private fun areSameVolume(destinationVolume: String, mediaStoreVolume: String): Boolean {
