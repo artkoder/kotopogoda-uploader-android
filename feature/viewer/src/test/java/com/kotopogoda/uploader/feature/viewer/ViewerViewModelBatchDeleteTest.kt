@@ -25,8 +25,6 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
 import io.mockk.verify
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -55,10 +53,13 @@ class ViewerViewModelBatchDeleteTest {
         Dispatchers.setMain(dispatcher)
     }
 
+    private val originalMediaStoreDeleteRequestFactory = ViewerViewModel.mediaStoreDeleteRequestFactory
+
     @After
     fun tearDown() {
         Dispatchers.resetMain()
         ViewerViewModel.buildVersionOverride = null
+        ViewerViewModel.mediaStoreDeleteRequestFactory = originalMediaStoreDeleteRequestFactory
     }
 
     @Test
@@ -66,38 +67,32 @@ class ViewerViewModelBatchDeleteTest {
         runTest(context = dispatcher) {
             ViewerViewModel.buildVersionOverride = Build.VERSION_CODES.R
 
-            mockkStatic(MediaStore::class)
+            val pendingIntent = mockk<PendingIntent>()
+            val intentSender = mockk<IntentSender>()
+            every { pendingIntent.intentSender } returns intentSender
+            ViewerViewModel.mediaStoreDeleteRequestFactory = { _, _ -> pendingIntent }
 
-            try {
-                val pendingIntent = mockk<PendingIntent>()
-                val intentSender = mockk<IntentSender>()
-                every { pendingIntent.intentSender } returns intentSender
-                every { MediaStore.createDeleteRequest(any(), any()) } returns pendingIntent
+            val environment = createEnvironment()
+            val photo1 = createPhoto("1")
+            val photo2 = createPhoto("2")
 
-                val environment = createEnvironment()
-                val photo1 = createPhoto("1")
-                val photo2 = createPhoto("2")
-
-                val snackbarDeferred = async {
-                    environment.viewModel.events
-                        .filterIsInstance<ViewerViewModel.ViewerEvent.ShowSnackbar>()
-                        .first()
-                }
-
-                environment.viewModel.onToggleSelection(photo1)
-                environment.viewModel.onToggleSelection(photo2)
-                environment.viewModel.onDeleteSelection()
-                advanceUntilIdle()
-
-                environment.viewModel.onDeleteResult(ViewerViewModel.DeleteResult.Success)
-                advanceUntilIdle()
-
-                val snackbar = snackbarDeferred.await()
-                assertEquals(R.string.viewer_snackbar_delete_success, snackbar.messageRes)
-                verify(exactly = 0) { environment.resolver.delete(any(), any(), any()) }
-            } finally {
-                unmockkStatic(MediaStore::class)
+            val snackbarDeferred = async {
+                environment.viewModel.events
+                    .filterIsInstance<ViewerViewModel.ViewerEvent.ShowSnackbar>()
+                    .first()
             }
+
+            environment.viewModel.onToggleSelection(photo1)
+            environment.viewModel.onToggleSelection(photo2)
+            environment.viewModel.onDeleteSelection()
+            advanceUntilIdle()
+
+            environment.viewModel.onDeleteResult(ViewerViewModel.DeleteResult.Success)
+            advanceUntilIdle()
+
+            val snackbar = snackbarDeferred.await()
+            assertEquals(R.string.viewer_snackbar_delete_success, snackbar.messageRes)
+            verify(exactly = 0) { environment.resolver.delete(any(), any(), any()) }
         }
 
     @Test

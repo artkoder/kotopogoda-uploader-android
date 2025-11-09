@@ -831,7 +831,7 @@ class ViewerViewModel @Inject constructor(
                 val backup = runCatching { createDeleteBackup(documentInfo) }.getOrNull()
                 if (isAtLeastR()) {
                     val pendingIntent = withContext(Dispatchers.IO) {
-                        MediaStore.createDeleteRequest(
+                        mediaStoreDeleteRequestFactory(
                             context.contentResolver,
                             listOf(documentInfo.uri)
                         )
@@ -923,7 +923,7 @@ class ViewerViewModel @Inject constructor(
             try {
                 if (isAtLeastR()) {
                     val pendingIntent = withContext(Dispatchers.IO) {
-                        MediaStore.createDeleteRequest(
+                        mediaStoreDeleteRequestFactory(
                             context.contentResolver,
                             photos.map { it.uri }
                         )
@@ -2976,6 +2976,10 @@ class ViewerViewModel @Inject constructor(
         )
 
         internal var buildVersionOverride: Int? = null
+        
+        internal var mediaStoreDeleteRequestFactory: (ContentResolver, List<Uri>) -> PendingIntent = { resolver, uris ->
+            MediaStore.createDeleteRequest(resolver, uris)
+        }
     }
 
     data class EnhancementState(
