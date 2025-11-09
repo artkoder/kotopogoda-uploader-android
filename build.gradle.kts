@@ -352,6 +352,11 @@ project(":app") {
 // Глобальные настройки для JVM unit-тестов
 subprojects {
     tasks.withType<Test>().configureEach {
+        // Создать директорию для heap dumps заранее
+        doFirst {
+            project.file("${project.buildDir}/test-heap-dumps").mkdirs()
+        }
+        
         // Ограничение параллелизма для стабильности
         maxParallelForks = 1
         
@@ -370,7 +375,7 @@ subprojects {
             "-XX:MaxRAMPercentage=70",
             // Создать heap dump при OOM для диагностики
             "-XX:+HeapDumpOnOutOfMemoryError",
-            "-XX:HeapDumpPath=${project.buildDir}/test-heap-dumps/",
+            "-XX:HeapDumpPath=${project.buildDir}/test-heap-dumps/heap-%t.bin",
             // Ограничить число потоков в coroutines scheduler (>=4 для совместимости с core pool size)
             "-Dkotlinx.coroutines.scheduler.max.pool.size=8",
             // Отключить coroutines debug для производительности
