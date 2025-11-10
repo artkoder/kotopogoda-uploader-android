@@ -15,6 +15,10 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    kapt {
+        correctErrorTypes = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -22,6 +26,9 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        freeCompilerArgs += listOf(
+            "-opt-in=androidx.compose.ui.test.ExperimentalTestApi"
+        )
     }
 
     buildFeatures {
@@ -64,4 +71,9 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     testImplementation(project(":core:logging"))
+    testImplementation(libs.junit)
+    testImplementation(kotlin("test"))
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("org.robolectric:robolectric:4.12.1")
+    kaptTest(libs.dagger.hilt.compiler)
 }
