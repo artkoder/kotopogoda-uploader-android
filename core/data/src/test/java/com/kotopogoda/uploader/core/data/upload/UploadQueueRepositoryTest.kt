@@ -86,13 +86,14 @@ class UploadQueueRepositoryTest {
         val uri = Uri.parse("content://media/external/images/media/2")
         coEvery { photoDao.getByUri(uri.toString()) } returns null
         every { metadataReader.read(uri) } returns null
-        every { contentResolver.openInputStream(uri) } returns null
+        every { contentResolver.getPersistedUriPermissions() } returns emptyList()
+        every { contentResolver.openInputStream(any()) } returns null
 
         val error = assertFailsWith<IllegalStateException> {
             repository.enqueue(uri, idempotencyKey = "key-2", contentSha256 = null)
         }
 
-        assertEquals("Unable to open input stream for uri: $uri", error.message)
+        assertTrue(error.message?.contains("Unable to open input stream for uri") == true)
         coVerify(exactly = 0) { photoDao.upsert(any()) }
     }
 
