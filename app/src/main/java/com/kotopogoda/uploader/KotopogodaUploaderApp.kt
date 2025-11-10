@@ -32,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Executors
@@ -109,7 +110,14 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        appLogger.setEnabled(true)
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        }
+        val initialSettings = runBlocking {
+            settingsRepository.flow.first()
+        }
+        appLogger.setEnabled(initialSettings.appLogging)
+        httpLoggingController.setEnabled(initialSettings.httpLogging)
         EnhanceLogging.setVerboseLoggingEnabled(BuildConfig.DEBUG)
         EnhanceLogging.setFileLogger(EnhanceFileLogger(this))
         runCatching {
@@ -149,7 +157,6 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         }
         UploadNotif.ensureChannel(this)
         networkMonitor.start()
-        httpLoggingController.setEnabled(true)
         UploadLog.setDiagnosticContextProvider(diagnosticContextProvider)
         uploadWorkObserver.start(scope)
         Timber.tag("app").i(
