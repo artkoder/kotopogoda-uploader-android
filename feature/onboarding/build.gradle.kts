@@ -15,6 +15,10 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    kapt {
+        correctErrorTypes = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -50,9 +54,13 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     testImplementation(libs.junit)
+    testImplementation(kotlin("test"))
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation("org.robolectric:robolectric:4.12.1")
+    testImplementation(project(":core:logging"))
+    kaptTest(libs.dagger.hilt.compiler)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.test.ext.junit)

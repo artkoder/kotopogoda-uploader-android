@@ -15,6 +15,10 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    kapt {
+        correctErrorTypes = true
+    }
+
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
@@ -64,9 +68,13 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(kotlin("test"))
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation("org.robolectric:robolectric:4.12.1")
     testImplementation(project(":android-stubs"))
     testImplementation(project(":core:logging"))
+    kaptTest(libs.dagger.hilt.compiler)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
