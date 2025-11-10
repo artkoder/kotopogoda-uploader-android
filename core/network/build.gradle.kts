@@ -16,6 +16,10 @@ android {
         minSdk = 26
     }
 
+    kapt {
+        correctErrorTypes = true
+    }
+
     // IMPORTANT: wire generated sources via Android DSL (not global sourceSets)
     sourceSets {
         getByName("main") {
