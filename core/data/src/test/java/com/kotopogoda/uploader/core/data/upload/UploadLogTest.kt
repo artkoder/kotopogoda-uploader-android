@@ -67,7 +67,7 @@ class UploadLogTest {
             ),
         )
 
-        assertTrue(message.startsWith("APP/Test"))
+        assertContains(message, "category=APP/Test")
         assertContains(message, "session_id=")
         assertContains(message, "app_version=1.0.0")
         assertContains(message, "api_contract_version=v1")
