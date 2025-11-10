@@ -21,6 +21,10 @@ android {
         }
     }
 
+    kapt {
+        correctErrorTypes = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -74,6 +78,8 @@ dependencies {
     testImplementation("androidx.room:room-testing:${libs.versions.room.get()}")
     testImplementation("androidx.test:core-ktx:1.5.0")
     testImplementation("org.robolectric:robolectric:4.12.1")
+    testImplementation(project(":core:logging"))
+    kaptTest(libs.dagger.hilt.compiler)
 }
 
 // Временно отключаем проблемные SAF тесты из-за mockkStatic OOM
