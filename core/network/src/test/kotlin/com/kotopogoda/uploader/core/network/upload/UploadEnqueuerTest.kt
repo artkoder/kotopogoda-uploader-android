@@ -17,7 +17,6 @@ import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
-import io.mockk.match
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
@@ -32,7 +31,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import java.util.UUID
 import timber.log.Timber
-import javax.inject.Provider
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 
 class UploadEnqueuerTest {
 
@@ -42,7 +41,7 @@ class UploadEnqueuerTest {
     private val constraintsProvider = mockk<UploadConstraintsProvider>()
     private val constraintsState = MutableStateFlow<Constraints?>(Constraints.NONE)
     private lateinit var logTree: RecordingTree
-    private val workManagerProvider = Provider { workManager }
+    private val workManagerProvider = WorkManagerProvider { workManager }
 
     init {
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
@@ -172,7 +171,7 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match {
+                match<OneTimeWorkRequest> {
                     it.workSpec.constraints == Constraints.NONE &&
                         it.tags.containsAll(
                             setOf(
@@ -206,7 +205,7 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match {
+                match<OneTimeWorkRequest> {
                     it.workSpec.constraints == Constraints.NONE &&
                         it.tags.containsAll(
                             setOf(
@@ -239,7 +238,7 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match {
+                match<OneTimeWorkRequest> {
                     it.workSpec.constraints == Constraints.NONE &&
                         it.tags.containsAll(
                             setOf(
@@ -279,7 +278,7 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match {
+                match<OneTimeWorkRequest> {
                     it.workSpec.constraints == Constraints.NONE &&
                         it.tags.containsAll(
                             setOf(
@@ -512,7 +511,7 @@ class UploadEnqueuerTest {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                match {
+                match<OneTimeWorkRequest> {
                     it.workSpec.constraints == Constraints.NONE &&
                         it.tags.containsAll(
                             setOf(

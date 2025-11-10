@@ -19,7 +19,6 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.google.common.util.concurrent.ListenableFuture
-import io.mockk.any
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -189,8 +188,8 @@ class QueueDrainWorkerTest {
         verify(exactly = 0) {
             workManager.enqueueUniqueWork(
                 UploadEnqueuer.uniqueNameForUri(queueItem.uri),
-                any(),
-                any(),
+                any<ExistingWorkPolicy>(),
+                any<OneTimeWorkRequest>(),
             )
         }
 

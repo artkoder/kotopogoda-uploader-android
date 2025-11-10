@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Constraints
 import androidx.work.ListenableWorker.Result
+import androidx.work.OneTimeWorkRequest
 import androidx.work.Operation
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -21,7 +22,7 @@ import io.mockk.mockk
 import kotlin.test.assertEquals
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
-import javax.inject.Provider
+import com.kotopogoda.uploader.core.work.WorkManagerProvider
 
 class UploadProcessorWorkerTest {
 
@@ -31,7 +32,7 @@ class UploadProcessorWorkerTest {
     fun `worker recovers stuck processing before fetching batch`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
-        val workManagerProvider = Provider { workManager }
+        val workManagerProvider = WorkManagerProvider { workManager }
         val constraintsHelper = mockk<UploadConstraintsHelper>()
         val taskRunner = mockk<UploadTaskRunner>()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -49,9 +50,13 @@ class UploadProcessorWorkerTest {
         coEvery { repository.getState(queueItem.id) } returns UploadItemState.PROCESSING
         coEvery { repository.markSucceeded(queueItem.id) } returns Unit
         coEvery { repository.hasQueued() } returns false
-        coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success
+        coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success(
+            completionState = UploadTaskRunner.DeleteCompletionState.DELETED,
+            bytesSent = 100L,
+            totalBytes = 100L,
+        )
         every { constraintsHelper.buildConstraints() } returns Constraints.NONE
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk<Operation>(relaxed = true)
+        every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk<Operation>(relaxed = true)
 
         val worker = UploadProcessorWorker(
             context,
@@ -79,7 +84,7 @@ class UploadProcessorWorkerTest {
     fun `worker skips state updates when item no longer processing`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
-        val workManagerProvider = Provider { workManager }
+        val workManagerProvider = WorkManagerProvider { workManager }
         val constraintsHelper = mockk<UploadConstraintsHelper>()
         val taskRunner = mockk<UploadTaskRunner>()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -96,9 +101,13 @@ class UploadProcessorWorkerTest {
         coEvery { repository.markProcessing(queueItem.id) } returns true
         coEvery { repository.getState(queueItem.id) } returns UploadItemState.FAILED
         coEvery { repository.hasQueued() } returns false
-        coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success
+        coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success(
+            completionState = UploadTaskRunner.DeleteCompletionState.DELETED,
+            bytesSent = 100L,
+            totalBytes = 100L,
+        )
         every { constraintsHelper.buildConstraints() } returns Constraints.NONE
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+        every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
 
         val worker = UploadProcessorWorker(
             context,
@@ -121,7 +130,7 @@ class UploadProcessorWorkerTest {
     fun `worker skips upload when item cannot transition to processing`() = runTest {
         val repository = mockk<UploadQueueRepository>()
         val workManager = mockk<WorkManager>()
-        val workManagerProvider = Provider { workManager }
+        val workManagerProvider = WorkManagerProvider { workManager }
         val constraintsHelper = mockk<UploadConstraintsHelper>()
         val taskRunner = mockk<UploadTaskRunner>()
         val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -138,7 +147,7 @@ class UploadProcessorWorkerTest {
         coEvery { repository.markProcessing(queueItem.id) } returns false
         coEvery { repository.hasQueued() } returns false
         every { constraintsHelper.buildConstraints() } returns Constraints.NONE
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+        every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
 
         val worker = UploadProcessorWorker(
             context,

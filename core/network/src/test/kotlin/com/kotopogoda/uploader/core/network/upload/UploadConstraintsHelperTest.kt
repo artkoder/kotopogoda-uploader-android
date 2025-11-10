@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.core.network.upload
 
 import androidx.work.NetworkType
 import kotlin.test.assertEquals
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class UploadConstraintsHelperTest {
@@ -14,7 +15,7 @@ class UploadConstraintsHelperTest {
     }
 
     @Test
-    fun `awaitConstraints returns connected constraints`() {
+    fun `awaitConstraints returns connected constraints`() = runTest {
         val helper = UploadConstraintsHelper()
 
         val constraints = helper.awaitConstraints()

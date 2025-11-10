@@ -8,6 +8,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.security.MessageDigest
 import kotlin.math.min
+import kotlinx.coroutines.test.runTest
 import okio.Buffer
 import okhttp3.MediaType.Companion.toMediaType
 import org.junit.Assert.assertEquals
@@ -17,7 +18,7 @@ import org.junit.Test
 class UploadTaskRunnerTest {
 
     @Test
-    fun `prepareUploadRequestPayload streams data and computes digests`() {
+    fun `prepareUploadRequestPayload streams data and computes digests`() = runTest {
         val uri = Uri.parse("content://test/document")
         val data = ByteArray(25_000) { (it % 251).toByte() }
         val streamFactory = RecordingStreamFactory(data, chunkSize = 1_024)
@@ -64,7 +65,7 @@ class UploadTaskRunnerTest {
     }
 
     @Test(expected = IOException::class)
-    fun `prepareUploadRequestPayload throws when input stream missing`() {
+    fun `prepareUploadRequestPayload throws when input stream missing`() = runTest {
         val uri = Uri.parse("content://test/missing")
         val resolver = mockk<ContentResolver>()
         every { resolver.openAssetFileDescriptor(uri, any()) } returns null
@@ -99,7 +100,7 @@ class UploadTaskRunnerTest {
             return stream
         }
 
-        private class RecordingStream(
+        class RecordingStream(
             private val data: ByteArray,
             val chunkSize: Int,
         ) : InputStream() {
