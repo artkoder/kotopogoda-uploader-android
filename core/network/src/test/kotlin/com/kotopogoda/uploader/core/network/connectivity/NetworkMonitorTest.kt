@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.core.network.connectivity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
