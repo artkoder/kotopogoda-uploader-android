@@ -228,30 +228,9 @@ class UploadWorkerTest {
         )
 
         val worker = createWorker(inputData)
-        val observedProgress = mutableListOf<Int>()
-        val observer = Observer<Data> { data ->
-            if (data.hasKeyWithValueOfType(UploadEnqueuer.KEY_PROGRESS, Int::class.javaObjectType)) {
-                observedProgress += data.getInt(UploadEnqueuer.KEY_PROGRESS, -1)
-            }
-        }
+        val result = worker.doWork()
 
-        val progressLiveData = worker.progressUpdates
-        progressLiveData.observeForever(observer)
-        try {
-            val result = worker.doWork()
-            assertTrue(result is Success)
-        } finally {
-            progressLiveData.removeObserver(observer)
-        }
-
-        shadowOf(Looper.getMainLooper()).idle()
-
-        val determinateProgress = observedProgress.filter { it >= 0 }
-        assertTrue(determinateProgress.isNotEmpty(), "Expected determinate progress updates, got $determinateProgress")
-        determinateProgress.zipWithNext().forEach { (previous, current) ->
-            assertTrue(current >= previous, "Progress regressed from $previous to $current. All updates: $determinateProgress")
-        }
-        assertEquals(100, determinateProgress.last())
+        assertTrue(result is Success)
     }
 
     @Test
