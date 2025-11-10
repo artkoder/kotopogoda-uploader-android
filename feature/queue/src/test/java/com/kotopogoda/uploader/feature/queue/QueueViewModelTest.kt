@@ -322,19 +322,22 @@ class QueueViewModelTest {
         )
 
         val received = mutableListOf<QueueEvent>()
-        val job = launch { viewModel.events.collect { received += it } }
+        val eventsJob = launch { viewModel.events.collect { received += it } }
+        val stateJob = launch { viewModel.uiState.collect { } }
 
         queueFlow.value = listOf(entry)
         advanceUntilIdle()
 
         assertEquals<List<QueueEvent>>(listOf(QueueEvent.ShowLocationHiddenMessage), received)
 
+        received.clear()
         queueFlow.value = listOf(entry)
         advanceUntilIdle()
 
-        assertEquals<List<QueueEvent>>(listOf(QueueEvent.ShowLocationHiddenMessage), received)
+        assertEquals<List<QueueEvent>>(emptyList(), received)
 
-        job.cancel()
+        eventsJob.cancel()
+        stateJob.cancel()
     }
 
     @Test
