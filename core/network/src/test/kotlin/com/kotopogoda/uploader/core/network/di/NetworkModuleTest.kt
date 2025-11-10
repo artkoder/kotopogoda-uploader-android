@@ -1,6 +1,12 @@
 package com.kotopogoda.uploader.core.network.di
 
 import com.kotopogoda.uploader.api.infrastructure.ApiClient
+import com.kotopogoda.uploader.core.logging.HttpFileLogger
+import com.kotopogoda.uploader.core.network.logging.HttpLoggingController
+import com.kotopogoda.uploader.core.network.security.HmacInterceptor
+import com.kotopogoda.uploader.core.security.DeviceCreds
+import com.kotopogoda.uploader.core.security.DeviceCredsStore
+import io.mockk.mockk
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -18,9 +24,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-import com.kotopogoda.uploader.core.network.security.HmacInterceptor
-import com.kotopogoda.uploader.core.security.DeviceCreds
-import com.kotopogoda.uploader.core.security.DeviceCredsStore
 
 class NetworkModuleTest {
 
@@ -46,6 +49,8 @@ class NetworkModuleTest {
         val clock = Clock.fixed(Instant.parse("2024-05-01T12:34:56Z"), ZoneOffset.UTC)
         val hmacInterceptor = HmacInterceptor(
             deviceCredsStore = FakeDeviceCredsStore(deviceCreds),
+            httpFileLogger = mockk(relaxed = true),
+            httpLoggingController = mockk(relaxed = true),
             clock = clock,
             nonceProvider = nonceProvider,
         )
@@ -68,8 +73,8 @@ class NetworkModuleTest {
 
             val recorded = server.takeRequest(1, TimeUnit.SECONDS) ?: fail("Request was not recorded")
             val nonce = requireNotNull(recorded.getHeader("X-Nonce")) { "Nonce header missing" }
-            assertTrue(nonce.length >= 32, "Nonce must be at least 32 hex chars")
-            assertTrue(nonce.matches(Regex("[0-9a-f]+")), "Nonce must be lower-case hex")
+            assertTrue("Nonce must be at least 32 hex chars", nonce.length >= 32)
+            assertTrue("Nonce must be lower-case hex", nonce.matches(Regex("[0-9a-f]+")))
         }
     }
 
