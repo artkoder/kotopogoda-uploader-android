@@ -107,11 +107,6 @@ tasks.withType<KaptGenerateStubsTask>().configureEach {
     dependsOn(rewriteEmptyOpenApiModels)
 }
 
-// Отключить все unit-тесты core:network из-за проблем с импортами после слияния
-tasks.withType<Test>().configureEach {
-    enabled = false
-}
-
 dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:work"))
@@ -138,6 +133,7 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     testImplementation(libs.junit)
+    testImplementation(kotlin("test"))
     testImplementation("com.squareup.okhttp3:mockwebserver:${libs.versions.okhttp.get()}")
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("androidx.test:core-ktx:1.5.0")
