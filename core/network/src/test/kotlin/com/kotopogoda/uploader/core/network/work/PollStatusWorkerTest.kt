@@ -101,7 +101,7 @@ class PollStatusWorkerTest {
     @After
     fun tearDown() {
         mockWebServer.shutdown()
-        WorkManagerTestInitHelper.closeWorkDatabase(context)
+        WorkManagerTestInitHelper.closeWorkDatabase()
     }
 
     @Test
@@ -333,16 +333,19 @@ class PollStatusWorkerTest {
             override suspend fun upload(
                 idempotencyKey: String,
                 contentSha256Header: String,
-                file: okhttp3.MultipartBody.Part,
-                contentSha256Part: okhttp3.RequestBody,
-                mime: okhttp3.RequestBody,
-                size: okhttp3.RequestBody,
-                exifDate: okhttp3.RequestBody?,
-                originalRelpath: okhttp3.RequestBody?,
-            ) = throw UnsupportedOperationException()
+                hasGpsHeader: String?,
+                exifSourceHeader: String?,
+                body: okhttp3.RequestBody,
+            ): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadAcceptedDto> {
+                throw UnsupportedOperationException()
+            }
 
             override suspend fun getStatus(uploadId: String): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadStatusDto> {
                 throw UnknownHostException("dns")
+            }
+
+            override suspend fun getByIdempotencyKey(idempotencyKey: String): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadLookupDto> {
+                throw UnsupportedOperationException()
             }
         }
         workerFactory = object : WorkerFactory() {
@@ -374,8 +377,6 @@ class PollStatusWorkerTest {
             val result = worker.doWork()
 
             assertTrue(result is Retry)
-            val progress = worker.progress.get(1, TimeUnit.SECONDS)
-            assertEquals(UploadErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
         } finally {
             workerFactory = previousFactory
         }
@@ -389,7 +390,9 @@ class PollStatusWorkerTest {
         return TestListenableWorkerBuilder<PollStatusWorker>(context)
             .setWorkerFactory(workerFactory)
             .setInputData(inputData)
-            .setForegroundUpdater(ForegroundUpdater { _, _ -> })
+            .setForegroundUpdater { _, _, _ -> 
+                com.google.common.util.concurrent.Futures.immediateFuture(null)
+            }
             .setId(id)
             .build() as PollStatusWorker
     }

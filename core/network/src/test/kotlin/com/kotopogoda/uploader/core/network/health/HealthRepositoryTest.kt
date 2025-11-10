@@ -5,6 +5,7 @@ import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus.DEGRADED
 import com.kotopogoda.uploader.core.network.health.HealthStatus.OFFLINE
 import com.kotopogoda.uploader.core.network.health.HealthStatus.ONLINE
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -165,7 +166,7 @@ class HealthRepositoryTest {
         assertEquals(HealthState.MESSAGE_PARSE_ERROR, result.message)
     }
 
-    private fun repository(clock: Clock, dispatcher: StandardTestDispatcher): HealthRepository {
+    private fun repository(clock: Clock, dispatcher: CoroutineDispatcher): HealthRepository {
         return HealthRepository(
             networkClientProvider = networkClientProvider,
             clock = clock,
