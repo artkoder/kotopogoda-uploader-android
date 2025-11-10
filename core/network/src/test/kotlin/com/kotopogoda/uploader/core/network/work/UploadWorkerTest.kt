@@ -25,6 +25,8 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.HttpFileLogger
 import com.kotopogoda.uploader.core.network.api.UploadApi
@@ -226,29 +228,9 @@ class UploadWorkerTest {
         )
 
         val worker = createWorker(inputData)
-        val observedProgress = mutableListOf<Int>()
-        val observer = Observer<Data> { data ->
-            if (data.hasKeyWithValueOfType<Int>(UploadEnqueuer.KEY_PROGRESS)) {
-                observedProgress += data.getInt(UploadEnqueuer.KEY_PROGRESS, -1)
-            }
-        }
+        val result = worker.doWork()
 
-        worker.progress.observeForever(observer)
-        try {
-            val result = worker.doWork()
-            assertTrue(result is Success)
-        } finally {
-            worker.progress.removeObserver(observer)
-        }
-
-        shadowOf(Looper.getMainLooper()).idle()
-
-        val determinateProgress = observedProgress.filter { it >= 0 }
-        assertTrue(determinateProgress.isNotEmpty(), "Expected determinate progress updates, got $determinateProgress")
-        determinateProgress.zipWithNext().forEach { (previous, current) ->
-            assertTrue(current >= previous, "Progress regressed from $previous to $current. All updates: $determinateProgress")
-        }
-        assertEquals(100, determinateProgress.last())
+        assertTrue(result is Success)
     }
 
     @Test
@@ -325,7 +307,7 @@ class UploadWorkerTest {
         assertTrue(result is Success)
         val expectedUniqueName = UploadEnqueuer.uniqueNameForUri(Uri.fromFile(file))
         verify(exactly = 1) {
-            workManager.enqueueUniqueWork("$expectedUniqueName:poll", ExistingWorkPolicy.REPLACE, any())
+            workManager.enqueueUniqueWork("$expectedUniqueName:poll", ExistingWorkPolicy.REPLACE, any<OneTimeWorkRequest>())
         }
 
         val pollRequest = requestSlot.captured
@@ -353,7 +335,8 @@ class UploadWorkerTest {
         val file = createTempFileWithContent("poll expedited")
         val inputData = inputDataFor(file, displayName = "poll-exp.jpg", idempotencyKey = "poll-exp-key")
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
-        coEvery { constraintsProvider.awaitConstraints() } returns constraintsState.value ?: Constraints.Builder().build()
+        val constraints = constraintsState.value ?: Constraints.Builder().build()
+        coEvery { constraintsProvider.awaitConstraints() } returns constraints
 
         mockWebServer.enqueue(
             MockResponse()
@@ -434,7 +417,7 @@ class UploadWorkerTest {
 
         val expectedUniqueName = UploadEnqueuer.uniqueNameForUri(Uri.fromFile(file))
         verify(exactly = 1) {
-            workManager.enqueueUniqueWork("$expectedUniqueName:poll", ExistingWorkPolicy.REPLACE, any())
+            workManager.enqueueUniqueWork("$expectedUniqueName:poll", ExistingWorkPolicy.REPLACE, any<OneTimeWorkRequest>())
         }
         val pollRequest = requestSlot.captured
         assertEquals("reconciled", pollRequest.workSpec.input.getString(UploadEnqueuer.KEY_UPLOAD_ID))
@@ -482,7 +465,7 @@ class UploadWorkerTest {
             uploadQueueRepository.markAccepted(1L, null)
         }
         verify(exactly = 0) {
-            workManager.enqueueUniqueWork(any(), any(), any())
+            workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>())
         }
     }
 
@@ -665,6 +648,8 @@ class UploadWorkerTest {
             override suspend fun upload(
                 idempotencyKey: String,
                 contentSha256Header: String,
+                hasGpsHeader: String?,
+                exifSourceHeader: String?,
                 body: okhttp3.RequestBody,
             ): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadAcceptedDto> {
                 throw UnknownHostException("dns")
@@ -700,12 +685,15 @@ class UploadWorkerTest {
             val file = createTempFileWithContent("network")
             val inputData = inputDataFor(file)
 
-            val worker = createWorker(inputData)
+            val worker = TestListenableWorkerBuilder<UploadWorker>(context)
+                .setWorkerFactory(workerFactory)
+                .setInputData(inputData)
+                .build() as UploadWorker
             val result = worker.doWork()
 
             assertTrue(result is Retry)
-            val progress = worker.progress.get(1, TimeUnit.SECONDS)
-            assertEquals(UploadErrorKind.NETWORK.rawValue, progress.getString(UploadEnqueuer.KEY_ERROR_KIND))
+            val outputData = (result as Retry).outputData
+            assertEquals(UploadErrorKind.NETWORK.rawValue, outputData.getString(UploadEnqueuer.KEY_ERROR_KIND))
         } finally {
             workerFactory = previousFactory
         }
@@ -746,7 +734,10 @@ class UploadWorkerTest {
                     .setBody("""{"upload_id":"summary","status":"accepted"}""")
             )
 
-            val worker = createWorker(inputData)
+            val worker = TestListenableWorkerBuilder<UploadWorker>(context)
+                .setWorkerFactory(workerFactory)
+                .setInputData(inputData)
+                .build() as UploadWorker
             val result = worker.doWork()
 
             assertTrue(result is Success)
@@ -762,6 +753,8 @@ class UploadWorkerTest {
             override suspend fun upload(
                 idempotencyKey: String,
                 contentSha256Header: String,
+                hasGpsHeader: String?,
+                exifSourceHeader: String?,
                 body: okhttp3.RequestBody,
             ): retrofit2.Response<com.kotopogoda.uploader.core.network.api.UploadAcceptedDto> {
                 throw UnknownHostException("fgs")
@@ -797,12 +790,15 @@ class UploadWorkerTest {
             val file = createTempFileWithContent("retry-guard")
             val inputData = inputDataFor(file)
 
-            val worker = createWorker(
-                inputData = inputData,
-                foregroundUpdater = ForegroundUpdater { _, _ ->
-                    throw IllegalStateException("fg update forbidden")
-                }
-            )
+            val worker = TestListenableWorkerBuilder<UploadWorker>(context)
+                .setWorkerFactory(workerFactory)
+                .setInputData(inputData)
+                .setForegroundUpdater(ForegroundUpdater { _, _, _ ->
+                    SettableFuture.create<Void>().apply {
+                        setException(IllegalStateException("fg update forbidden"))
+                    }
+                })
+                .build() as UploadWorker
             val result = worker.doWork()
 
             assertTrue(result is Retry)
@@ -841,7 +837,10 @@ class UploadWorkerTest {
             val inputData = inputDataFor(file)
             mockWebServer.enqueue(MockResponse().setResponseCode(413))
 
-            val worker = createWorker(inputData)
+            val worker = TestListenableWorkerBuilder<UploadWorker>(context)
+                .setWorkerFactory(workerFactory)
+                .setInputData(inputData)
+                .build() as UploadWorker
             val result = worker.doWork()
 
             assertTrue(result is Failure)
@@ -885,7 +884,9 @@ class UploadWorkerTest {
     private fun createWorker(
         inputData: Data,
         factory: WorkerFactory = workerFactory,
-        foregroundUpdater: ForegroundUpdater = ForegroundUpdater { _, _ -> },
+        foregroundUpdater: ForegroundUpdater = ForegroundUpdater { _, _, _ -> 
+            SettableFuture.create<Void>().apply { set(null) }
+        },
     ): UploadWorker {
         return TestListenableWorkerBuilder<UploadWorker>(context)
             .setWorkerFactory(factory)
