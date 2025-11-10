@@ -327,12 +327,12 @@ class QueueViewModelTest {
         queueFlow.value = listOf(entry)
         advanceUntilIdle()
 
-        assertEquals(listOf(QueueEvent.ShowLocationHiddenMessage), received)
+        assertEquals<List<QueueEvent>>(listOf(QueueEvent.ShowLocationHiddenMessage), received)
 
         queueFlow.value = listOf(entry)
         advanceUntilIdle()
 
-        assertEquals(listOf(QueueEvent.ShowLocationHiddenMessage), received)
+        assertEquals<List<QueueEvent>>(listOf(QueueEvent.ShowLocationHiddenMessage), received)
 
         job.cancel()
     }
@@ -435,6 +435,7 @@ private class FlowOnlyUploadItemDao(
         enhanceMetricsPDark: Float?,
         enhanceMetricsBSharpness: Float?,
         enhanceMetricsNNoise: Float?,
+        locationHiddenBySystem: Boolean,
         updatedAt: Long,
     ) = error("Not needed")
 
