@@ -1020,15 +1020,13 @@ def write_summary(results: List[dict]) -> None:
 
 
 def write_models_lock(results: List[dict]) -> None:
-    repository = ""
-    if MODELS_LOCK_PATH.exists():
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if not repository and MODELS_LOCK_PATH.exists():
         try:
             with MODELS_LOCK_PATH.open("r", encoding="utf-8") as fp:
                 repository = json.load(fp).get("repository", "")
         except Exception:
-            repository = ""
-    if not repository:
-        repository = os.environ.get("GITHUB_REPOSITORY", "")
+            pass
 
     models_payload = {}
     for result in results:
