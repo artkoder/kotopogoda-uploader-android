@@ -567,7 +567,7 @@ internal fun ViewerScreen(
                             if (showLoader) {
                                 EnhancementLoaderOverlay(
                                     modifier = Modifier.fillMaxSize(),
-                                    progress = enhancementProgress.values.average().toFloat().coerceIn(0f, 1f)
+                                    progress = enhancementProgress.values.takeIf { it.isNotEmpty() }?.average()?.toFloat()?.coerceIn(0f, 1f) ?: 0f
                                 )
                             }
                             
@@ -1367,7 +1367,9 @@ private fun EnhancementLoaderOverlay(
     modifier: Modifier = Modifier,
     progress: Float = 0f
 ) {
-    val progressPercent = (progress * 100).roundToInt().coerceIn(0, 100)
+    // Защита от NaN/∞ — если прогресс невалидный, показываем 0%
+    val safeProgress = progress.takeIf { it.isFinite() && !it.isNaN() } ?: 0f
+    val progressPercent = (safeProgress * 100).coerceIn(0f, 100f).roundToInt()
     val loaderDescription = stringResource(id = R.string.viewer_improve_state_running)
     val progressDescription = stringResource(id = R.string.viewer_improve_progress, progressPercent)
     

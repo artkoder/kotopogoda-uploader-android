@@ -667,4 +667,69 @@ class ViewerScreenEnhancementTest {
         composeRule.onNodeWithTag("enhancement_strength_label")
             .assertTextContains("$expectedPercentage", substring = true)
     }
+
+    @Test
+    fun loaderOverlayHandlesEmptyProgressMap() {
+        // Regression test: пустая мапа прогресса не должна вызывать краш с NaN
+        val photo = PhotoItem(
+            id = "test-photo",
+            uri = Uri.parse("content://photo/1"),
+            takenAt = null
+        )
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenStatus = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = 0.5f,
+                enhancementInProgress = true,
+                enhancementReady = false,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(), // Пустая мапа → average() вернет NaN
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {}
+            )
+        }
+
+        // Должен отобразиться overlay с прогрессом 0% вместо краша
+        composeRule.onNodeWithTag("enhancement_overlay").assertExists()
+        composeRule.onNodeWithTag("enhancement_overlay").assertIsDisplayed()
+        composeRule.onNodeWithTag("enhancement_overlay_text").assertExists()
+        composeRule.onNodeWithTag("enhancement_overlay_text").assertTextContains("0", substring = true)
+    }
 }
