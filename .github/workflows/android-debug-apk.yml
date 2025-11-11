@@ -80,6 +80,8 @@ jobs:
 
       # --- Build APK (uses system gradle) ---
       - name: Build debug APK
+        env:
+          MODELS_REPOSITORY: ${{ github.repository }}
         run: gradle --no-daemon assembleDebug
 
       - name: Upload APK
