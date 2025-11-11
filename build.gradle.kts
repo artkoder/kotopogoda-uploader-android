@@ -83,7 +83,8 @@ abstract class FetchModelsTask : DefaultTask() {
         val repository = overrideRepository.orNull?.takeIf { it.isNotBlank() }
             ?: System.getenv("MODELS_REPOSITORY")?.takeIf { it.isNotBlank() }
             ?: repoFromLock
-            ?: "kotopogoda/kotopogoda-uploader-android"
+            ?: System.getenv("GITHUB_REPOSITORY")?.takeIf { it.isNotBlank() }
+            ?: "artkoder/kotopogoda-uploader-android"
         val models = json["models"] as? Map<*, *>
             ?: error("models.lock.json не содержит секцию 'models'")
         val downloadsDir = buildDir.get().asFile
