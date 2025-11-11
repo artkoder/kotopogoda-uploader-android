@@ -145,6 +145,56 @@ jobs:
           set -euxo pipefail
           bash scripts/prepare_models.sh
 
+      - name: Generate models.lock.json (runtime format for app)
+        env:
+          MODELS_DIST: dist
+          MODELS_CONTRACT_VERSION: v1.4.1
+        run: python tools/gen_models_lock.py
+
+      - name: Validate models.lock.json (runtime format)
+        run: |
+          python - <<'PY'
+          import json, pathlib, hashlib, sys
+          d = pathlib.Path("dist")
+          lock = json.loads((d/"models.lock.json").read_text())
+          ok = True
+          
+          # Validate runtime format structure
+          assert isinstance(lock.get("entries"), list), "entries must be list"
+          assert lock.get("api_contract_version") == "v1.4.1", "api_contract_version must be v1.4.1"
+          
+          for e in lock["entries"]:
+            if e["backend"] == "METADATA":
+              v = e.get("jq_sha256sum", "")
+              if not (isinstance(v, str) and len(v) in (64, 0)):
+                print("Bad METADATA.jq_sha256sum"); ok = False
+              continue
+              
+            if e["backend"] not in ("ncnn", "tflite"):
+              print("Unsupported backend:", e["backend"]); ok = False
+              
+            for f in e.get("files", []):
+              p = d / f["path"]
+              if not p.exists():
+                print("Missing file:", p); ok = False; continue
+              h = hashlib.sha256(p.read_bytes()).hexdigest()
+              if h != f["sha256"]:
+                print("SHA mismatch:", p, h, "!=", f["sha256"]); ok = False
+                
+          sys.exit(1 if not ok else 0)
+          PY
+
+      - name: Upload artifact (models-v1 with runtime lock)
+        uses: actions/upload-artifact@v4
+        with:
+          name: models-v1
+          path: |
+            dist/models/**
+            dist/SHA256SUMS.txt
+            dist/models.lock.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Configure Git user
         run: |
           git config user.name "github-actions[bot]"
