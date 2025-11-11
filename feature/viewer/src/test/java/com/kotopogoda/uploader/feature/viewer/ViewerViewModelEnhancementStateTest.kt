@@ -352,10 +352,10 @@ class ViewerViewModelEnhancementStateTest {
         assertTrue(result.pipeline.zeroDceApplied)
         assertTrue(result.pipeline.restormerApplied)
 
-        assertEquals(expectedModels.zeroDce?.checksum, result.models.zeroDce?.checksum)
-        assertEquals(expectedModels.zeroDce?.checksumOk, result.models.zeroDce?.checksumOk)
-        assertEquals(expectedModels.restormer?.checksum, result.models.restormer?.checksum)
-        assertEquals(expectedModels.restormer?.checksumOk, result.models.restormer?.checksumOk)
+        assertEquals(expectedModels.zeroDce?.checksum, result.models?.zeroDce?.checksum)
+        assertEquals(expectedModels.zeroDce?.checksumOk, result.models?.zeroDce?.checksumOk)
+        assertEquals(expectedModels.restormer?.checksum, result.models?.restormer?.checksum)
+        assertEquals(expectedModels.restormer?.checksumOk, result.models?.restormer?.checksumOk)
         assertNotNull(result.uploadInfo)
         assertEquals(0.5f, result.uploadInfo?.strength)
     }
