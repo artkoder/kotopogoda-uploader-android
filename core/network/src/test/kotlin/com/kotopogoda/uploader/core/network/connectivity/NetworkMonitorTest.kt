@@ -11,7 +11,6 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import androidx.annotation.RequiresApi
-import androidx.test.core.app.ApplicationProvider
 import com.kotopogoda.uploader.core.network.health.HealthMonitor
 import io.mockk.Runs
 import io.mockk.every
@@ -24,7 +23,13 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], manifest = Config.NONE)
 class NetworkMonitorTest {
 
     private val connectivityManager: ConnectivityManager = mockk()
@@ -34,7 +39,7 @@ class NetworkMonitorTest {
 
     @BeforeTest
     fun setUp() {
-        context = TestContext(ApplicationProvider.getApplicationContext())
+        context = TestContext(RuntimeEnvironment.getApplication())
         every { connectivityManager.registerDefaultNetworkCallback(any()) } just Runs
         every { connectivityManager.unregisterNetworkCallback(any<ConnectivityManager.NetworkCallback>()) } just Runs
         every { connectivityManager.activeNetwork } returns null
