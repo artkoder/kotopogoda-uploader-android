@@ -63,7 +63,14 @@ object ModelsLockParser {
         val sha = shaRaw?.takeIf { it.isNotBlank() }?.lowercase(Locale.US)
         val backendValue = json.getString("backend").uppercase(Locale.US)
         val backend = runCatching { ModelBackend.valueOf(backendValue) }
-            .getOrElse { throw IllegalArgumentException("models.lock.json: неизвестный backend '$backendValue' для '$name'") }
+            .getOrElse {
+                val supportedBackends = ModelBackend.values().joinToString { it.name }
+                throw IllegalArgumentException(
+                    "models.lock.json: модель '$name' использует неизвестный backend '$backendValue'. " +
+                    "Поддерживаемые backends: $supportedBackends. " +
+                    "Возможные причины: устаревшая версия пакета моделей, несовместимость с текущей версией приложения."
+                )
+            }
         val minBytes = megabytesToBytes(json.optDouble("min_mb", 0.0))
         val filesArray = json.optJSONArray("files")
             ?: throw IllegalArgumentException("models.lock.json: модель '$name' не содержит массива files")
