@@ -4,62 +4,151 @@
     "zerodcepp_fp16": {
       "release": "models-v1",
       "asset": "zerodcepp_fp16_v1.zip",
-      "packaging": "zip",
-      "unzipped": ".",
-      "sha256": null,
+      "unzipped": "models",
+      "sha256": "0c9dbddfcaded9a5086d4580b62530736413041461f93ef1dcdf9f102d328da5",
       "backend": "ncnn",
-      "min_mb": 1.9,
+      "min_mb": 0.0395,
       "files": [
         {
           "path": "zerodcepp_fp16.param",
-          "sha256": "cd89379451ad354eeb796be2cd535a7cf0388502e34ac19ed98f480f3279f050",
-          "min_mb": 0.0002
+          "sha256": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
+          "min_mb": 0.0096,
+          "label": "param"
         },
         {
           "path": "zerodcepp_fp16.bin",
-          "sha256": "5477f7a3b211574b52a2d8a5e86ab4c968c689b7b3d18c1707d18303e31ee91e",
-          "min_mb": 1.9
+          "sha256": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
+          "min_mb": 0.0403,
+          "label": "bin"
         }
-      ]
+      ],
+      "hashes": [
+        {
+          "path": "models/zerodcepp_fp16.param",
+          "sha256": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
+          "size_mb": 0.0096,
+          "label": "param",
+          "included": true
+        },
+        {
+          "path": "models/zerodcepp_fp16.bin",
+          "sha256": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
+          "size_mb": 0.0403,
+          "label": "bin",
+          "included": true
+        },
+        {
+          "path": "zerodcepp_simplified.onnx",
+          "sha256": "a865dea3cdc002886bd4892385c90c3fd1a3f67cdbd5b865cd8bee773759a233",
+          "size_mb": 0.0528,
+          "label": "onnx",
+          "included": false
+        }
+      ],
+      "metadata": {
+        "ncnn": {
+          "param_size_bytes": 10053,
+          "bin_size_bytes": 42300,
+          "bin_size_mib": 0.0403,
+          "sha256_param": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
+          "sha256_bin": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73"
+        },
+        "onnx": {
+          "path": "zerodcepp_simplified.onnx",
+          "sha256": "a865dea3cdc002886bd4892385c90c3fd1a3f67cdbd5b865cd8bee773759a233",
+          "size_mib": 0.0528,
+          "operators": [
+            "Add",
+            "Concat",
+            "Conv",
+            "Mul",
+            "Pow",
+            "Relu",
+            "Sub",
+            "Tanh"
+          ]
+        }
+      }
     },
     "restormer_fp16": {
       "release": "models-v1",
       "asset": "restormer_fp16_v1.zip",
-      "packaging": "zip",
-      "unzipped": ".",
-      "sha256": null,
+      "unzipped": "models",
+      "sha256": "c91dbe7bc65e41303caadc93cf8480cbc3d0d67be434360e3d3a187a31befa5a",
       "backend": "ncnn",
-      "min_mb": 39.5,
+      "min_mb": 34.6455,
       "files": [
         {
           "path": "restormer_fp16.param",
-          "sha256": "1c431f364b8f3456fb991cd5adb5eb07e62002f733f8bd5f0a4c4c0b444118fb",
-          "min_mb": 0.0004
+          "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
+          "min_mb": 0.6851,
+          "label": "param"
         },
         {
           "path": "restormer_fp16.bin",
-          "sha256": "d6785c3a0ae02a38fb86c1dc45128e5a69277d2c731b9e253426727919cfcaaf",
-          "min_mb": 39.5
+          "sha256": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
+          "min_mb": 50.3672,
+          "label": "bin"
         }
-      ]
-    },
-    "jq_sha256sum": {
-      "repository": "jqlang/jq",
-      "release": "jq-1.8.1",
-      "asset": "sha256sum.txt",
-      "packaging": "file",
-      "unzipped": "checksums/jq",
-      "sha256": "43580cdaf04c3ac63b9baa7fe68f28c79c5e30c3cc4fc594f87daf520626bbfa",
-      "backend": "metadata",
-      "min_mb": 0.001,
-      "files": [
+      ],
+      "hashes": [
         {
-          "path": "sha256sum.txt",
-          "sha256": "43580cdaf04c3ac63b9baa7fe68f28c79c5e30c3cc4fc594f87daf520626bbfa",
-          "min_mb": 0.001,
-          "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.1/sha256sum.txt"
+          "path": "models/restormer_fp16.param",
+          "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
+          "size_mb": 0.6851,
+          "label": "param",
+          "included": true
+        },
+        {
+          "path": "models/restormer_fp16.bin",
+          "sha256": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
+          "size_mb": 50.3672,
+          "label": "bin",
+          "included": true
+        },
+        {
+          "path": "restormer_simplified.onnx",
+          "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
+          "size_mb": 100.9805,
+          "label": "onnx",
+          "included": false
         }
-      ]
+      ],
+      "metadata": {
+        "ncnn": {
+          "param_size_bytes": 718348,
+          "bin_size_bytes": 52813800,
+          "bin_size_mib": 50.3672,
+          "sha256_param": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
+          "sha256_bin": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
+          "tile_size": 512
+        },
+        "onnx": {
+          "path": "restormer_simplified.onnx",
+          "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
+          "size_mib": 100.9805,
+          "operators": [
+            "Add",
+            "Clip",
+            "Concat",
+            "Conv",
+            "DepthToSpace",
+            "Div",
+            "Erf",
+            "Expand",
+            "MatMul",
+            "Mul",
+            "ReduceL2",
+            "ReduceMean",
+            "Reshape",
+            "Slice",
+            "Softmax",
+            "Sqrt",
+            "Sub",
+            "Transpose"
+          ]
+        }
+      }
     }
   }
 }
