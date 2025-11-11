@@ -157,15 +157,84 @@ jobs:
           set -euxo pipefail
           bash scripts/publish_models_release.sh
 
-      - name: Create PR with updated model artifacts
+      - name: Unpack models to dist/models/
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/models
+          for zip_file in dist/*.zip; do
+            if [[ -f "$zip_file" ]]; then
+              echo "Распаковка $zip_file..."
+              unzip -o "$zip_file" -d dist/
+            fi
+          done
+          ls -lah dist/models/
+
+      - name: Ensure SHA256SUMS.txt (deterministic)
+        run: |
+          if [[ ! -f dist/SHA256SUMS.txt ]]; then
+            cd dist
+            find models -type f -print0 | sort -z | xargs -0 -I{} sh -c 'sha256sum "{}"' > SHA256SUMS.txt
+          fi
+
+      - name: Generate models.lock.json
+        env:
+          MODELS_DIST: dist
+          MODELS_CONTRACT_VERSION: v1.4.1
+        run: python tools/gen_models_lock.py
+
+      - name: Validate models.lock.json
+        run: |
+          python - <<'PY'
+          import json, pathlib, hashlib, sys
+          d = pathlib.Path("dist")
+          lock = json.loads((d/"models.lock.json").read_text())
+          ok = True
+          assert isinstance(lock.get("entries"), list), "entries must be list"
+          assert lock.get("api_contract_version") == "v1.4.1", "api_contract_version must be v1.4.1"
+          for e in lock["entries"]:
+            if e["backend"] == "METADATA":
+              v = e.get("jq_sha256sum", "")
+              if not (isinstance(v, str) and (len(v) == 64 or len(v) == 0)):
+                print("Bad METADATA.jq_sha256sum")
+                ok = False
+              continue
+            if e["backend"] not in ("ncnn", "tflite"):
+              print("Unsupported backend:", e["backend"])
+              ok = False
+            for f in e.get("files", []):
+              p = d / f["path"]
+              if not p.exists():
+                print("Missing file:", p)
+                ok = False
+                continue
+              h = hashlib.sha256(p.read_bytes()).hexdigest()
+              if h != f["sha256"]:
+                print("SHA mismatch:", p, h, "!=", f["sha256"])
+                ok = False
+          sys.exit(1 if not ok else 0)
+          PY
+
+      - name: Sync lock to repo root (single source of truth)
+        run: |
+          cp -f dist/models.lock.json models.lock.json
+          git diff --quiet models.lock.json || echo "models.lock.json updated"
+
+      - name: Create PR with updated models.lock.json
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: bot/models-release-${{ github.run_id }}
-          base: main
-          title: "chore(models): update model lock & checksums"
-          commit-message: "chore(models): update model lock & checksums"
-          body: "Автоматическое обновление артефактов моделей."
-          labels: automated, models
-          add-paths: |
-            models.lock.json
+          add-paths: models.lock.json
+          commit-message: "chore(models): update models.lock.json from Prepare models"
+          title: "chore(models): update models.lock.json"
+          branch: chore/update-models-lock
+          delete-branch: true
+
+      - name: Upload artifact (models-v1)
+        uses: actions/upload-artifact@v4
+        with:
+          name: models-v1
+          path: |
+            dist/models/**
+            dist/SHA256SUMS.txt
+            dist/models.lock.json
+          if-no-files-found: error
+          retention-days: 14

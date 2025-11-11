@@ -62,3 +62,4 @@ app/src/main/cpp/ncnn-lib/
 # Test heap dumps (generated on OOM)
 **/test-heap-dumps/
 *.hprof
+tools/__pycache__/

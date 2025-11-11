@@ -1,0 +1,38 @@
+{
+  "api_contract_version": "v1.4.1",
+  "entries": [
+    {
+      "id": "zerodcepp_fp16",
+      "backend": "ncnn",
+      "files": [
+        {
+          "path": "models/zerodcepp_fp16.param",
+          "sha256": "cd89379451ad354eeb796be2cd535a7cf0388502e34ac19ed98f480f3279f050"
+        },
+        {
+          "path": "models/zerodcepp_fp16.bin",
+          "sha256": "5477f7a3b211574b52a2d8a5e86ab4c968c689b7b3d18c1707d18303e31ee91e"
+        }
+      ]
+    },
+    {
+      "id": "restormer_fp16",
+      "backend": "ncnn",
+      "files": [
+        {
+          "path": "models/restormer_fp16.param",
+          "sha256": "1c431f364b8f3456fb991cd5adb5eb07e62002f733f8bd5f0a4c4c0b444118fb"
+        },
+        {
+          "path": "models/restormer_fp16.bin",
+          "sha256": "d6785c3a0ae02a38fb86c1dc45128e5a69277d2c731b9e253426727919cfcaaf"
+        }
+      ]
+    },
+    {
+      "id": "metadata",
+      "backend": "METADATA",
+      "jq_sha256sum": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}
