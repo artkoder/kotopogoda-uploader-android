@@ -13,8 +13,10 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.io.File
 import javax.inject.Named
 import javax.inject.Singleton
+import timber.log.Timber
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -22,7 +24,20 @@ object ViewerEnhanceModule {
 
     @Provides
     @Singleton
-    fun provideModelsLock(): ModelsLock = ModelsLockParser.parse(BuildConfig.MODELS_LOCK_JSON)
+    fun provideModelsLock(@ApplicationContext context: Context): ModelsLock? {
+        return try {
+            val lockFile = File(context.filesDir, "models/models.lock.json")
+            if (!lockFile.exists()) {
+                Timber.w("Models lock file not found: ${lockFile.absolutePath}")
+                return null
+            }
+            val json = lockFile.readText()
+            ModelsLockParser.parse(json)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to parse models.lock.json, disabling enhancement")
+            null
+        }
+    }
 
     @Provides
     @Singleton
@@ -31,14 +46,34 @@ object ViewerEnhanceModule {
     @Provides
     @Singleton
     @Named("zeroDceChecksum")
-    fun provideZeroDceChecksum(lock: ModelsLock): String =
-        requireNcnnChecksum(lock.require("zerodcepp_fp16"))
+    fun provideZeroDceChecksum(lock: ModelsLock?): String? {
+        if (lock == null) {
+            Timber.w("Models lock is null, zero-dce checksum unavailable")
+            return null
+        }
+        return try {
+            requireNcnnChecksum(lock.require("zerodcepp_fp16"))
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to get zero-dce checksum from models.lock.json")
+            null
+        }
+    }
 
     @Provides
     @Singleton
     @Named("restormerChecksum")
-    fun provideRestormerChecksum(lock: ModelsLock): String =
-        requireNcnnChecksum(lock.require("restormer_fp16"))
+    fun provideRestormerChecksum(lock: ModelsLock?): String? {
+        if (lock == null) {
+            Timber.w("Models lock is null, restormer checksum unavailable")
+            return null
+        }
+        return try {
+            requireNcnnChecksum(lock.require("restormer_fp16"))
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to get restormer checksum from models.lock.json")
+            null
+        }
+    }
 
     // TODO: Заменить сырые String на типизированный value object (Checksums)
     @Provides
@@ -46,14 +81,20 @@ object ViewerEnhanceModule {
     fun provideNativeEnhanceAdapter(
         @ApplicationContext context: Context,
         controller: NativeEnhanceController,
-        @Named("zeroDceChecksum") zeroDceChecksum: String,
-        @Named("restormerChecksum") restormerChecksum: String,
-    ): NativeEnhanceAdapter = NativeEnhanceAdapter(
-        context = context,
-        controller = controller,
-        zeroDceChecksum = zeroDceChecksum,
-        restormerChecksum = restormerChecksum,
-    )
+        @Named("zeroDceChecksum") zeroDceChecksum: String?,
+        @Named("restormerChecksum") restormerChecksum: String?,
+    ): NativeEnhanceAdapter? {
+        if (zeroDceChecksum == null || restormerChecksum == null) {
+            Timber.w("Models lock checksums unavailable, enhancement disabled")
+            return null
+        }
+        return NativeEnhanceAdapter(
+            context = context,
+            controller = controller,
+            zeroDceChecksum = zeroDceChecksum,
+            restormerChecksum = restormerChecksum,
+        )
+    }
 }
 
 private fun requireNcnnChecksum(definition: ModelDefinition): String =

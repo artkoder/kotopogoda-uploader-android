@@ -101,7 +101,7 @@ class ViewerViewModel @Inject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
-    private val nativeEnhanceAdapter: com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter,
+    private val nativeEnhanceAdapter: com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter?,
     private val settingsRepository: com.kotopogoda.uploader.core.settings.SettingsRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -227,10 +227,14 @@ class ViewerViewModel @Inject constructor(
 
         viewModelScope.launch {
             settingsRepository.flow.collect { settings ->
-                runCatching {
-                    nativeEnhanceAdapter.initialize(settings.previewQuality)
-                }.onFailure { error ->
-                    Timber.tag(LOG_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
+                if (nativeEnhanceAdapter != null) {
+                    runCatching {
+                        nativeEnhanceAdapter.initialize(settings.previewQuality)
+                    }.onFailure { error ->
+                        Timber.tag(LOG_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
+                    }
+                } else {
+                    Timber.tag(LOG_TAG).w("NativeEnhanceAdapter is null, enhancement disabled")
                 }
             }
         }
@@ -1966,6 +1970,10 @@ class ViewerViewModel @Inject constructor(
                 var fallbackReason: String? = null
 
                 suspend fun tryNativeEnhancement(): EnhancementResult? {
+                    if (nativeEnhanceAdapter == null) {
+                        fallbackReason = "adapter_unavailable"
+                        return null
+                    }
                     val previewOk = nativeEnhanceAdapter.computePreview(
                         sourceFile = workspace.source,
                         strength = normalized,
@@ -2049,7 +2057,7 @@ class ViewerViewModel @Inject constructor(
                         engineDelegate = delegatePlan.engineDelegate,
                         pipeline = pipeline,
                         timings = timings,
-                        models = nativeEnhanceAdapter.modelsTelemetry(),
+                        models = nativeEnhanceAdapter?.modelsTelemetry(),
                         uploadInfo = info,
                     )
                     pipelineSnapshot = pipeline
@@ -2387,7 +2395,7 @@ class ViewerViewModel @Inject constructor(
         metrics: EnhanceEngine.Metrics,
         strength: Float,
     ): EnhancementDelegatePlan {
-        if (nativeEnhanceAdapter.isReady()) {
+        if (nativeEnhanceAdapter?.isReady() == true) {
             return EnhancementDelegatePlan(
                 delegateType = EnhancementDelegateType.PRIMARY,
                 engineDelegate = selectEngineDelegate(),
