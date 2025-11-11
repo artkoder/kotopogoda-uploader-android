@@ -72,7 +72,11 @@ class NetworkModuleTest {
                 assertEquals(200, response.code)
             }
 
-            val recorded = server.takeRequest(1, TimeUnit.SECONDS) ?: fail("Request was not recorded")
+            val recorded = server.takeRequest(1, TimeUnit.SECONDS)
+            if (recorded == null) {
+                fail("Request was not recorded")
+                return@use
+            }
             val nonce = requireNotNull(recorded.getHeader("X-Nonce")) { "Nonce header missing" }
             assertTrue("Nonce must be at least 32 hex chars", nonce.length >= 32)
             assertTrue("Nonce must be lower-case hex", nonce.matches(Regex("[0-9a-f]+")))

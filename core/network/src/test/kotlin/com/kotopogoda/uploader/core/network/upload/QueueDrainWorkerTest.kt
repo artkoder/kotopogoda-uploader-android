@@ -671,7 +671,7 @@ class QueueDrainWorkerTest {
         every { constraintsProvider.constraintsState } returns constraintsState
         every { constraintsProvider.buildConstraints() } answers { constraintsState.value ?: Constraints.NONE }
         every { constraintsProvider.shouldUseExpeditedWork() } returns true
-        every { workManager.enqueueUniqueWork(any(), any(), any()) } returns mockk(relaxed = true)
+        every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
 
         val worker = QueueDrainWorker(
             context,
@@ -688,14 +688,14 @@ class QueueDrainWorkerTest {
             workManager.enqueueUniqueWork(
                 UploadEnqueuer.uniqueNameForUri(queueItem.uri),
                 ExistingWorkPolicy.KEEP,
-                any(),
+                any<OneTimeWorkRequest>(),
             )
         }
         verify {
             workManager.enqueueUniqueWork(
                 QUEUE_DRAIN_WORK_NAME,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                any(),
+                any<OneTimeWorkRequest>(),
             )
         }
 
@@ -807,7 +807,7 @@ class QueueDrainWorkerTest {
             workManager.enqueueUniqueWork(
                 capture(names),
                 capture(policies),
-                any(),
+                any<OneTimeWorkRequest>(),
             )
         } returns mockk(relaxed = true)
 
