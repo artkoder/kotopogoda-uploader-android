@@ -1,5 +1,5 @@
 {
-  "repository": "kotopogoda/kotopogoda-uploader-android",
+  "repository": "artkoder/kotopogoda-uploader-android",
   "models": {
     "zerodcepp_fp16": {
       "release": "models-v1",
