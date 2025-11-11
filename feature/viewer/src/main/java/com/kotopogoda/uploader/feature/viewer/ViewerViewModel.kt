@@ -2448,7 +2448,7 @@ class ViewerViewModel @Inject constructor(
                 hasSeamFix = false,
             ),
             timings = EnhanceEngine.Timings(),
-            models = EnhanceEngine.ModelsTelemetry(null, null),
+            models = null,
         )
     }
 
@@ -2473,11 +2473,11 @@ class ViewerViewModel @Inject constructor(
         runCatching { if (output.exists()) output.delete() }
     }
 
-    private fun EnhancementResult.zeroDceBackend(): String = models.zeroDce?.backend?.name?.lowercase() ?: "none"
+    private fun EnhancementResult.zeroDceBackend(): String = models?.zeroDce?.backend?.name?.lowercase() ?: "none"
 
-    private fun EnhancementResult.restormerBackend(): String = models.restormer?.backend?.name?.lowercase() ?: "none"
+    private fun EnhancementResult.restormerBackend(): String = models?.restormer?.backend?.name?.lowercase() ?: "none"
 
-    private fun EnhancementResult.zeroDceSha(): String = models.zeroDce?.checksum ?: "none"
+    private fun EnhancementResult.zeroDceSha(): String = models?.zeroDce?.checksum ?: "none"
 
     private fun zeroDceBackend(models: EnhanceEngine.ModelsTelemetry?): String =
         models?.zeroDce?.backend?.name?.lowercase() ?: "none"
@@ -3014,7 +3014,7 @@ class ViewerViewModel @Inject constructor(
         val engineDelegate: EnhanceEngine.Delegate?,
         val pipeline: EnhanceEngine.Pipeline,
         val timings: EnhanceEngine.Timings,
-        val models: EnhanceEngine.ModelsTelemetry,
+        val models: EnhanceEngine.ModelsTelemetry?,
         val uploadInfo: UploadEnhancementInfo? = null,
     )
 
