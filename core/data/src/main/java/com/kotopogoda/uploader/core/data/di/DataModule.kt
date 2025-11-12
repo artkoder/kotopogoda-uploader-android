@@ -3,6 +3,8 @@ package com.kotopogoda.uploader.core.data.di
 import android.content.Context
 import androidx.room.Room
 import com.kotopogoda.uploader.core.data.database.KotopogodaDatabase
+import com.kotopogoda.uploader.core.data.deletion.DeletionItemDao
+import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.indexer.IndexerRepository
@@ -42,6 +44,7 @@ object DataModule {
         KotopogodaDatabase.MIGRATION_8_9,
         KotopogodaDatabase.MIGRATION_9_10,
         KotopogodaDatabase.MIGRATION_10_11,
+        KotopogodaDatabase.MIGRATION_11_12,
     ).build()
 
     @Provides
@@ -52,6 +55,9 @@ object DataModule {
 
     @Provides
     fun provideUploadItemDao(database: KotopogodaDatabase): UploadItemDao = database.uploadItemDao()
+
+    @Provides
+    fun provideDeletionItemDao(database: KotopogodaDatabase): DeletionItemDao = database.deletionItemDao()
 
     @Provides
     @Singleton
@@ -98,6 +104,16 @@ object DataModule {
         photoDao = photoDao,
         metadataReader = metadataReader,
         contentResolver = context.contentResolver,
+        clock = clock,
+    )
+
+    @Provides
+    @Singleton
+    fun provideDeletionQueueRepository(
+        deletionItemDao: DeletionItemDao,
+        clock: Clock,
+    ): DeletionQueueRepository = DeletionQueueRepository(
+        deletionItemDao = deletionItemDao,
         clock = clock,
     )
 }
