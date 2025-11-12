@@ -25,6 +25,10 @@ class DeletionQueueRepository @Inject constructor(
             .distinctUntilChanged()
     }
 
+    suspend fun getPending(): List<DeletionItem> = withContext(Dispatchers.IO) {
+        deletionItemDao.getPending()
+    }
+
     suspend fun enqueue(requests: List<DeletionRequest>) = withContext(Dispatchers.IO) {
         if (requests.isEmpty()) {
             return@withContext
