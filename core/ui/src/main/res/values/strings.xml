@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="confirm_deletion_button">Подтвердить 🗑 %1$d</string>
+    <string name="confirm_deletion_result">Удалено %1$d, освобождено ≈%2$s</string>
+    <string name="confirm_deletion_error">Не удалось подтвердить удаление</string>
+</resources>

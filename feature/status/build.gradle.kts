@@ -46,6 +46,7 @@ dependencies {
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
     implementation(project(":core:logging"))
+    implementation(project(":core:ui"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.foundation)

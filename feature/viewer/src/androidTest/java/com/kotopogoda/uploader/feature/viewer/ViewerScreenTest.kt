@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.MediumTest
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
+import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationUiState
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.feature.viewer.R
 import androidx.paging.PagingData
@@ -65,6 +66,9 @@ class ViewerScreenTest {
                 onOpenSettings = {},
                 healthState = HealthState.Unknown,
                 isNetworkValidated = true,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -136,6 +140,9 @@ class ViewerScreenTest {
                 onOpenSettings = {},
                 healthState = HealthState.Unknown,
                 isNetworkValidated = true,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},

@@ -55,6 +55,7 @@ dependencies {
     implementation(project(":core:logging"))
     implementation(project(":core:work"))
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
