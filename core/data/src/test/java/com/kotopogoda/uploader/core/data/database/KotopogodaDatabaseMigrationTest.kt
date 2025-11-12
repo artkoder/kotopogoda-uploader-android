@@ -217,6 +217,94 @@ class KotopogodaDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrate11To12_createsDeletionQueueTable() {
+        helper.createDatabase(TEST_DB, 11).apply {
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            12,
+            true,
+            KotopogodaDatabase.MIGRATION_11_12,
+        ).apply {
+            query("PRAGMA table_info(`deletion_queue`)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                val found = mutableSetOf<String>()
+                while (cursor.moveToNext()) {
+                    found.add(cursor.getString(nameIndex))
+                }
+                val expected = setOf(
+                    "media_id",
+                    "content_uri",
+                    "display_name",
+                    "size_bytes",
+                    "date_taken",
+                    "reason",
+                    "status",
+                    "is_uploading",
+                    "created_at",
+                )
+                assertEquals(expected, found)
+            }
+            query(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'index_deletion_queue_status_is_uploading'"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+            }
+            close()
+        }
+    }
+
+    @Test
+    fun migrate11To12_preservesExistingDataAndAllowsInsertion() {
+        helper.createDatabase(TEST_DB, 11).apply {
+            execSQL(
+                """
+                INSERT INTO `upload_items` (
+                    `id`, `photo_id`, `idempotency_key`, `uri`, `display_name`, `size`, `enhanced`,
+                    `state`, `created_at`
+                ) VALUES (
+                    42, 'photo-42', 'photo-42', 'content://photos/42', 'photo-42.jpg', 1024, 0,
+                    'queued', 1000
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            12,
+            true,
+            KotopogodaDatabase.MIGRATION_11_12,
+        ).apply {
+            query("SELECT COUNT(*) FROM upload_items").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(1, cursor.getInt(0))
+            }
+            execSQL(
+                """
+                INSERT INTO `deletion_queue` (
+                    `media_id`, `content_uri`, `display_name`, `size_bytes`, `date_taken`, `reason`,
+                    `status`, `is_uploading`, `created_at`
+                ) VALUES (
+                    1, 'content://photos/1', 'photo-1.jpg', 2048, 2000, 'user_delete', 'pending', 0,
+                    3000
+                )
+                """.trimIndent()
+            )
+            query("SELECT status, is_uploading, created_at FROM deletion_queue WHERE media_id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("pending", cursor.getString(0))
+                assertEquals(0, cursor.getInt(1))
+                assertEquals(3000, cursor.getLong(2))
+            }
+            close()
+        }
+    }
+
     private companion object {
         const val TEST_DB = "kotopogoda-migration-test.db"
     }
