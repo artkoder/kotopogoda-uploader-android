@@ -17,6 +17,11 @@ interface DeletionItemDao {
     )
     fun observePending(pendingStatus: String = DeletionItemStatus.PENDING): Flow<List<DeletionItem>>
 
+    @Query(
+        "SELECT * FROM deletion_queue WHERE status = :pendingStatus AND is_uploading = 0 ORDER BY created_at ASC"
+    )
+    suspend fun getPending(pendingStatus: String = DeletionItemStatus.PENDING): List<DeletionItem>
+
     @Query("UPDATE deletion_queue SET status = :status, is_uploading = 0 WHERE media_id IN (:ids)")
     suspend fun updateStatus(ids: List<Long>, status: String): Int
 

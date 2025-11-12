@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.data.di
 
+import android.content.ContentResolver
 import android.content.Context
 import androidx.room.Room
 import com.kotopogoda.uploader.core.data.database.KotopogodaDatabase
@@ -46,6 +47,9 @@ object DataModule {
         KotopogodaDatabase.MIGRATION_10_11,
         KotopogodaDatabase.MIGRATION_11_12,
     ).build()
+
+    @Provides
+    fun provideContentResolver(@ApplicationContext context: Context): ContentResolver = context.contentResolver
 
     @Provides
     fun provideFolderDao(database: KotopogodaDatabase): FolderDao = database.folderDao()

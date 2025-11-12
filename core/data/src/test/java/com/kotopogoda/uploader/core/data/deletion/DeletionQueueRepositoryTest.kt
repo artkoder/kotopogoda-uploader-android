@@ -59,9 +59,11 @@ class DeletionQueueRepositoryTest {
         val confirmed = baseItem.copy(mediaId = 3L, status = DeletionItemStatus.CONFIRMED, createdAt = 12L)
         dao.enqueue(listOf(baseItem, uploading, confirmed))
 
-        val pending = repository.observePending().first()
+        val pendingFlow = repository.observePending().first()
+        val pendingDirect = repository.getPending()
 
-        assertEquals(listOf(baseItem), pending)
+        assertEquals(listOf(baseItem), pendingFlow)
+        assertEquals(listOf(baseItem), pendingDirect)
     }
 
     @Test
