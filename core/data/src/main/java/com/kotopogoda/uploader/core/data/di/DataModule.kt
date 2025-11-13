@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import androidx.room.Room
 import com.kotopogoda.uploader.core.data.database.KotopogodaDatabase
+import com.kotopogoda.uploader.core.data.deletion.DeletionAnalytics
 import com.kotopogoda.uploader.core.data.deletion.DeletionItemDao
 import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderDao
@@ -116,8 +117,10 @@ object DataModule {
     fun provideDeletionQueueRepository(
         deletionItemDao: DeletionItemDao,
         clock: Clock,
+        deletionAnalytics: DeletionAnalytics,
     ): DeletionQueueRepository = DeletionQueueRepository(
         deletionItemDao = deletionItemDao,
         clock = clock,
+        deletionAnalytics = deletionAnalytics,
     )
 }
