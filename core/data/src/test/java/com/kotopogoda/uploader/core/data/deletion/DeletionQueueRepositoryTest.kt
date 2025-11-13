@@ -25,6 +25,7 @@ class DeletionQueueRepositoryTest {
     private lateinit var database: KotopogodaDatabase
     private lateinit var dao: DeletionItemDao
     private lateinit var repository: DeletionQueueRepository
+    private lateinit var analytics: FakeDeletionAnalytics
     private val clock = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC)
 
     @BeforeTest
@@ -34,7 +35,8 @@ class DeletionQueueRepositoryTest {
             .allowMainThreadQueries()
             .build()
         dao = database.deletionItemDao()
-        repository = DeletionQueueRepository(dao, clock)
+        analytics = FakeDeletionAnalytics()
+        repository = DeletionQueueRepository(dao, clock, analytics)
     }
 
     @AfterTest
@@ -152,6 +154,51 @@ class DeletionQueueRepositoryTest {
         val stored = dao.getByIds(listOf(100L, 101L)).associateBy { it.mediaId }
         assertTrue(stored.getValue(100L).isUploading)
         assertTrue(!stored.getValue(101L).isUploading)
+    }
+
+    @Test
+    fun enqueueFiresAnalyticsEvent() = runTest {
+        val requests = listOf(
+            DeletionRequest(
+                mediaId = 50L,
+                contentUri = "content://photos/50",
+                displayName = "photo-50.jpg",
+                sizeBytes = 1024L,
+                dateTaken = 5000L,
+                reason = "user_delete",
+            ),
+        )
+
+        repository.enqueue(requests)
+
+        assertEquals(1, analytics.events.size)
+        val event = analytics.events.first()
+        assertTrue(event is FakeDeletionAnalytics.DeletionEvent.Enqueued)
+        assertEquals(1, (event as FakeDeletionAnalytics.DeletionEvent.Enqueued).count)
+        assertEquals("user_delete", event.reason)
+    }
+
+    @Test
+    fun markFailedFiresAnalyticsEvent() = runTest {
+        val item = DeletionItem(
+            mediaId = 60L,
+            contentUri = "content://photos/60",
+            displayName = "photo-60.jpg",
+            sizeBytes = 2048L,
+            dateTaken = 6000L,
+            reason = "user_delete",
+            createdAt = 100L,
+        )
+        dao.enqueue(listOf(item))
+        analytics.clear()
+
+        repository.markFailed(listOf(60L), cause = "permission_denied")
+
+        assertEquals(1, analytics.events.size)
+        val event = analytics.events.first()
+        assertTrue(event is FakeDeletionAnalytics.DeletionEvent.Failed)
+        assertEquals(1, (event as FakeDeletionAnalytics.DeletionEvent.Failed).count)
+        assertEquals("permission_denied", event.cause)
     }
 
     @Test
