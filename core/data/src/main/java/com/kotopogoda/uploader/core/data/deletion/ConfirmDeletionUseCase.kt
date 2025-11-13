@@ -221,7 +221,7 @@ class ConfirmDeletionUseCase @Inject constructor(
         }
     }
 
-    private fun applyRepositoryUpdates(
+    private suspend fun applyRepositoryUpdates(
         successes: List<BatchItem>,
         failures: List<BatchItem>,
         skipped: List<BatchItem>,
