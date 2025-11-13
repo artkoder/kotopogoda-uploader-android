@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="confirm_deletion_button">Confirm 🗑 %1$d</string>
+    <string name="confirm_deletion_result">Deleted %1$d, freed ≈%2$s</string>
+    <string name="confirm_deletion_error">Failed to confirm deletion</string>
+</resources>
