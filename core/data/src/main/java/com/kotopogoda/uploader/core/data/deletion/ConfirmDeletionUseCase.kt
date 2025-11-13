@@ -54,7 +54,7 @@ class ConfirmDeletionUseCase @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         index = index,
                         items = chunk,
-                        intentSender = pendingIntent.intentSender,
+                        intentSender = IntentSenderWrapper(pendingIntent.intentSender),
                         requiresRetryAfterApproval = false,
                     )
                 }
@@ -80,7 +80,7 @@ class ConfirmDeletionUseCase @Inject constructor(
                     id = UUID.randomUUID().toString(),
                     index = index,
                     items = listOf(item),
-                    intentSender = intentSender,
+                    intentSender = IntentSenderWrapper(intentSender),
                     requiresRetryAfterApproval = true,
                 )
                 Timber.tag(TAG).i(
