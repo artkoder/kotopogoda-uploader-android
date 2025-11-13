@@ -6,6 +6,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.kotopogoda.uploader.core.data.database.KotopogodaDatabase
+import io.mockk.mockk
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -64,7 +65,7 @@ class ConfirmDeletionUseCaseAnalyticsTest {
             id = "batch-123",
             index = 0,
             items = emptyList(),
-            intentSender = IntentSenderWrapper(null!!),
+            intentSender = IntentSenderWrapper(mockk(relaxed = true)),
             requiresRetryAfterApproval = false,
         )
         analytics.clear()
