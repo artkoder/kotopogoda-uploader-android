@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.kotopogoda.uploader.core.data.deletion.DeletionItem
+import com.kotopogoda.uploader.core.data.deletion.DeletionItemDao
 import com.kotopogoda.uploader.core.data.folder.FolderDao
 import com.kotopogoda.uploader.core.data.folder.FolderEntity
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
@@ -13,8 +15,8 @@ import com.kotopogoda.uploader.core.data.upload.UploadItemDao
 import com.kotopogoda.uploader.core.data.upload.UploadItemEntity
 
 @Database(
-    entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class],
-    version = 11,
+    entities = [FolderEntity::class, PhotoEntity::class, UploadItemEntity::class, DeletionItem::class],
+    version = 12,
     exportSchema = true
 )
 abstract class KotopogodaDatabase : RoomDatabase() {
@@ -23,6 +25,8 @@ abstract class KotopogodaDatabase : RoomDatabase() {
     abstract fun photoDao(): PhotoDao
 
     abstract fun uploadItemDao(): UploadItemDao
+
+    abstract fun deletionItemDao(): DeletionItemDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -244,6 +248,52 @@ abstract class KotopogodaDatabase : RoomDatabase() {
                         "ALTER TABLE `upload_items` ADD COLUMN `location_hidden_by_system` INTEGER NOT NULL DEFAULT 0"
                     )
                 }
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = getTableColumns(db, "deletion_queue")
+                if (columns.isEmpty()) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `deletion_queue` (
+                            `media_id` INTEGER NOT NULL,
+                            `content_uri` TEXT NOT NULL,
+                            `display_name` TEXT,
+                            `size_bytes` INTEGER,
+                            `date_taken` INTEGER,
+                            `reason` TEXT NOT NULL,
+                            `status` TEXT NOT NULL DEFAULT 'pending',
+                            `is_uploading` INTEGER NOT NULL DEFAULT 0,
+                            `created_at` INTEGER NOT NULL,
+                            PRIMARY KEY(`media_id`)
+                        )
+                        """.trimIndent()
+                    )
+                } else {
+                    if ("status" !in columns) {
+                        db.execSQL(
+                            "ALTER TABLE `deletion_queue` ADD COLUMN `status` TEXT NOT NULL DEFAULT 'pending'"
+                        )
+                    }
+                    if ("is_uploading" !in columns) {
+                        db.execSQL(
+                            "ALTER TABLE `deletion_queue` ADD COLUMN `is_uploading` INTEGER NOT NULL DEFAULT 0"
+                        )
+                    }
+                    if ("created_at" !in columns) {
+                        db.execSQL(
+                            "ALTER TABLE `deletion_queue` ADD COLUMN `created_at` INTEGER NOT NULL DEFAULT 0"
+                        )
+                        db.execSQL(
+                            "UPDATE `deletion_queue` SET `created_at` = CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE `created_at` = 0"
+                        )
+                    }
+                }
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_deletion_queue_status_is_uploading` ON `deletion_queue` (`status`, `is_uploading`)"
+                )
             }
         }
 

@@ -41,6 +41,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:network"))
     implementation(project(":core:work"))
+    implementation(project(":core:ui"))
     implementation(project(":core:settings"))
     implementation(project(":core:logging"))
     implementation(platform(libs.androidx.compose.bom))

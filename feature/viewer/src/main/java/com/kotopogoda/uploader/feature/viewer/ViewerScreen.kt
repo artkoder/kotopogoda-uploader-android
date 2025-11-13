@@ -6,6 +6,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.text.format.Formatter
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -98,9 +99,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationEvent
+import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationUiState
+import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationViewModel
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
+import com.kotopogoda.uploader.core.ui.ConfirmDeletionBar
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.core.network.health.HealthStatus
 import com.kotopogoda.uploader.feature.viewer.R
@@ -135,6 +141,9 @@ fun ViewerRoute(
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val currentFolderUri by viewModel.currentFolderTreeUri.collectAsState()
     val enhancementState by viewModel.enhancementState.collectAsState()
+    val deletionConfirmationViewModel = hiltViewModel<DeletionConfirmationViewModel>()
+    val deletionConfirmationUiState by deletionConfirmationViewModel.uiState.collectAsStateWithLifecycle()
+    val deletionConfirmationEvents = deletionConfirmationViewModel.events
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -211,6 +220,12 @@ fun ViewerRoute(
         onOpenSettings = onOpenSettings,
         healthState = healthState,
         isNetworkValidated = isNetworkValidated,
+        deletionConfirmationUiState = DeletionConfirmationUiState(),
+        onConfirmDeletion = {},
+        deletionConfirmationEvents = emptyFlow(),
+        deletionConfirmationUiState = deletionConfirmationUiState,
+        onConfirmDeletion = deletionConfirmationViewModel::confirmPending,
+        deletionConfirmationEvents = deletionConfirmationEvents,
         onPageChanged = viewModel::setCurrentIndex,
         onVisiblePhotoChanged = viewModel::updateVisiblePhoto,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
@@ -266,6 +281,9 @@ internal fun ViewerScreen(
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     isNetworkValidated: Boolean,
+    deletionConfirmationUiState: DeletionConfirmationUiState,
+    onConfirmDeletion: () -> Unit,
+    deletionConfirmationEvents: Flow<DeletionConfirmationEvent>,
     onPageChanged: (Int) -> Unit,
     onVisiblePhotoChanged: (Int, PhotoItem?) -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
@@ -446,6 +464,26 @@ internal fun ViewerScreen(
                 }
             }
         }
+    LaunchedEffect(deletionConfirmationEvents, context) {
+        deletionConfirmationEvents.collectLatest { event ->
+            when (event) {
+                is DeletionConfirmationEvent.ConfirmationSuccess -> {
+                    val freedLabel = Formatter.formatShortFileSize(context, event.totalBytes.coerceAtLeast(0L))
+                    val message = context.getString(
+                        com.kotopogoda.uploader.core.ui.R.string.confirm_deletion_result,
+                        event.confirmedCount,
+                        freedLabel
+                    )
+                    snackbarHostState.showSnackbar(message)
+                }
+                is DeletionConfirmationEvent.ConfirmationFailed -> {
+                    val message = context.getString(com.kotopogoda.uploader.core.ui.R.string.confirm_deletion_error)
+                    snackbarHostState.showSnackbar(message)
+                }
+            }
+        }
+    }
+
     }
 
     Scaffold(
@@ -461,6 +499,11 @@ internal fun ViewerScreen(
                 onScrollToNewest = onScrollToNewest,
                 healthState = healthState,
                 isNetworkValidated = isNetworkValidated,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
+                deletionConfirmationUiState = deletionConfirmationUiState,
+                onConfirmDeletion = onConfirmDeletion,
             )
         },
         bottomBar = {
@@ -686,13 +729,26 @@ private fun ViewerTopBar(
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     isNetworkValidated: Boolean,
+    deletionConfirmationUiState: DeletionConfirmationUiState,
+    onConfirmDeletion: () -> Unit,
 ) {
     TopAppBar(
         title = {
-            HealthStatusBadge(
-                healthState = healthState,
-                isNetworkValidated = isNetworkValidated,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ConfirmDeletionBar(
+                    pendingCount = deletionConfirmationUiState.pendingCount,
+                    inProgress = deletionConfirmationUiState.inProgress,
+                    onConfirm = onConfirmDeletion,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                HealthStatusBadge(
+                    healthState = healthState,
+                    isNetworkValidated = isNetworkValidated,
+                    deletionConfirmationUiState = DeletionConfirmationUiState(),
+                    onConfirmDeletion = {},
+                    deletionConfirmationEvents = emptyFlow(),
+                )
+            }
         },
         navigationIcon = {
             IconButton(onClick = onBack) {
