@@ -17,6 +17,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Undo
@@ -91,6 +93,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -235,6 +238,7 @@ fun ViewerRoute(
         selection = selection,
         isSelectionMode = isSelectionMode,
         observeUploadEnqueued = viewModel::observeUploadEnqueued,
+        observeDeletionQueued = viewModel::observeDeletionQueued,
         onBack = onBack,
         onOpenQueue = onOpenQueue,
         onOpenStatus = onOpenStatus,
@@ -254,6 +258,7 @@ fun ViewerRoute(
         onCancelSelection = viewModel::onCancelSelection,
         onMoveSelection = viewModel::onMoveSelection,
         onEnqueueUpload = viewModel::onEnqueueUpload,
+        onQueueDelete = viewModel::onEnqueueDeletion,
         onUndo = viewModel::onUndo,
         onDelete = viewModel::onDelete,
         onDeleteSelection = viewModel::onDeleteSelection,
@@ -295,6 +300,7 @@ internal fun ViewerScreen(
     selection: Set<PhotoItem>,
     isSelectionMode: Boolean,
     observeUploadEnqueued: (PhotoItem?) -> Flow<Boolean>,
+    observeDeletionQueued: (PhotoItem?) -> Flow<Boolean>,
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenStatus: () -> Unit,
