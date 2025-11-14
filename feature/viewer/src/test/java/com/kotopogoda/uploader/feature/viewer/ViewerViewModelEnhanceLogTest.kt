@@ -66,6 +66,7 @@ class ViewerViewModelEnhanceLogTest {
             httpLogging = true,
             persistentQueueNotification = false,
             previewQuality = PreviewQuality.BALANCED,
+            autoDeleteAfterUpload = false,
         )
         every { settingsRepository.flow } returns kotlinx.coroutines.flow.flowOf(defaultSettings)
     }

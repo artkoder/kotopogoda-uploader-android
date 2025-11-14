@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.dagger.hilt.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.coil.compose)
     implementation(libs.exif)
     implementation(libs.androidx.paging.runtime)

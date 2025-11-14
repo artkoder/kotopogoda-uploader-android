@@ -99,8 +99,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationEvent
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationUiState
@@ -377,6 +377,7 @@ internal fun ViewerScreen(
     val coroutineScope = rememberCoroutineScope()
     var showJumpSheet by rememberSaveable { mutableStateOf(false) }
     val jumpSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var currentDeletionBatch by remember { mutableStateOf<com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase.DeleteBatch?>(null) }
 
     val currentPhoto = if (rememberedIndex in 0 until itemCount) {
         photos[rememberedIndex]
@@ -486,6 +487,8 @@ internal fun ViewerScreen(
                 }
             }
         }
+    }
+    
     LaunchedEffect(deletionConfirmationEvents, context, currentDeletionBatch) {
         deletionConfirmationEvents.collectLatest { event ->
             when (event) {
@@ -517,8 +520,6 @@ internal fun ViewerScreen(
                 }
             }
         }
-    }
-
     }
 
     Scaffold(
@@ -775,10 +776,7 @@ private fun ViewerTopBar(
                 )
                 HealthStatusBadge(
                     healthState = healthState,
-                    isNetworkValidated = isNetworkValidated,
-                    deletionConfirmationUiState = DeletionConfirmationUiState(),
-                    onConfirmDeletion = {},
-                    deletionConfirmationEvents = emptyFlow(),
+                    isNetworkValidated = isNetworkValidated
                 )
             }
         },
