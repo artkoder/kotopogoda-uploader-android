@@ -27,6 +27,8 @@ import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.MoveResult
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
+import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
+import com.kotopogoda.uploader.core.data.deletion.DeletionRequest
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.data.upload.UploadEnqueueOptions
 import com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo
@@ -99,6 +101,7 @@ class ViewerViewModel @Inject constructor(
     private val saFileRepository: SaFileRepository,
     private val uploadEnqueuer: UploadEnqueuer,
     private val uploadQueueRepository: UploadQueueRepository,
+    private val deletionQueueRepository: DeletionQueueRepository,
     private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
     private val nativeEnhanceAdapter: com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter?,
@@ -153,6 +156,8 @@ class ViewerViewModel @Inject constructor(
 
     private val _selection = MutableStateFlow<Set<PhotoItem>>(emptySet())
     val selection: StateFlow<Set<PhotoItem>> = _selection.asStateFlow()
+
+    private val pendingDeletionIds = MutableStateFlow<Set<Long>>(emptySet())
 
     val isSelectionMode: StateFlow<Boolean> = selection
         .map { it.isNotEmpty() }
@@ -319,6 +324,13 @@ class ViewerViewModel @Inject constructor(
                     }
                 }
             }
+        }
+
+        viewModelScope.launch {
+            deletionQueueRepository.observePending()
+                .map { items -> items.map { it.mediaId }.toSet() }
+                .distinctUntilChanged()
+                .collect { ids -> pendingDeletionIds.value = ids }
         }
     }
 
@@ -815,6 +827,93 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
+    fun onEnqueueDeletion(photo: PhotoItem?) {
+        if (_actionInProgress.value != null) {
+            return
+        }
+        val current = photo ?: return
+        val mediaId = current.id.toLongOrNull()
+        if (mediaId == null) {
+            viewModelScope.launch {
+                _events.emit(
+                    ViewerEvent.ShowSnackbar(
+                        messageRes = R.string.viewer_snackbar_delete_failed
+                    )
+                )
+            }
+            return
+        }
+        if (mediaId in pendingDeletionIds.value) {
+            return
+        }
+        logUi(
+            category = "UI/DELETE_QUEUE",
+            action = "enqueue_request",
+            uri = current.uri,
+            "media_id" to mediaId,
+            "current_index" to currentIndex.value,
+        )
+        viewModelScope.launch {
+            try {
+                val documentInfo = loadDocumentInfo(current.uri)
+                val fromIndex = currentIndex.value
+                val toIndex = computeNextIndex(fromIndex)
+                val request = DeletionRequest(
+                    mediaId = mediaId,
+                    contentUri = documentInfo.uri.toString(),
+                    displayName = documentInfo.displayName,
+                    sizeBytes = documentInfo.size,
+                    dateTaken = current.takenAt?.toEpochMilli(),
+                    reason = QUEUE_DELETE_REASON
+                )
+                val inserted = deletionQueueRepository.enqueue(listOf(request))
+                if (inserted <= 0) {
+                    logUi(
+                        category = "UI/DELETE_QUEUE",
+                        action = "enqueue_skipped",
+                        uri = current.uri,
+                        "media_id" to mediaId
+                    )
+                    return@launch
+                }
+                pendingDeletionIds.update { ids -> ids + mediaId }
+                pushAction(
+                    UserAction.QueuedDeletion(
+                        mediaId = mediaId,
+                        uri = current.uri,
+                        fromIndex = fromIndex,
+                        toIndex = toIndex
+                    )
+                )
+                if (toIndex != fromIndex) {
+                    setCurrentIndex(toIndex)
+                }
+                persistProgress(toIndex, current.takenAt)
+                _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_deletion_enqueued))
+                logUi(
+                    category = "UI/DELETE_QUEUE",
+                    action = "enqueue_success",
+                    uri = current.uri,
+                    "media_id" to mediaId,
+                    "from_index" to fromIndex,
+                    "to_index" to toIndex
+                )
+            } catch (error: Exception) {
+                logUiError(
+                    category = "UI/DELETE_QUEUE",
+                    action = "enqueue_failure",
+                    error = error,
+                    uri = current.uri,
+                )
+                _events.emit(
+                    ViewerEvent.ShowSnackbar(
+                        messageRes = R.string.viewer_snackbar_delete_failed
+                    )
+                )
+            }
+        }
+    }
+
     fun onDelete(photo: PhotoItem?) {
         if (_actionInProgress.value != null) {
             return
@@ -1172,6 +1271,56 @@ class ViewerViewModel @Inject constructor(
                     }
                 }
             }
+            is UserAction.QueuedDeletion -> {
+                viewModelScope.launch {
+                    _actionInProgress.value = ViewerActionInProgress.Delete
+                    try {
+                        val removed = runCatching {
+                            deletionQueueRepository.markSkipped(listOf(action.mediaId))
+                        }.onFailure { error ->
+                            logUiError(
+                                category = "UI/DELETE_QUEUE",
+                                action = "undo_failure",
+                                error = error,
+                                uri = action.uri,
+                            )
+                        }.getOrDefault(0)
+                        if (removed > 0) {
+                            pendingDeletionIds.update { ids -> ids - action.mediaId }
+                            val targetIndex = clampIndex(action.fromIndex)
+                            setCurrentIndex(targetIndex)
+                            logUi(
+                                category = "UI/DELETE_QUEUE",
+                                action = "undo_success",
+                                uri = action.uri,
+                                "media_id" to action.mediaId,
+                                "from_index" to action.fromIndex,
+                                "to_index" to action.toIndex
+                            )
+                            _events.emit(
+                                ViewerEvent.ShowSnackbar(
+                                    messageRes = R.string.viewer_snackbar_delete_undone
+                                )
+                            )
+                        } else {
+                            logUi(
+                                category = "UI/DELETE_QUEUE",
+                                action = "undo_skipped",
+                                uri = action.uri,
+                                "media_id" to action.mediaId
+                            )
+                            pushAction(action)
+                            _events.emit(
+                                ViewerEvent.ShowSnackbar(
+                                    messageRes = R.string.viewer_snackbar_undo_failed
+                                )
+                            )
+                        }
+                    } finally {
+                        _actionInProgress.value = null
+                    }
+                }
+            }
             is UserAction.Deleted -> {
                 viewModelScope.launch {
                     _actionInProgress.value = ViewerActionInProgress.Delete
@@ -1207,6 +1356,13 @@ class ViewerViewModel @Inject constructor(
             uploadEnqueuer.isEnqueued(current.uri),
             uploadQueueRepository.observeQueuedOrProcessing(current.id)
         ) { enqueued, queued -> enqueued || queued }
+            .distinctUntilChanged()
+    }
+
+    fun observeDeletionQueued(photo: PhotoItem?): Flow<Boolean> {
+        val mediaId = photo?.id?.toLongOrNull() ?: return flowOf(false)
+        return pendingDeletionIds
+            .map { ids -> mediaId in ids }
             .distinctUntilChanged()
     }
 
@@ -2762,6 +2918,12 @@ class ViewerViewModel @Inject constructor(
             val fromIndex: Int,
             val toIndex: Int
         ) : UserAction
+        data class QueuedDeletion(
+            val mediaId: Long,
+            val uri: Uri,
+            val fromIndex: Int,
+            val toIndex: Int
+        ) : UserAction
         data class Deleted(
             val uri: Uri,
             val originalParent: Uri,
@@ -2865,6 +3027,7 @@ class ViewerViewModel @Inject constructor(
         val displayName: String?,
         val mimeType: String?,
         val backupPath: String?,
+        val mediaId: Long? = null,
         val takenAt: Long?
     ) : Serializable
 
@@ -2872,6 +3035,7 @@ class ViewerViewModel @Inject constructor(
         Skip,
         MovedToProcessing,
         EnqueuedUpload,
+        QueuedDeletion,
         Deleted
     }
 
@@ -2912,6 +3076,19 @@ class ViewerViewModel @Inject constructor(
             backupPath = null,
             takenAt = null
         )
+        is UserAction.QueuedDeletion -> UndoEntryState(
+            type = UserActionType.QueuedDeletion,
+            fromIndex = fromIndex,
+            toIndex = toIndex,
+            fromUri = uri.toString(),
+            toUri = null,
+            originalParent = null,
+            displayName = null,
+            mimeType = null,
+            backupPath = null,
+            mediaId = mediaId,
+            takenAt = null
+        )
         is UserAction.Deleted -> UndoEntryState(
             type = UserActionType.Deleted,
             fromIndex = fromIndex,
@@ -2944,6 +3121,12 @@ class ViewerViewModel @Inject constructor(
             fromIndex = fromIndex,
             toIndex = toIndex
         )
+        UserActionType.QueuedDeletion -> UserAction.QueuedDeletion(
+            mediaId = requireNotNull(mediaId),
+            uri = Uri.parse(requireNotNull(fromUri)),
+            fromIndex = fromIndex,
+            toIndex = toIndex
+        )
         UserActionType.Deleted -> UserAction.Deleted(
             uri = Uri.parse(requireNotNull(fromUri)),
             originalParent = Uri.parse(requireNotNull(originalParent)),
@@ -2959,6 +3142,7 @@ class ViewerViewModel @Inject constructor(
     companion object {
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
+        private const val QUEUE_DELETE_REASON = "user_delete"
         private const val LOG_TAG = "ViewerViewModel"
         private const val UI_TAG = "UI"
         private const val PERMISSION_TAG = "Permissions"
