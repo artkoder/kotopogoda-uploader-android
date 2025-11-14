@@ -10,6 +10,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -26,6 +28,7 @@ import com.kotopogoda.uploader.feature.viewer.R
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Rule
@@ -64,6 +67,7 @@ class ViewerScreenTest {
                 selection = emptySet(),
                 isSelectionMode = false,
                 observeUploadEnqueued = { flowOf(false) },
+                observeDeletionQueued = { flowOf(false) },
                 onBack = {},
                 onOpenQueue = {},
                 onOpenStatus = {},
@@ -82,8 +86,9 @@ class ViewerScreenTest {
                 onMoveToProcessing = { _ -> },
                 onMoveSelection = {},
                 onEnqueueUpload = { _ -> },
+                onQueueDelete = { _ -> },
                 onUndo = {},
-                onDelete = { _ -> },
+                onDeleteClick = { _ -> },
                 onDeleteSelection = {},
                 onDeleteResult = {},
                 onWriteRequestResult = {},
@@ -140,6 +145,7 @@ class ViewerScreenTest {
                 selection = selection,
                 isSelectionMode = selection.isNotEmpty(),
                 observeUploadEnqueued = { flowOf(false) },
+                observeDeletionQueued = { flowOf(false) },
                 onBack = {},
                 onOpenQueue = {},
                 onOpenStatus = {},
@@ -158,8 +164,9 @@ class ViewerScreenTest {
                 onMoveToProcessing = { _ -> },
                 onMoveSelection = { moved = selection.toList() },
                 onEnqueueUpload = { _ -> },
+                onQueueDelete = { _ -> },
                 onUndo = {},
-                onDelete = { _ -> },
+                onDeleteClick = { _ -> },
                 onDeleteSelection = { deleted = selection.toList() },
                 onDeleteResult = {},
                 onWriteRequestResult = {},
@@ -205,5 +212,106 @@ class ViewerScreenTest {
         composeRule.runOnIdle {
             assertEquals(2, deleted.size)
         }
+    }    @Test
+    fun deleteQueueButtonReflectsQueueState() {
+        val photo = PhotoItem(
+            id = "queue-test",
+            uri = Uri.parse("content://photo/queue"),
+            takenAt = null
+        )
+        val queueState = MutableStateFlow(false)
+        val actionState = mutableStateOf<ViewerViewModel.ViewerActionInProgress?>(null)
+        val clickState = mutableStateOf(0)
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = true,
+                actionInProgress = actionState.value,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                observeDeletionQueued = { queueState },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenStatus = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onQueueDelete = { _ ->
+                    queueState.value = true
+                    clickState.value += 1
+                },
+                onUndo = {},
+                onDeleteClick = { _ -> clickState.value += 100 },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = 0f,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {}
+            )
+        }
+
+        val deleteDescription = composeRule.activity.getString(R.string.viewer_action_delete)
+        val deleteNode = composeRule.onNodeWithContentDescription(deleteDescription)
+
+        deleteNode.assertExists()
+        deleteNode.assertIsEnabled()
+
+        deleteNode.performClick()
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            assertEquals(1, clickState.value)
+        }
+        deleteNode.assertIsNotEnabled()
+
+        composeRule.runOnIdle {
+            queueState.value = false
+        }
+        composeRule.waitForIdle()
+        deleteNode.assertIsEnabled()
+
+        composeRule.runOnIdle {
+            actionState.value = ViewerViewModel.ViewerActionInProgress.Delete
+        }
+        composeRule.waitForIdle()
+        deleteNode.assertIsNotEnabled()
+
+        composeRule.runOnIdle {
+            actionState.value = null
+        }
+        composeRule.waitForIdle()
+        deleteNode.assertIsEnabled()
     }
+
 }
