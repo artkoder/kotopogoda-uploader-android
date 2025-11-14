@@ -30,7 +30,7 @@ fun ConfirmDeletionBar(
     FilledTonalButton(
         onClick = onConfirm,
         enabled = enabled,
-        modifier = modifier.heightIn(min = 40.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         contentPadding = ButtonDefaults.ContentPadding,
     ) {
         Row(

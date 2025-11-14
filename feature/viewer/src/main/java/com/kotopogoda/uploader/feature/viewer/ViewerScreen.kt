@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -38,7 +39,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -527,12 +527,11 @@ internal fun ViewerScreen(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             ViewerTopBar(
-                onBack = onBack,
                 onOpenQueue = onOpenQueue,
                 onOpenStatus = onOpenStatus,
-                onOpenSettings = onOpenSettings,
                 onOpenJumpToDate = { showJumpSheet = true },
                 onScrollToNewest = onScrollToNewest,
+                onOpenSettings = onOpenSettings,
                 healthState = healthState,
                 isNetworkValidated = isNetworkValidated,
                 deletionConfirmationUiState = deletionConfirmationUiState,
@@ -754,7 +753,6 @@ private fun ViewerSelectionThumbnail(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ViewerTopBar(
-    onBack: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenStatus: () -> Unit,
     onOpenJumpToDate: () -> Unit,
@@ -767,7 +765,10 @@ private fun ViewerTopBar(
 ) {
     TopAppBar(
         title = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 ConfirmDeletionBar(
                     pendingCount = deletionConfirmationUiState.pendingCount,
                     inProgress = deletionConfirmationUiState.inProgress,
@@ -776,52 +777,68 @@ private fun ViewerTopBar(
                 )
                 HealthStatusBadge(
                     healthState = healthState,
-                    isNetworkValidated = isNetworkValidated
+                    isNetworkValidated = isNetworkValidated,
+                    modifier = Modifier.align(Alignment.Start)
                 )
-            }
-        },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = stringResource(id = R.string.viewer_back)
-                )
-            }
-        },
-        actions = {
-            IconButton(onClick = onScrollToNewest) {
-                Icon(
-                    imageVector = Icons.Rounded.ArrowUpward,
-                    contentDescription = stringResource(id = R.string.viewer_open_latest)
-                )
-            }
-            IconButton(onClick = onOpenJumpToDate) {
-                Icon(
-                    imageVector = Icons.Rounded.CalendarMonth,
-                    contentDescription = stringResource(id = R.string.viewer_open_calendar)
-                )
-            }
-            IconButton(onClick = onOpenStatus) {
-                Icon(
-                    imageVector = Icons.Rounded.Info,
-                    contentDescription = stringResource(id = R.string.viewer_open_status)
-                )
-            }
-            IconButton(onClick = onOpenQueue) {
-                Icon(
-                    imageVector = Icons.Rounded.CloudUpload,
-                    contentDescription = stringResource(id = R.string.viewer_open_queue)
-                )
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(
-                    imageVector = Icons.Rounded.Settings,
-                    contentDescription = stringResource(id = R.string.viewer_open_settings)
+                ViewerTopBarActions(
+                    onScrollToNewest = onScrollToNewest,
+                    onOpenJumpToDate = onOpenJumpToDate,
+                    onOpenStatus = onOpenStatus,
+                    onOpenQueue = onOpenQueue,
+                    onOpenSettings = onOpenSettings,
+                    modifier = Modifier.align(Alignment.End)
                 )
             }
         },
         colors = TopAppBarDefaults.topAppBarColors()
     )
+}
+
+@Composable
+private fun ViewerTopBarActions(
+    onScrollToNewest: () -> Unit,
+    onOpenJumpToDate: () -> Unit,
+    onOpenStatus: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = onScrollToNewest) {
+            Icon(
+                imageVector = Icons.Rounded.ArrowUpward,
+                contentDescription = stringResource(id = R.string.viewer_open_latest)
+            )
+        }
+        IconButton(onClick = onOpenJumpToDate) {
+            Icon(
+                imageVector = Icons.Rounded.CalendarMonth,
+                contentDescription = stringResource(id = R.string.viewer_open_calendar)
+            )
+        }
+        IconButton(onClick = onOpenStatus) {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = stringResource(id = R.string.viewer_open_status)
+            )
+        }
+        IconButton(onClick = onOpenQueue) {
+            Icon(
+                imageVector = Icons.Rounded.CloudUpload,
+                contentDescription = stringResource(id = R.string.viewer_open_queue)
+            )
+        }
+        IconButton(onClick = onOpenSettings) {
+            Icon(
+                imageVector = Icons.Rounded.Settings,
+                contentDescription = stringResource(id = R.string.viewer_open_settings)
+            )
+        }
+    }
 }
 
 @Composable
