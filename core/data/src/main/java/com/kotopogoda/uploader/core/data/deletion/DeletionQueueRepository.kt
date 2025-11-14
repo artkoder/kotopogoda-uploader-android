@@ -15,6 +15,7 @@ import timber.log.Timber
 class DeletionQueueRepository @Inject constructor(
     private val deletionItemDao: DeletionItemDao,
     private val clock: Clock,
+    private val deletionAnalytics: DeletionAnalytics,
 ) {
 
     fun observePending(): Flow<List<DeletionItem>> {
@@ -49,6 +50,8 @@ class DeletionQueueRepository @Inject constructor(
         }
         deletionItemDao.enqueue(prepared)
         Timber.tag(TAG).i("В очередь удаления добавлено %d элементов", prepared.size)
+        val primaryReason = requests.firstOrNull()?.reason ?: "unknown"
+        deletionAnalytics.deletionEnqueued(prepared.size, primaryReason)
     }
 
     suspend fun markConfirmed(ids: List<Long>): Int = withContext(Dispatchers.IO) {
@@ -73,6 +76,7 @@ class DeletionQueueRepository @Inject constructor(
                 updated,
                 cause ?: "unknown"
             )
+            deletionAnalytics.deletionFailed(updated, cause)
         }
         updated
     }

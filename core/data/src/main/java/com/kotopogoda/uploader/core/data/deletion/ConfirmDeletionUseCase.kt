@@ -23,6 +23,7 @@ class ConfirmDeletionUseCase @Inject constructor(
     private val contentResolver: ContentResolver,
     private val deletionQueueRepository: DeletionQueueRepository,
     private val deleteRequestFactory: MediaStoreDeleteRequestFactory,
+    private val deletionAnalytics: DeletionAnalytics,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
@@ -54,7 +55,7 @@ class ConfirmDeletionUseCase @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         index = index,
                         items = chunk,
-                        intentSender = pendingIntent.intentSender,
+                        intentSender = IntentSenderWrapper(pendingIntent.intentSender),
                         requiresRetryAfterApproval = false,
                     )
                 }
@@ -80,7 +81,7 @@ class ConfirmDeletionUseCase @Inject constructor(
                     id = UUID.randomUUID().toString(),
                     index = index,
                     items = listOf(item),
-                    intentSender = intentSender,
+                    intentSender = IntentSenderWrapper(intentSender),
                     requiresRetryAfterApproval = true,
                 )
                 Timber.tag(TAG).i(
@@ -123,6 +124,7 @@ class ConfirmDeletionUseCase @Inject constructor(
     ): BatchProcessingResult = withContext(ioDispatcher) {
         if (resultCode != Activity.RESULT_OK) {
             Timber.tag(TAG).i("Пользователь отменил подтверждение удаления для батча %s", batch.id)
+            deletionAnalytics.deletionCancelled(batch.id)
             return@withContext BatchProcessingResult.Cancelled
         }
 
@@ -221,13 +223,15 @@ class ConfirmDeletionUseCase @Inject constructor(
         }
     }
 
-    private fun applyRepositoryUpdates(
+    private suspend fun applyRepositoryUpdates(
         successes: List<BatchItem>,
         failures: List<BatchItem>,
         skipped: List<BatchItem>,
     ) {
         if (successes.isNotEmpty()) {
             deletionQueueRepository.markConfirmed(successes.map { it.item.mediaId })
+            val freedBytes = successes.sumOf { it.resolvedSize ?: 0L }
+            deletionAnalytics.deletionConfirmed(successes.size, freedBytes)
         }
         if (failures.isNotEmpty()) {
             deletionQueueRepository.markFailed(failures.map { it.item.mediaId }, CAUSE_FAILURE)

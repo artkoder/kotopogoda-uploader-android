@@ -1,5 +1,7 @@
 package com.kotopogoda.uploader.core.data.deletion
 
+import android.app.Activity
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,6 +20,7 @@ import timber.log.Timber
 @HiltViewModel
 class DeletionConfirmationViewModel @Inject constructor(
     private val deletionQueueRepository: DeletionQueueRepository,
+    private val confirmDeletionUseCase: ConfirmDeletionUseCase,
 ) : ViewModel() {
 
     private val pendingItems: StateFlow<List<DeletionItem>> =
@@ -30,6 +33,9 @@ class DeletionConfirmationViewModel @Inject constructor(
 
     private val confirmationInProgress = MutableStateFlow(false)
     private val _events = MutableSharedFlow<DeletionConfirmationEvent>(extraBufferCapacity = 1)
+    
+    private var pendingBatches = mutableListOf<ConfirmDeletionUseCase.DeleteBatch>()
+    private var accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
 
     val uiState: StateFlow<DeletionConfirmationUiState> = combine(
         pendingItems,
@@ -53,35 +59,133 @@ class DeletionConfirmationViewModel @Inject constructor(
         if (confirmationInProgress.value) {
             return
         }
-        val itemsSnapshot = pendingItems.value
-        if (itemsSnapshot.isEmpty()) {
-            return
-        }
         confirmationInProgress.value = true
         viewModelScope.launch {
-            val ids = itemsSnapshot.map { it.mediaId }
             try {
-                val confirmed = deletionQueueRepository.markConfirmed(ids)
-                val approxFreedBytes = if (confirmed > 0) {
-                    itemsSnapshot
-                        .take(confirmed.coerceAtMost(itemsSnapshot.size))
-                        .sumOf { item -> item.sizeBytes?.takeIf { size -> size > 0 } ?: 0L }
-                } else {
-                    0L
+                when (val result = confirmDeletionUseCase.prepare()) {
+                    is ConfirmDeletionUseCase.PrepareResult.NoPending -> {
+                        Timber.tag(TAG).i("Нет элементов для подтверждения")
+                        confirmationInProgress.value = false
+                    }
+                    is ConfirmDeletionUseCase.PrepareResult.PermissionRequired -> {
+                        _events.emit(DeletionConfirmationEvent.RequestPermission(result.permissions))
+                    }
+                    is ConfirmDeletionUseCase.PrepareResult.Ready -> {
+                        pendingBatches = result.batches.toMutableList()
+                        accumulatedOutcome = result.initialOutcome
+                        
+                        if (pendingBatches.isEmpty()) {
+                            emitFinalResult()
+                        } else {
+                            launchNextBatch()
+                        }
+                    }
                 }
-                _events.emit(
-                    DeletionConfirmationEvent.ConfirmationSuccess(
-                        confirmedCount = confirmed,
-                        totalBytes = approxFreedBytes,
-                    )
-                )
             } catch (error: Exception) {
-                Timber.tag(TAG).e(error, "Не удалось подтвердить удаление")
-                _events.emit(DeletionConfirmationEvent.ConfirmationFailed(error))
-            } finally {
+                Timber.tag(TAG).e(error, "Ошибка при подготовке удаления")
+                _events.emit(DeletionConfirmationEvent.FinalFailure(error))
                 confirmationInProgress.value = false
             }
         }
+    }
+
+    fun handlePermissionResult(granted: Boolean) {
+        if (!granted) {
+            Timber.tag(TAG).w("Разрешения не предоставлены")
+            _events.tryEmit(DeletionConfirmationEvent.FinalFailure(SecurityException("Разрешения не предоставлены")))
+            confirmationInProgress.value = false
+            return
+        }
+        
+        viewModelScope.launch {
+            try {
+                when (val result = confirmDeletionUseCase.prepare()) {
+                    is ConfirmDeletionUseCase.PrepareResult.NoPending -> {
+                        confirmationInProgress.value = false
+                    }
+                    is ConfirmDeletionUseCase.PrepareResult.PermissionRequired -> {
+                        Timber.tag(TAG).w("Разрешения все еще требуются")
+                        _events.emit(DeletionConfirmationEvent.FinalFailure(SecurityException("Разрешения требуются")))
+                        confirmationInProgress.value = false
+                    }
+                    is ConfirmDeletionUseCase.PrepareResult.Ready -> {
+                        pendingBatches = result.batches.toMutableList()
+                        accumulatedOutcome = result.initialOutcome
+                        
+                        if (pendingBatches.isEmpty()) {
+                            emitFinalResult()
+                        } else {
+                            launchNextBatch()
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                Timber.tag(TAG).e(error, "Ошибка после предоставления разрешений")
+                _events.emit(DeletionConfirmationEvent.FinalFailure(error))
+                confirmationInProgress.value = false
+            }
+        }
+    }
+
+    fun handleBatchResult(
+        batch: ConfirmDeletionUseCase.DeleteBatch,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        viewModelScope.launch {
+            try {
+                val processingResult = confirmDeletionUseCase.handleBatchResult(batch, resultCode, data)
+                
+                when (processingResult) {
+                    is ConfirmDeletionUseCase.BatchProcessingResult.Cancelled -> {
+                        Timber.tag(TAG).i("Батч отменен пользователем")
+                        _events.emit(DeletionConfirmationEvent.FinalFailure(Exception("Отменено пользователем")))
+                        confirmationInProgress.value = false
+                        pendingBatches.clear()
+                    }
+                    is ConfirmDeletionUseCase.BatchProcessingResult.Completed -> {
+                        accumulatedOutcome += processingResult.outcome
+                        
+                        if (pendingBatches.isEmpty()) {
+                            emitFinalResult()
+                        } else {
+                            launchNextBatch()
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                Timber.tag(TAG).e(error, "Ошибка обработки результата батча")
+                _events.emit(DeletionConfirmationEvent.FinalFailure(error))
+                confirmationInProgress.value = false
+                pendingBatches.clear()
+            }
+        }
+    }
+
+    private suspend fun launchNextBatch() {
+        if (pendingBatches.isEmpty()) {
+            emitFinalResult()
+            return
+        }
+        
+        val batch = pendingBatches.removeAt(0)
+        _events.emit(DeletionConfirmationEvent.LaunchBatch(batch))
+    }
+
+    private suspend fun emitFinalResult() {
+        if (accumulatedOutcome.hasChanges) {
+            _events.emit(
+                DeletionConfirmationEvent.FinalSuccess(
+                    confirmedCount = accumulatedOutcome.confirmedCount,
+                    freedBytes = accumulatedOutcome.freedBytes,
+                    failedCount = accumulatedOutcome.failedCount,
+                    skippedCount = accumulatedOutcome.skippedCount,
+                )
+            )
+        }
+        confirmationInProgress.value = false
+        pendingBatches.clear()
+        accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
     }
 
     companion object {
@@ -99,6 +203,13 @@ data class DeletionConfirmationUiState(
 }
 
 sealed interface DeletionConfirmationEvent {
-    data class ConfirmationSuccess(val confirmedCount: Int, val totalBytes: Long) : DeletionConfirmationEvent
-    data class ConfirmationFailed(val throwable: Throwable) : DeletionConfirmationEvent
+    data class RequestPermission(val permissions: Set<String>) : DeletionConfirmationEvent
+    data class LaunchBatch(val batch: ConfirmDeletionUseCase.DeleteBatch) : DeletionConfirmationEvent
+    data class FinalSuccess(
+        val confirmedCount: Int,
+        val freedBytes: Long,
+        val failedCount: Int,
+        val skippedCount: Int,
+    ) : DeletionConfirmationEvent
+    data class FinalFailure(val throwable: Throwable) : DeletionConfirmationEvent
 }

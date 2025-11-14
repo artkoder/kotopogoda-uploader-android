@@ -2,6 +2,9 @@ package com.kotopogoda.uploader.feature.viewer
 
 import android.net.Uri
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,6 +25,7 @@ import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.feature.viewer.R
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
+import io.mockk.mockk
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Rule
@@ -69,6 +73,8 @@ class ViewerScreenTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -143,6 +149,8 @@ class ViewerScreenTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},

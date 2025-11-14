@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_title">Statuses</string>
+    <string name="status_back">Back</string>
+    <string name="status_refresh_health">Refresh status</string>
+    <string name="status_section_server">Server</string>
+    <string name="status_health_online">Online</string>
+    <string name="status_health_degraded">Issues</string>
+    <string name="status_health_offline">Offline</string>
+    <string name="status_health_unknown">Unknown</string>
+    <string name="status_health_checked_at">Checked: %1$s</string>
+    <string name="status_health_checked_at_with_duration">Checked: %1$s (%2$s)</string>
+    <string name="status_health_latency_ms">%1$d ms</string>
+    <string name="status_health_ping">Health ping</string>
+    <string name="status_health_parse_error">Failed to parse server response.</string>
+    <string name="status_section_pairing">Pairing</string>
+    <string name="status_pairing_unknown">Determining status…</string>
+    <string name="status_pairing_unpaired">Device not paired.</string>
+    <string name="status_pairing_open_settings">Open settings</string>
+    <string name="status_pairing_id">Device ID: %1$s</string>
+    <string name="status_pairing_reset">Reset pairing</string>
+    <string name="status_section_queue">Queue</string>
+    <string name="status_queue_empty">Queue is empty.</string>
+    <string name="status_queue_running">Running: %1$d of %2$d</string>
+    <string name="status_queue_enqueued">Waiting: %1$d</string>
+    <string name="status_queue_failed">Errors: %1$d</string>
+    <string name="status_queue_open">Open queue</string>
+    <string name="status_section_storage">Storage</string>
+    <string name="status_storage_loading">Getting storage data…</string>
+    <string name="status_storage_not_selected">Folder not selected.</string>
+    <string name="status_storage_error">Failed to get storage information.</string>
+    <string name="status_storage_check_access">Check access</string>
+    <string name="status_storage_permission_missing">No access to folder \"%1$s\".</string>
+    <string name="status_storage_request_permission">Grant access</string>
+    <string name="status_storage_space">%1$s free of %2$s</string>
+    <string name="status_health_ping_success">OK (%1$s)</string>
+    <string name="status_health_ping_unknown_latency">—</string>
+    <string name="status_health_ping_error">Error: %1$s</string>
+    <string name="status_health_ping_error_unknown">Unknown error</string>
+</resources>

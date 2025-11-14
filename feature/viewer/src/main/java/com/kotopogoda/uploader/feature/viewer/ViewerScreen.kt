@@ -99,8 +99,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationEvent
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationUiState
@@ -118,6 +118,7 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -146,6 +147,26 @@ fun ViewerRoute(
     val deletionConfirmationEvents = deletionConfirmationViewModel.events
     val context = LocalContext.current
     val contentResolver = context.contentResolver
+    
+    var currentDeletionBatch by remember { mutableStateOf<com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase.DeleteBatch?>(null) }
+    
+    val deletionPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+        deletionConfirmationViewModel.handlePermissionResult(allGranted)
+    }
+    
+    val deletionBatchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val batch = currentDeletionBatch
+        if (batch != null) {
+            deletionConfirmationViewModel.handleBatchResult(batch, result.resultCode, result.data)
+            currentDeletionBatch = null
+        }
+    }
+    
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -220,12 +241,11 @@ fun ViewerRoute(
         onOpenSettings = onOpenSettings,
         healthState = healthState,
         isNetworkValidated = isNetworkValidated,
-        deletionConfirmationUiState = DeletionConfirmationUiState(),
-        onConfirmDeletion = {},
-        deletionConfirmationEvents = emptyFlow(),
         deletionConfirmationUiState = deletionConfirmationUiState,
         onConfirmDeletion = deletionConfirmationViewModel::confirmPending,
         deletionConfirmationEvents = deletionConfirmationEvents,
+        deletionPermissionsLauncher = deletionPermissionsLauncher,
+        deletionBatchLauncher = deletionBatchLauncher,
         onPageChanged = viewModel::setCurrentIndex,
         onVisiblePhotoChanged = viewModel::updateVisiblePhoto,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
@@ -284,6 +304,8 @@ internal fun ViewerScreen(
     deletionConfirmationUiState: DeletionConfirmationUiState,
     onConfirmDeletion: () -> Unit,
     deletionConfirmationEvents: Flow<DeletionConfirmationEvent>,
+    deletionPermissionsLauncher: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Map<String, Boolean>>,
+    deletionBatchLauncher: androidx.activity.compose.ManagedActivityResultLauncher<IntentSenderRequest, androidx.activity.result.ActivityResult>,
     onPageChanged: (Int) -> Unit,
     onVisiblePhotoChanged: (Int, PhotoItem?) -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
@@ -355,6 +377,7 @@ internal fun ViewerScreen(
     val coroutineScope = rememberCoroutineScope()
     var showJumpSheet by rememberSaveable { mutableStateOf(false) }
     val jumpSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var currentDeletionBatch by remember { mutableStateOf<com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase.DeleteBatch?>(null) }
 
     val currentPhoto = if (rememberedIndex in 0 until itemCount) {
         photos[rememberedIndex]
@@ -464,11 +487,26 @@ internal fun ViewerScreen(
                 }
             }
         }
-    LaunchedEffect(deletionConfirmationEvents, context) {
+    }
+    
+    LaunchedEffect(deletionConfirmationEvents, context, currentDeletionBatch) {
         deletionConfirmationEvents.collectLatest { event ->
             when (event) {
-                is DeletionConfirmationEvent.ConfirmationSuccess -> {
-                    val freedLabel = Formatter.formatShortFileSize(context, event.totalBytes.coerceAtLeast(0L))
+                is DeletionConfirmationEvent.RequestPermission -> {
+                    val permissionsArray = event.permissions.toTypedArray()
+                    runCatching { deletionPermissionsLauncher.launch(permissionsArray) }
+                }
+                is DeletionConfirmationEvent.LaunchBatch -> {
+                    currentDeletionBatch = event.batch
+                    val request = IntentSenderRequest.Builder(event.batch.intentSender.intentSender)
+                        .build()
+                    runCatching { deletionBatchLauncher.launch(request) }
+                        .onFailure { 
+                            currentDeletionBatch = null
+                        }
+                }
+                is DeletionConfirmationEvent.FinalSuccess -> {
+                    val freedLabel = Formatter.formatShortFileSize(context, event.freedBytes.coerceAtLeast(0L))
                     val message = context.getString(
                         com.kotopogoda.uploader.core.ui.R.string.confirm_deletion_result,
                         event.confirmedCount,
@@ -476,14 +514,12 @@ internal fun ViewerScreen(
                     )
                     snackbarHostState.showSnackbar(message)
                 }
-                is DeletionConfirmationEvent.ConfirmationFailed -> {
+                is DeletionConfirmationEvent.FinalFailure -> {
                     val message = context.getString(com.kotopogoda.uploader.core.ui.R.string.confirm_deletion_error)
                     snackbarHostState.showSnackbar(message)
                 }
             }
         }
-    }
-
     }
 
     Scaffold(
@@ -499,9 +535,6 @@ internal fun ViewerScreen(
                 onScrollToNewest = onScrollToNewest,
                 healthState = healthState,
                 isNetworkValidated = isNetworkValidated,
-                deletionConfirmationUiState = DeletionConfirmationUiState(),
-                onConfirmDeletion = {},
-                deletionConfirmationEvents = emptyFlow(),
                 deletionConfirmationUiState = deletionConfirmationUiState,
                 onConfirmDeletion = onConfirmDeletion,
             )
@@ -743,10 +776,7 @@ private fun ViewerTopBar(
                 )
                 HealthStatusBadge(
                     healthState = healthState,
-                    isNetworkValidated = isNetworkValidated,
-                    deletionConfirmationUiState = DeletionConfirmationUiState(),
-                    onConfirmDeletion = {},
-                    deletionConfirmationEvents = emptyFlow(),
+                    isNetworkValidated = isNetworkValidated
                 )
             }
         },

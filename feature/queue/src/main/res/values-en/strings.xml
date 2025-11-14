@@ -1,3 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="queue_title">Upload queue</string>
+    <string name="queue_empty">Queue is empty</string>
+    <string name="queue_status_enqueued">Waiting</string>
+    <string name="queue_status_running">Running</string>
+    <string name="queue_status_succeeded">Done</string>
+    <string name="queue_status_failed">Error</string>
+    <string name="queue_status_with_time">%1$s · %2$s</string>
+    <string name="queue_status_cancelled">Cancelled</string>
+    <string name="queue_status_blocked">Blocked</string>
+    <string name="queue_status_poll_waiting">Waiting for processing…</string>
+    <string name="queue_status_poll_succeeded">Done. File deleted</string>
+    <string name="queue_status_poll_manual_delete">Manual deletion required</string>
+    <string name="queue_status_poll_failed">Processing failed</string>
+    <string name="queue_progress_unknown">Progress: unknown</string>
+    <string name="queue_progress_percent">Progress: %1$d%%</string>
+    <string name="queue_progress_with_total">Progress: %1$d%% (%2$s of %3$s)</string>
+    <string name="queue_action_cancel">Cancel</string>
+    <string name="queue_action_retry">Retry</string>
+    <string name="queue_back">Back</string>
+    <string name="queue_health_online">Online</string>
+    <string name="queue_health_degraded">Issues</string>
+    <string name="queue_health_offline">Offline</string>
+    <string name="queue_health_unknown">—</string>
+    <string name="queue_last_error">Last error: %1$s</string>
+    <string name="queue_error_http_with_code">Server error (%1$d)</string>
+    <string name="queue_error_http">Server error</string>
+    <string name="queue_error_network">Network error</string>
+    <string name="queue_error_io">No access to file. Please select storage again</string>
+    <string name="queue_error_remote_failure">Server processing failed</string>
+    <string name="queue_error_auth">Failed to authenticate. Please sign in again and retry</string>
+    <string name="queue_error_unexpected">Unknown error</string>
+    <string name="queue_offline_notice">tasks will be sent when network is available</string>
+    <string name="queue_transfer_active">Transfer in progress…</string>
+    <string name="queue_network_unmetered">Requires Wi-Fi or other unmetered network</string>
+    <string name="queue_network_not_roaming">Requires non-roaming network</string>
+    <string name="queue_network_connected">Requires network connection</string>
+    <string name="queue_network_metered">Requires network connection (metered allowed)</string>
+    <string name="queue_retry_in">Retrying in %1$s</string>
     <string name="queue_location_hidden_by_system">System hides the location. Check original access and the location permission.</string>
 </resources>
