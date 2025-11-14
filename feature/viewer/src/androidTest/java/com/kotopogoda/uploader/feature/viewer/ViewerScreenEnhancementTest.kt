@@ -24,6 +24,7 @@ import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationUiState
 import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.feature.viewer.R
+import io.mockk.mockk
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Rule
@@ -77,6 +78,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -149,6 +152,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -225,6 +230,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -307,6 +314,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -373,6 +382,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -438,6 +449,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -505,6 +518,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -582,6 +597,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -658,6 +675,8 @@ class ViewerScreenEnhancementTest {
                 deletionConfirmationUiState = DeletionConfirmationUiState(),
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                deletionBatchLauncher = mockk(relaxed = true),
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
