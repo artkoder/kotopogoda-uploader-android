@@ -136,6 +136,7 @@ fun SettingsRoute(
         onApplyBaseUrl = viewModel::onApplyBaseUrl,
         onAppLoggingChanged = viewModel::onAppLoggingChanged,
         onHttpLoggingChanged = viewModel::onHttpLoggingChanged,
+        onAutoDeleteAfterUploadChanged = viewModel::onAutoDeleteAfterUploadChanged,
         onQueueNotificationChanged = viewModel::onQueueNotificationChanged,
         onRequestQueueNotificationPermission = viewModel::onRequestQueueNotificationPermission,
         onPreviewQualityChanged = viewModel::onPreviewQualityChanged,
@@ -157,6 +158,7 @@ fun SettingsScreen(
     onApplyBaseUrl: () -> Unit,
     onAppLoggingChanged: (Boolean) -> Unit,
     onHttpLoggingChanged: (Boolean) -> Unit,
+    onAutoDeleteAfterUploadChanged: (Boolean) -> Unit,
     onQueueNotificationChanged: (Boolean) -> Unit,
     onRequestQueueNotificationPermission: () -> Unit,
     onPreviewQualityChanged: (com.kotopogoda.uploader.core.settings.PreviewQuality) -> Unit,
@@ -289,6 +291,12 @@ fun SettingsScreen(
                         description = stringResource(id = R.string.settings_http_logging_desc),
                         checked = uiState.httpLoggingEnabled,
                         onCheckedChange = onHttpLoggingChanged,
+                    )
+                    SettingsSwitchRow(
+                        title = stringResource(id = R.string.settings_auto_delete_after_upload),
+                        description = stringResource(id = R.string.settings_auto_delete_after_upload_desc),
+                        checked = uiState.autoDeleteAfterUpload,
+                        onCheckedChange = onAutoDeleteAfterUploadChanged,
                     )
                     SettingsSwitchRow(
                         title = stringResource(id = R.string.settings_queue_notification),

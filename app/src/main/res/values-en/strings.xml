@@ -25,6 +25,8 @@
     <string name="settings_app_logging_desc">Logs are enabled by default and written to file (up to 5 files × 1 MB); can be disabled manually if needed.</string>
     <string name="settings_http_logging">HTTP logging</string>
     <string name="settings_http_logging_desc">Detailed OkHttp request and response journal is enabled by default; can be disabled if needed.</string>
+    <string name="settings_auto_delete_after_upload">Auto-delete after upload</string>
+    <string name="settings_auto_delete_after_upload_desc">Delete original files from device storage after successful upload to server.</string>
     <string name="settings_queue_notification">Persistent queue notification</string>
     <string name="settings_queue_notification_desc">Show notification even without active uploads.</string>
     <string name="settings_queue_notification_permission_rationale">Persistent notification requires notification permission.</string>

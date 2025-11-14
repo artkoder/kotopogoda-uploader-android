@@ -47,6 +47,7 @@ class SettingsViewModel @Inject constructor(
             isQueueNotificationToggleEnabled = notificationPermissionChecker.canPostNotifications(),
             logsDirectoryPath = logsExporter.publicDirectoryDisplayPath(),
             previewQuality = com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED,
+            autoDeleteAfterUpload = false,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -64,6 +65,7 @@ class SettingsViewModel @Inject constructor(
                         httpLoggingEnabled = settings.httpLogging,
                         queueNotificationPersistent = settings.persistentQueueNotification,
                         previewQuality = settings.previewQuality,
+                        autoDeleteAfterUpload = settings.autoDeleteAfterUpload,
                         isBaseUrlValid = true,
                         isBaseUrlDirty = false,
                     )
@@ -253,6 +255,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun onAutoDeleteAfterUploadChanged(enabled: Boolean) {
+        togglePreference(
+            enabled = enabled,
+            currentValue = uiState.value.autoDeleteAfterUpload,
+            updateState = { value -> _uiState.update { it.copy(autoDeleteAfterUpload = value) } },
+            block = { settingsRepository.setAutoDeleteAfterUpload(enabled) }
+        )
+    }
+
     private fun isValidUrl(raw: String): Boolean {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) {
@@ -285,6 +296,7 @@ data class SettingsUiState(
     val docsUrl: String,
     val logsDirectoryPath: String,
     val previewQuality: com.kotopogoda.uploader.core.settings.PreviewQuality,
+    val autoDeleteAfterUpload: Boolean = false,
 )
 
 sealed interface SettingsEvent {

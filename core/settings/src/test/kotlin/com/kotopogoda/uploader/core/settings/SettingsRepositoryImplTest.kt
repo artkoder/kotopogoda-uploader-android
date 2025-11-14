@@ -102,6 +102,34 @@ class SettingsRepositoryImplTest {
         assertTrue(updated.persistentQueueNotification)
     }
 
+    @Test
+    fun autoDeleteAfterUpload_defaultFalse_whenNotPersisted() = runTest {
+        val permissionProvider = FakeNotificationPermissionProvider(initial = true)
+        val dataStore = createDataStore(backgroundScope)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
+
+        val settings = repository.flow.first()
+
+        assertFalse(settings.autoDeleteAfterUpload)
+    }
+
+    @Test
+    fun autoDeleteAfterUpload_updatesWhenPreferenceChanges() = runTest {
+        val permissionProvider = FakeNotificationPermissionProvider(initial = true)
+        val dataStore = createDataStore(backgroundScope)
+        val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
+
+        repository.setAutoDeleteAfterUpload(true)
+        advanceUntilIdle()
+        val enabled = repository.flow.first { it.autoDeleteAfterUpload }
+        assertTrue(enabled.autoDeleteAfterUpload)
+
+        repository.setAutoDeleteAfterUpload(false)
+        advanceUntilIdle()
+        val disabled = repository.flow.first { !it.autoDeleteAfterUpload }
+        assertFalse(disabled.autoDeleteAfterUpload)
+    }
+
     private fun createRepository(
         dataStore: DataStore<Preferences>,
         permissionProvider: NotificationPermissionProvider,
