@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="media_permission_title">Photo access needed</string>
+    <string name="media_permission_body">Grant the app access to photos to select and send them.</string>
+    <string name="media_permission_grant">Grant access</string>
+    <string name="media_permission_select_folder">Select folder (SAF)</string>
+    <string name="media_permission_select_folder_hint">You can select a folder through the system file picker without media library access.</string>
+    <string name="onboarding_choose_folder_title">Select folder</string>
+    <string name="onboarding_choose_folder_body">The app needs access to the folder where you store photos. Grant access through the system folder picker.</string>
+    <string name="onboarding_choose_folder_action">Select folder</string>
+    <string name="onboarding_selected_folder_title">Folder selected</string>
+    <string name="onboarding_selected_folder_body">Current folder: %1$s</string>
+    <string name="onboarding_change_folder">Change folder</string>
+    <string name="onboarding_folder_permission_persisted">Folder added, access saved</string>
+    <string name="onboarding_start_title">Start browsing</string>
+    <string name="onboarding_start_photos_count">Total photos: %1$d</string>
+    <string name="onboarding_start_option_continue">Continue</string>
+    <string name="onboarding_start_option_continue_hint">Stopped at photo #%1$d</string>
+    <string name="onboarding_start_option_continue_hint_first">Start from first photo</string>
+    <string name="onboarding_start_option_continue_no_photos">No photos in directory yet</string>
+    <string name="onboarding_start_option_new">From new</string>
+    <string name="onboarding_start_option_new_with_anchor">After %1$s</string>
+    <string name="onboarding_start_option_new_without_anchor">New anchor not set yet</string>
+    <string name="onboarding_start_option_date">From date…</string>
+    <string name="onboarding_start_option_date_hint">Date not selected</string>
+    <string name="onboarding_start_pick_date">Pick date</string>
+    <string name="onboarding_start_button">Start browsing</string>
+    <string name="onboarding_reset_progress">Reset progress</string>
+    <string name="onboarding_reset_anchor">Reset new anchor</string>
+    <string name="onboarding_scan_in_progress_waiting">Preparing scan…</string>
+    <string name="onboarding_scan_in_progress_detailed">Scanning: processed %1$d, added %2$d, updated %3$d, skipped %4$d</string>
+    <string name="onboarding_scan_completed">Scan completed: added %1$d, updated %2$d, skipped %3$d</string>
+    <string name="onboarding_scan_completed_empty">Scan completed</string>
+    <string name="onboarding_scan_failed">Failed to scan folder: %1$s</string>
+    <string name="onboarding_scan_timeout">Taking too long to read media library, try again / select another folder</string>
+</resources>
