@@ -35,6 +35,10 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
+    
+    lint {
+        baseline = file("lint-baseline.xml")
+    }
 }
 
 dependencies {
