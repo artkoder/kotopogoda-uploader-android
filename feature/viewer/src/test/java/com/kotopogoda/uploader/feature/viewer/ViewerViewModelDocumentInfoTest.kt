@@ -643,6 +643,7 @@ class ViewerViewModelDocumentInfoTest {
                 httpLogging = true,
                 persistentQueueNotification = false,
                 previewQuality = PreviewQuality.BALANCED,
+                autoDeleteAfterUpload = false,
             )
         )
         every { nativeEnhanceAdapter.isReady() } returns false
