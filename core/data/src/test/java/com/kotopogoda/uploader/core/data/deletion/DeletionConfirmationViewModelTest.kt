@@ -1,10 +1,12 @@
 package com.kotopogoda.uploader.core.data.deletion
 
+import android.net.Uri
 import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
+import io.mockk.mockk
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -25,6 +27,9 @@ class DeletionConfirmationViewModelTest {
 
     @MockK
     lateinit var repository: DeletionQueueRepository
+    
+    @MockK
+    lateinit var confirmDeletionUseCase: ConfirmDeletionUseCase
 
     private val pendingFlow = MutableStateFlow<List<DeletionItem>>(emptyList())
 
@@ -36,7 +41,7 @@ class DeletionConfirmationViewModelTest {
 
     @Test
     fun `uiState reflects pending queue`() = runTest {
-        val viewModel = DeletionConfirmationViewModel(repository)
+        val viewModel = DeletionConfirmationViewModel(repository, confirmDeletionUseCase)
 
         assertEquals(0, viewModel.uiState.value.pendingCount)
         assertFalse(viewModel.uiState.value.inProgress)
@@ -56,18 +61,20 @@ class DeletionConfirmationViewModelTest {
     }
 
     @Test
-    fun `confirmPending emits success event and resets progress`() = runTest {
+    fun `confirmPending with ready batches emits LaunchBatch events`() = runTest {
         val items = listOf(
             pendingItem(id = 4L, sizeBytes = 512L),
             pendingItem(id = 5L, sizeBytes = 256L),
         )
         every { repository.observePending() } returns pendingFlow.apply { value = items }
-        coEvery { repository.markConfirmed(items.map { it.mediaId }) } coAnswers {
-            pendingFlow.value = emptyList()
-            items.size
-        }
+        
+        val batch = createMockBatch("batch-1", 0)
+        coEvery { confirmDeletionUseCase.prepare() } returns ConfirmDeletionUseCase.PrepareResult.Ready(
+            batches = listOf(batch),
+            initialOutcome = ConfirmDeletionUseCase.Outcome()
+        )
 
-        val viewModel = DeletionConfirmationViewModel(repository)
+        val viewModel = DeletionConfirmationViewModel(repository, confirmDeletionUseCase)
 
         advanceUntilIdle()
 
@@ -80,20 +87,18 @@ class DeletionConfirmationViewModelTest {
         advanceUntilIdle()
 
         val event = eventDeferred.await()
-        val success = assertIs<DeletionConfirmationEvent.ConfirmationSuccess>(event)
-        assertEquals(items.size, success.confirmedCount)
-        assertEquals(768L, success.totalBytes)
-        assertFalse(viewModel.uiState.value.inProgress)
-        assertFalse(viewModel.uiState.value.isConfirmEnabled)
+        assertIs<DeletionConfirmationEvent.LaunchBatch>(event)
     }
 
     @Test
-    fun `confirmPending emits failure on exception`() = runTest {
+    fun `confirmPending with permission required emits RequestPermission`() = runTest {
         val items = listOf(pendingItem(id = 10L, sizeBytes = 1_000L))
         every { repository.observePending() } returns pendingFlow.apply { value = items }
-        coEvery { repository.markConfirmed(items.map { it.mediaId }) } throws IllegalStateException("boom")
+        coEvery { confirmDeletionUseCase.prepare() } returns ConfirmDeletionUseCase.PrepareResult.PermissionRequired(
+            setOf("android.permission.READ_MEDIA_IMAGES")
+        )
 
-        val viewModel = DeletionConfirmationViewModel(repository)
+        val viewModel = DeletionConfirmationViewModel(repository, confirmDeletionUseCase)
 
         advanceUntilIdle()
 
@@ -103,7 +108,57 @@ class DeletionConfirmationViewModelTest {
         advanceUntilIdle()
 
         val event = eventDeferred.await()
-        assertIs<DeletionConfirmationEvent.ConfirmationFailed>(event)
+        val permissionEvent = assertIs<DeletionConfirmationEvent.RequestPermission>(event)
+        assertTrue(permissionEvent.permissions.contains("android.permission.READ_MEDIA_IMAGES"))
+    }
+    
+    @Test
+    fun `confirmPending with no pending emits nothing`() = runTest {
+        every { repository.observePending() } returns pendingFlow.apply { value = emptyList() }
+        coEvery { confirmDeletionUseCase.prepare() } returns ConfirmDeletionUseCase.PrepareResult.NoPending
+
+        val viewModel = DeletionConfirmationViewModel(repository, confirmDeletionUseCase)
+
+        advanceUntilIdle()
+
+        viewModel.confirmPending()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.inProgress)
+    }
+
+    @Test
+    fun `handleBatchResult with success continues to next batch or emits FinalSuccess`() = runTest {
+        val items = listOf(pendingItem(id = 1L, sizeBytes = 512L))
+        every { repository.observePending() } returns pendingFlow.apply { value = items }
+        
+        val batch = createMockBatch("batch-1", 0)
+        coEvery { confirmDeletionUseCase.prepare() } returns ConfirmDeletionUseCase.PrepareResult.Ready(
+            batches = listOf(batch),
+            initialOutcome = ConfirmDeletionUseCase.Outcome()
+        )
+        
+        val outcome = ConfirmDeletionUseCase.Outcome(confirmedCount = 1, freedBytes = 512L)
+        coEvery { confirmDeletionUseCase.handleBatchResult(batch, any(), any()) } returns 
+            ConfirmDeletionUseCase.BatchProcessingResult.Completed(outcome)
+
+        val viewModel = DeletionConfirmationViewModel(repository, confirmDeletionUseCase)
+        advanceUntilIdle()
+        
+        viewModel.confirmPending()
+        advanceUntilIdle()
+        
+        val eventDeferred = backgroundScope.async { 
+            viewModel.events.first { it is DeletionConfirmationEvent.FinalSuccess }
+        }
+        
+        viewModel.handleBatchResult(batch, android.app.Activity.RESULT_OK, null)
+        advanceUntilIdle()
+        
+        val event = eventDeferred.await()
+        val success = assertIs<DeletionConfirmationEvent.FinalSuccess>(event)
+        assertEquals(1, success.confirmedCount)
+        assertEquals(512L, success.freedBytes)
         assertFalse(viewModel.uiState.value.inProgress)
     }
 
@@ -116,6 +171,22 @@ class DeletionConfirmationViewModelTest {
             dateTaken = 1_700_000_000_000L + id,
             reason = "manual_confirm",
             createdAt = id,
+        )
+    }
+    
+    private fun createMockBatch(id: String, index: Int): ConfirmDeletionUseCase.DeleteBatch {
+        return ConfirmDeletionUseCase.DeleteBatch(
+            id = id,
+            index = index,
+            items = listOf(
+                ConfirmDeletionUseCase.BatchItem(
+                    item = pendingItem(id = 1L, sizeBytes = 512L),
+                    uri = Uri.parse("content://media/1"),
+                    resolvedSize = 512L
+                )
+            ),
+            intentSender = mockk(),
+            requiresRetryAfterApproval = false
         )
     }
 }
