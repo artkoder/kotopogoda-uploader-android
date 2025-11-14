@@ -30,12 +30,31 @@ class DeletionQueueRepository @Inject constructor(
         deletionItemDao.getPending()
     }
 
-    suspend fun enqueue(requests: List<DeletionRequest>) = withContext(Dispatchers.IO) {
+    suspend fun enqueue(requests: List<DeletionRequest>): Int = withContext(Dispatchers.IO) {
         if (requests.isEmpty()) {
-            return@withContext
+            return@withContext 0
+        }
+        val distinctRequests = requests.distinctBy { it.mediaId }
+        if (distinctRequests.isEmpty()) {
+            return@withContext 0
+        }
+        val existingItems = deletionItemDao.getByIds(distinctRequests.map { it.mediaId })
+        val pendingIds = existingItems
+            .filter { it.status == DeletionItemStatus.PENDING }
+            .map { it.mediaId }
+            .toSet()
+        val filtered = distinctRequests.filterNot { it.mediaId in pendingIds }
+        val skippedExisting = distinctRequests.size - filtered.size
+        val skippedDuplicates = requests.size - distinctRequests.size
+        if (filtered.isEmpty()) {
+            val totalSkipped = skippedExisting + skippedDuplicates
+            if (totalSkipped > 0) {
+                Timber.tag(TAG).i("Пропущено %d элементов: уже находятся в очереди", totalSkipped)
+            }
+            return@withContext 0
         }
         val baseTime = clock.millis()
-        val prepared = requests.mapIndexed { index, request ->
+        val prepared = filtered.mapIndexed { index, request ->
             DeletionItem(
                 mediaId = request.mediaId,
                 contentUri = request.contentUri,
@@ -49,9 +68,16 @@ class DeletionQueueRepository @Inject constructor(
             )
         }
         deletionItemDao.enqueue(prepared)
-        Timber.tag(TAG).i("В очередь удаления добавлено %d элементов", prepared.size)
-        val primaryReason = requests.firstOrNull()?.reason ?: "unknown"
-        deletionAnalytics.deletionEnqueued(prepared.size, primaryReason)
+        val insertedCount = prepared.size
+        val totalSkipped = skippedExisting + skippedDuplicates
+        Timber.tag(TAG).i(
+            "В очередь удаления добавлено %d элементов (пропущено %d)",
+            insertedCount,
+            totalSkipped,
+        )
+        val primaryReason = filtered.firstOrNull()?.reason ?: "unknown"
+        deletionAnalytics.deletionEnqueued(insertedCount, primaryReason)
+        insertedCount
     }
 
     suspend fun markConfirmed(ids: List<Long>): Int = withContext(Dispatchers.IO) {

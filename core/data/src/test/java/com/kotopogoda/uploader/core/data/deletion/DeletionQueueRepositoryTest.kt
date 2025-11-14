@@ -89,8 +89,9 @@ class DeletionQueueRepositoryTest {
             ),
         )
 
-        repository.enqueue(requests)
+        val inserted = repository.enqueue(requests)
 
+        assertEquals(2, inserted)
         val stored = dao.getByIds(listOf(10L, 11L)).sortedBy { it.mediaId }
         assertEquals(2, stored.size)
         val baseTime = clock.millis()
@@ -102,6 +103,61 @@ class DeletionQueueRepositoryTest {
         assertEquals(baseTime + 1, second.createdAt)
         assertEquals(DeletionItemStatus.PENDING, second.status)
         assertEquals(false, second.isUploading)
+    }
+
+    @Test
+    fun enqueueSkipsExistingPendingItems() = runTest {
+        val existing = DeletionItem(
+            mediaId = 42L,
+            contentUri = "content://photos/42",
+            displayName = "photo-42.jpg",
+            sizeBytes = 4096L,
+            dateTaken = 3000L,
+            reason = "user_delete",
+            status = DeletionItemStatus.PENDING,
+            isUploading = false,
+            createdAt = 123L,
+        )
+        dao.enqueue(listOf(existing))
+
+        val requests = listOf(
+            DeletionRequest(
+                mediaId = 42L,
+                contentUri = "content://photos/42",
+                displayName = "photo-42.jpg",
+                sizeBytes = 4096L,
+                dateTaken = 3000L,
+                reason = "uploaded_cleanup",
+            ),
+            DeletionRequest(
+                mediaId = 43L,
+                contentUri = "content://photos/43",
+                displayName = "photo-43.jpg",
+                sizeBytes = 5120L,
+                dateTaken = 4000L,
+                reason = "uploaded_cleanup",
+            ),
+        )
+
+        val inserted = repository.enqueue(requests)
+
+        assertEquals(1, inserted)
+        val stored = dao.getByIds(listOf(42L, 43L)).associateBy { it.mediaId }
+        val original = stored.getValue(42L)
+        assertEquals(123L, original.createdAt)
+        assertEquals("user_delete", original.reason)
+        val newlyQueued = stored.getValue(43L)
+        assertEquals(DeletionItemStatus.PENDING, newlyQueued.status)
+        assertEquals(clock.millis(), newlyQueued.createdAt)
+        assertEquals("uploaded_cleanup", newlyQueued.reason)
+
+        val repeated = repository.enqueue(requests)
+        assertEquals(0, repeated)
+
+        val events = analytics.events.filterIsInstance<FakeDeletionAnalytics.DeletionEvent.Enqueued>()
+        assertEquals(1, events.size)
+        assertEquals(1, events.first().count)
+        assertEquals("uploaded_cleanup", events.first().reason)
     }
 
     @Test
@@ -169,8 +225,9 @@ class DeletionQueueRepositoryTest {
             ),
         )
 
-        repository.enqueue(requests)
+        val inserted = repository.enqueue(requests)
 
+        assertEquals(1, inserted)
         assertEquals(1, analytics.events.size)
         val event = analytics.events.first()
         assertTrue(event is FakeDeletionAnalytics.DeletionEvent.Enqueued)

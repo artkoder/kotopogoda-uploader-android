@@ -51,6 +51,7 @@ class DiagnosticContextProviderTest {
                 httpLogging = true,
                 persistentQueueNotification = false,
                 previewQuality = PreviewQuality.BALANCED,
+                autoDeleteAfterUpload = true,
             )
         )
 

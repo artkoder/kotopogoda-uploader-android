@@ -47,7 +47,7 @@ class SettingsViewModel @Inject constructor(
             isQueueNotificationToggleEnabled = notificationPermissionChecker.canPostNotifications(),
             logsDirectoryPath = logsExporter.publicDirectoryDisplayPath(),
             previewQuality = com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED,
-            autoDeleteAfterUpload = false,
+            autoDeleteAfterUpload = true,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -296,7 +296,7 @@ data class SettingsUiState(
     val docsUrl: String,
     val logsDirectoryPath: String,
     val previewQuality: com.kotopogoda.uploader.core.settings.PreviewQuality,
-    val autoDeleteAfterUpload: Boolean = false,
+    val autoDeleteAfterUpload: Boolean = true,
 )
 
 sealed interface SettingsEvent {

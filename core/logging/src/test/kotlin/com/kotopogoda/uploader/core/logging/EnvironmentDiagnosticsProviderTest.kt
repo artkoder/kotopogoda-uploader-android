@@ -123,6 +123,7 @@ class EnvironmentDiagnosticsProviderTest {
                 httpLogging = false,
                 persistentQueueNotification = false,
                 previewQuality = PreviewQuality.BALANCED,
+                autoDeleteAfterUpload = true,
             )
         )
 
@@ -131,6 +132,7 @@ class EnvironmentDiagnosticsProviderTest {
         override suspend fun setHttpLogging(enabled: Boolean) = error("Not needed in tests")
         override suspend fun setPersistentQueueNotification(enabled: Boolean) = error("Not needed in tests")
         override suspend fun setPreviewQuality(quality: PreviewQuality) = error("Not needed in tests")
+        override suspend fun setAutoDeleteAfterUpload(enabled: Boolean) = error("Not needed in tests")
     }
 
     private class FakeNotificationPermissionProvider : NotificationPermissionProvider {

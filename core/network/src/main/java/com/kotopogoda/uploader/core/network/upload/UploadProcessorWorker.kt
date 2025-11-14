@@ -162,29 +162,72 @@ class UploadProcessorWorker @AssistedInject constructor(
                                     ),
                                 )
                             )
-                            if (autoDeleteAfterUpload && mediaId != null) {
-                                val sourceInfo = repository.findSourceForItem(item.id)
-                                if (sourceInfo != null) {
-                                    val deletionRequest = DeletionRequest(
-                                        mediaId = mediaId,
-                                        contentUri = sourceInfo.uri.toString(),
-                                        displayName = item.displayName,
-                                        sizeBytes = item.size,
-                                        dateTaken = null,
-                                        reason = DELETION_REASON_AUTO_UPLOAD,
-                                    )
-                                    deletionQueueRepository.enqueue(listOf(deletionRequest))
-                                    Timber.tag("WorkManager").i(
+                            if (autoDeleteAfterUpload) {
+                                if (mediaId == null) {
+                                    Timber.tag("WorkManager").w(
                                         UploadLog.message(
                                             category = CATEGORY,
-                                            action = "worker_item_enqueued_deletion",
+                                            action = "worker_item_enqueue_skip",
                                             uri = item.uri,
                                             details = arrayOf(
                                                 "queue_item_id" to item.id,
-                                                "media_id" to mediaId,
+                                                "reason" to "missing_media_id",
                                             ),
                                         )
                                     )
+                                } else {
+                                    val sourceInfo = repository.findSourceForItem(item.id)
+                                    if (sourceInfo == null) {
+                                        Timber.tag("WorkManager").w(
+                                            UploadLog.message(
+                                                category = CATEGORY,
+                                                action = "worker_item_enqueue_skip",
+                                                uri = item.uri,
+                                                details = arrayOf(
+                                                    "queue_item_id" to item.id,
+                                                    "media_id" to mediaId,
+                                                    "reason" to "missing_source",
+                                                ),
+                                            )
+                                        )
+                                    } else {
+                                        val deletionRequest = DeletionRequest(
+                                            mediaId = mediaId,
+                                            contentUri = sourceInfo.uri.toString(),
+                                            displayName = item.displayName,
+                                            sizeBytes = item.size,
+                                            dateTaken = null,
+                                            reason = DELETION_REASON_UPLOADED_CLEANUP,
+                                        )
+                                        val inserted = deletionQueueRepository.enqueue(listOf(deletionRequest))
+                                        if (inserted > 0) {
+                                            Timber.tag("WorkManager").i(
+                                                UploadLog.message(
+                                                    category = CATEGORY,
+                                                    action = "worker_item_enqueued_deletion",
+                                                    uri = item.uri,
+                                                    details = arrayOf(
+                                                        "queue_item_id" to item.id,
+                                                        "media_id" to mediaId,
+                                                        "inserted" to inserted,
+                                                    ),
+                                                )
+                                            )
+                                        } else {
+                                            Timber.tag("WorkManager").i(
+                                                UploadLog.message(
+                                                    category = CATEGORY,
+                                                    action = "worker_item_enqueue_skip",
+                                                    uri = item.uri,
+                                                    details = arrayOf(
+                                                        "queue_item_id" to item.id,
+                                                        "media_id" to mediaId,
+                                                        "reason" to "duplicate",
+                                                    ),
+                                                )
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -283,7 +326,7 @@ class UploadProcessorWorker @AssistedInject constructor(
         const val WORK_NAME = UPLOAD_PROCESSOR_WORK_NAME
         private const val BATCH_SIZE = 5
         private const val CATEGORY = "WORK/UPLOAD_PROCESSOR"
-        private const val DELETION_REASON_AUTO_UPLOAD = "auto_uploaded"
+        private const val DELETION_REASON_UPLOADED_CLEANUP = "uploaded_cleanup"
     }
 }
 

@@ -262,6 +262,7 @@ class UploadProcessorWorkerTest {
         coEvery { repository.getState(queueItem.id) } returns UploadItemState.PROCESSING
         coEvery { repository.markSucceeded(queueItem.id) } returns Unit
         coEvery { repository.findSourceForItem(queueItem.id) } returns sourceInfo
+        coEvery { deletionQueueRepository.enqueue(any()) } returns 1
         coEvery { repository.hasQueued() } returns false
         coEvery { taskRunner.run(any()) } returns UploadTaskResult.Success(
             completionState = UploadTaskRunner.DeleteCompletionState.DELETED,
@@ -295,7 +296,7 @@ class UploadProcessorWorkerTest {
                     requests[0].contentUri == sourceInfo.uri.toString() &&
                     requests[0].displayName == "photo.jpg" &&
                     requests[0].sizeBytes == 12345L &&
-                    requests[0].reason == "auto_uploaded"
+                    requests[0].reason == "uploaded_cleanup"
                 }
             )
         }
