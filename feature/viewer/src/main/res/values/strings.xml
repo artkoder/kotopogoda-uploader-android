@@ -14,6 +14,7 @@
     <string name="viewer_snackbar_action_undo">Отменить</string>
     <string name="viewer_snackbar_skip_success">Фотография пропущена</string>
     <string name="viewer_toast_processing_success">Отправлено на обработку</string>
+    <string name="viewer_toast_deletion_enqueued">Фото добавлено в очередь на удаление</string>
     <string name="viewer_toast_no_photos_for_day">Нет фото за выбранный день</string>
     <string name="viewer_snackbar_processing_failed">Не удалось перенести в «На обработку»</string>
     <string name="viewer_snackbar_publish_success">Фото поставлено в очередь на публикацию</string>

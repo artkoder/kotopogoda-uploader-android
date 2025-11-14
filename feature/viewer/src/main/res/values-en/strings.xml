@@ -15,6 +15,7 @@
     <string name="viewer_snackbar_action_undo">Undo</string>
     <string name="viewer_snackbar_skip_success">Photo skipped</string>
     <string name="viewer_toast_processing_success">Sent for processing</string>
+    <string name="viewer_toast_deletion_enqueued">Photo added to deletion queue</string>
     <string name="viewer_toast_no_photos_for_day">No photos for selected day</string>
     <string name="viewer_snackbar_processing_failed">Failed to move to Processing</string>
     <string name="viewer_snackbar_publish_success">Photo queued for publication</string>
