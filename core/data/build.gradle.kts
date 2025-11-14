@@ -75,6 +75,14 @@ dependencies {
     testImplementation("androidx.room:room-testing:${libs.versions.room.get()}")
     testImplementation("androidx.test:core-ktx:1.5.0")
     testImplementation("org.robolectric:robolectric:4.12.1")
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(kotlin("test"))
+    androidTestImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation("androidx.test:core-ktx:1.5.0")
+    androidTestImplementation("androidx.test.ext:junit-ktx:1.1.5")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.room:room-testing:${libs.versions.room.get()}")
 }
 
 // Временно отключаем проблемные SAF тесты из-за mockkStatic OOM
