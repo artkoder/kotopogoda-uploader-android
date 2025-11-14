@@ -51,6 +51,7 @@ class SettingsRepositoryImpl @Inject constructor(
                 httpLogging = preferences[HTTP_LOGGING_KEY] ?: true,
                 persistentQueueNotification = persistentValue,
                 previewQuality = previewQuality,
+                autoDeleteAfterUpload = preferences[AUTO_DELETE_AFTER_UPLOAD_KEY] ?: false,
             )
         }
         .distinctUntilChanged()
@@ -100,11 +101,20 @@ class SettingsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun setAutoDeleteAfterUpload(enabled: Boolean) {
+        withContext(ioDispatcher) {
+            dataStore.edit { preferences ->
+                preferences[AUTO_DELETE_AFTER_UPLOAD_KEY] = enabled
+            }
+        }
+    }
+
     private companion object {
         private val BASE_URL_KEY = stringPreferencesKey("base_url")
         private val APP_LOGGING_KEY = booleanPreferencesKey("app_logging")
         private val HTTP_LOGGING_KEY = booleanPreferencesKey("http_logging")
         private val PERSISTENT_QUEUE_NOTIFICATION_KEY = booleanPreferencesKey("persistent_queue_notification")
         private val PREVIEW_QUALITY_KEY = stringPreferencesKey("preview_quality")
+        private val AUTO_DELETE_AFTER_UPLOAD_KEY = booleanPreferencesKey("auto_delete_after_upload")
     }
 }

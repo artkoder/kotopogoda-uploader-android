@@ -6,6 +6,7 @@ data class AppSettings(
     val httpLogging: Boolean,
     val persistentQueueNotification: Boolean,
     val previewQuality: PreviewQuality,
+    val autoDeleteAfterUpload: Boolean,
 )
 
 enum class PreviewQuality {
