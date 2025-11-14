@@ -51,7 +51,7 @@ class SettingsRepositoryImpl @Inject constructor(
                 httpLogging = preferences[HTTP_LOGGING_KEY] ?: true,
                 persistentQueueNotification = persistentValue,
                 previewQuality = previewQuality,
-                autoDeleteAfterUpload = preferences[AUTO_DELETE_AFTER_UPLOAD_KEY] ?: false,
+                autoDeleteAfterUpload = preferences[AUTO_DELETE_AFTER_UPLOAD_KEY] ?: true,
             )
         }
         .distinctUntilChanged()

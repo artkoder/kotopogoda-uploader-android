@@ -103,14 +103,14 @@ class SettingsRepositoryImplTest {
     }
 
     @Test
-    fun autoDeleteAfterUpload_defaultFalse_whenNotPersisted() = runTest {
+    fun autoDeleteAfterUpload_defaultTrue_whenNotPersisted() = runTest {
         val permissionProvider = FakeNotificationPermissionProvider(initial = true)
         val dataStore = createDataStore(backgroundScope)
         val repository = createRepository(dataStore, permissionProvider, mainDispatcherRule.dispatcher)
 
         val settings = repository.flow.first()
 
-        assertFalse(settings.autoDeleteAfterUpload)
+        assertTrue(settings.autoDeleteAfterUpload)
     }
 
     @Test

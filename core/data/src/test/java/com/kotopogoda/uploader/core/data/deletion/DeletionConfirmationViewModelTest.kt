@@ -61,6 +61,25 @@ class DeletionConfirmationViewModelTest {
     }
 
     @Test
+    fun `pending counter resets when queue cleared`() = runTest {
+        val viewModel = DeletionConfirmationViewModel(repository, confirmDeletionUseCase)
+
+        val items = listOf(
+            pendingItem(id = 11L, sizeBytes = 1_024L),
+            pendingItem(id = 12L, sizeBytes = 2_048L),
+        )
+        pendingFlow.value = items
+        advanceUntilIdle()
+        assertEquals(2, viewModel.uiState.value.pendingCount)
+
+        pendingFlow.value = emptyList()
+        advanceUntilIdle()
+
+        assertEquals(0, viewModel.uiState.value.pendingCount)
+        assertFalse(viewModel.uiState.value.isConfirmEnabled)
+    }
+
+    @Test
     fun `confirmPending with ready batches emits LaunchBatch events`() = runTest {
         val items = listOf(
             pendingItem(id = 4L, sizeBytes = 512L),
