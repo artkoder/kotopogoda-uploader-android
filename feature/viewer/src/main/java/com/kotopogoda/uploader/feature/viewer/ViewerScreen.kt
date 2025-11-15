@@ -260,7 +260,6 @@ fun ViewerRoute(
         onCancelSelection = viewModel::onCancelSelection,
         onMoveSelection = viewModel::onMoveSelection,
         onEnqueueUpload = viewModel::onEnqueueUpload,
-        onQueueDelete = viewModel::onEnqueueDeletion,
         onUndo = viewModel::onUndo,
         onDelete = viewModel::onDelete,
         onDeleteSelection = viewModel::onDeleteSelection,
