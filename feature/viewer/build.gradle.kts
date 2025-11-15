@@ -50,6 +50,7 @@ dependencies {
     implementation(project(":core:logging"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.foundation)
+    implementation("androidx.compose.foundation:foundation-layout")
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.runtime.saveable)
