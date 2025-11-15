@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -771,30 +773,31 @@ private fun ViewerTopBar(
 ) {
     TopAppBar(
         title = {
-            Column(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 ConfirmDeletionBar(
                     pendingCount = deletionConfirmationUiState.pendingCount,
                     inProgress = deletionConfirmationUiState.inProgress,
                     onConfirm = onConfirmDeletion,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 HealthStatusBadge(
                     healthState = healthState,
-                    isNetworkValidated = isNetworkValidated,
-                    modifier = Modifier.align(Alignment.Start)
-                )
-                ViewerTopBarActions(
-                    onScrollToNewest = onScrollToNewest,
-                    onOpenJumpToDate = onOpenJumpToDate,
-                    onOpenStatus = onOpenStatus,
-                    onOpenQueue = onOpenQueue,
-                    onOpenSettings = onOpenSettings,
-                    modifier = Modifier.align(Alignment.End)
+                    isNetworkValidated = isNetworkValidated
                 )
             }
+        },
+        actions = {
+            ViewerTopBarActions(
+                onScrollToNewest = onScrollToNewest,
+                onOpenJumpToDate = onOpenJumpToDate,
+                onOpenStatus = onOpenStatus,
+                onOpenQueue = onOpenQueue,
+                onOpenSettings = onOpenSettings
+            )
         },
         colors = TopAppBarDefaults.topAppBarColors()
     )
