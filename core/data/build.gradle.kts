@@ -34,9 +34,11 @@ android {
         unitTests {
             isIncludeAndroidResources = true
             all {
+                // Каждый тест в новом процессе для изоляции памяти
+                it.forkEvery = 1
                 it.jvmArgs(
-                    "-Xmx2048m",
-                    "-XX:MaxMetaspaceSize=512m",
+                    "-Xmx4096m",
+                    "-XX:MaxMetaspaceSize=1024m",
                     "-Dkotlinx.coroutines.debug=off"
                 )
                 it.systemProperty("kotlinx.coroutines.debug", "off")
@@ -71,7 +73,6 @@ dependencies {
     testImplementation(project(":core:settings"))
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
-    testImplementation("io.mockk:mockk-agent-jvm:1.13.8")
     testImplementation("androidx.room:room-testing:${libs.versions.room.get()}")
     testImplementation("androidx.test:core-ktx:1.5.0")
     testImplementation("org.robolectric:robolectric:4.12.1")
