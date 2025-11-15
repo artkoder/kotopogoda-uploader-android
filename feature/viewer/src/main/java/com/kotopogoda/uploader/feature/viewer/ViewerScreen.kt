@@ -1021,9 +1021,6 @@ private fun ViewerActionBar(
                 return@Column
             }
             val buttonHeight = 48.dp
-            val primaryModifier = Modifier
-                .weight(1f)
-                .height(buttonHeight)
             val processingColors = ButtonDefaults.filledTonalButtonColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -1060,7 +1057,10 @@ private fun ViewerActionBar(
                 FilledTonalButton(
                     onClick = onMoveToProcessing,
                     enabled = processingEnabled,
-                    modifier = primaryModifier.then(processingSemanticsModifier),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(buttonHeight)
+                        .then(processingSemanticsModifier),
                     colors = processingColors
                 ) {
                     ActionButtonContent(
@@ -1071,7 +1071,10 @@ private fun ViewerActionBar(
                 Button(
                     onClick = onEnqueueUpload,
                     enabled = publishEnabled,
-                    modifier = primaryModifier.then(publishSemanticsModifier),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(buttonHeight)
+                        .then(publishSemanticsModifier),
                     colors = publishColors
                 ) {
                     ActionButtonContent(
