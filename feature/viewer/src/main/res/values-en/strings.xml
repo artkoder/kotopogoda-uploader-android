@@ -12,6 +12,8 @@
     <string name="viewer_action_undo_with_count">Undo (%1$d)</string>
     <string name="viewer_action_undo_tooltip">Undo selection</string>
     <string name="viewer_action_delete">Delete</string>
+    <string name="viewer_action_delete_queue">Queue for deletion</string>
+    <string name="viewer_action_delete_queue_state">Queued for deletion</string>
     <string name="viewer_snackbar_action_undo">Undo</string>
     <string name="viewer_snackbar_skip_success">Photo skipped</string>
     <string name="viewer_toast_processing_success">Sent for processing</string>
