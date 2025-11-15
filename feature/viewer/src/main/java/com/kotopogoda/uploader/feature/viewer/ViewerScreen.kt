@@ -776,12 +776,16 @@ private fun ViewerTopBar(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ConfirmDeletionBar(
-                    pendingCount = deletionConfirmationUiState.pendingCount,
-                    inProgress = deletionConfirmationUiState.inProgress,
-                    onConfirm = onConfirmDeletion,
+                Box(
                     modifier = Modifier.weight(1f)
-                )
+                ) {
+                    ConfirmDeletionBar(
+                        pendingCount = deletionConfirmationUiState.pendingCount,
+                        inProgress = deletionConfirmationUiState.inProgress,
+                        onConfirm = onConfirmDeletion,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 HealthStatusBadge(
                     healthState = healthState,
