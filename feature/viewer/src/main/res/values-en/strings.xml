@@ -26,6 +26,7 @@
     <string name="viewer_snackbar_delete_success">File deleted</string>
     <string name="viewer_snackbar_delete_undone">Deletion cancelled</string>
     <string name="viewer_toast_delete_cancelled">Deletion cancelled</string>
+    <string name="viewer_toast_deletion_enqueued">Photo queued for deletion</string>
     <string name="viewer_selection_count">Selected: %1$d</string>
     <string name="viewer_selection_cancel">Clear selection</string>
     <string name="viewer_badge_enqueued">Queued</string>
