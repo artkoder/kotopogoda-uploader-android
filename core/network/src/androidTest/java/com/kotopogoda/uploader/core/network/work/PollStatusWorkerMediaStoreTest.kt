@@ -69,7 +69,7 @@ class PollStatusWorkerMediaStoreTest {
         uploadQueueRepository = mockk(relaxed = true)
         coEvery { uploadQueueRepository.findSourceForItem(any()) } returns null
         cleanupCoordinator = mockk(relaxed = true)
-        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
+        coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
         mediaStoreDeleteLauncher = RecordingDeleteLauncher(resolver)
         uploadApi = SuccessUploadApi()
         workerFactory = object : WorkerFactory() {

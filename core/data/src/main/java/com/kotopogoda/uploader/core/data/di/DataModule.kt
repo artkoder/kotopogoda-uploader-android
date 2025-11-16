@@ -15,6 +15,7 @@ import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.upload.UploadItemDao
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadSuccessListener
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -104,12 +105,14 @@ object DataModule {
         metadataReader: MediaStorePhotoMetadataReader,
         @ApplicationContext context: Context,
         clock: Clock,
+        successListeners: Set<UploadSuccessListener>,
     ): UploadQueueRepository = UploadQueueRepository(
         uploadItemDao = uploadItemDao,
         photoDao = photoDao,
         metadataReader = metadataReader,
         contentResolver = context.contentResolver,
         clock = clock,
+        successListeners = successListeners,
     )
 
     @Provides
