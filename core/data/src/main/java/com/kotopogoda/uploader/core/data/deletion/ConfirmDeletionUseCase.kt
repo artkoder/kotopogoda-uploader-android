@@ -169,7 +169,55 @@ class ConfirmDeletionUseCase @Inject constructor(
             freedBytes = successes.sumOf { it.resolvedSize ?: 0L }
         )
 
+        Timber.tag(TAG).i(
+            "Результат батча %s: confirmed=%d, failed=%d, skipped=%d, freed=%d",
+            batch.id,
+            outcome.confirmedCount,
+            outcome.failedCount,
+            outcome.skippedCount,
+            outcome.freedBytes,
+        )
+
         BatchProcessingResult.Completed(outcome)
+    }
+
+    suspend fun reconcilePending(): Int = withContext(ioDispatcher) {
+        val pendingItems = deletionQueueRepository.getPending()
+        if (pendingItems.isEmpty()) {
+            Timber.tag(TAG).i("Реконсиляция очереди: нет элементов для проверки")
+            return@withContext 0
+        }
+
+        val batchItems = buildBatchItems(pendingItems)
+        if (batchItems.isEmpty()) {
+            Timber.tag(TAG).i("Реконсиляция очереди: валидных элементов не найдено")
+            return@withContext 0
+        }
+
+        val confirmed = batchItems.filter { isMissingFromStore(it.uri) }
+        if (confirmed.isEmpty()) {
+            Timber.tag(TAG).i(
+                "Реконсиляция очереди: все %d элементов по-прежнему доступны",
+                batchItems.size,
+            )
+            return@withContext 0
+        }
+
+        val freedBytes = confirmed.sumOf { it.resolvedSize ?: 0L }
+        Timber.tag(TAG).i(
+            "Реконсиляция очереди подтвердила удаление %d из %d элементов (freed=%d)",
+            confirmed.size,
+            batchItems.size,
+            freedBytes,
+        )
+
+        applyRepositoryUpdates(
+            successes = confirmed,
+            failures = emptyList(),
+            skipped = emptyList(),
+        )
+
+        confirmed.size
     }
 
     private suspend fun buildBatchItems(items: List<DeletionItem>): List<BatchItem> = withContext(ioDispatcher) {

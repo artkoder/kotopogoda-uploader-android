@@ -408,6 +408,44 @@ class ConfirmDeletionUseCaseTest {
         assertIs<ConfirmDeletionUseCase.BatchProcessingResult.Cancelled>(result)
     }
 
+    @Test
+    fun reconcilePendingConfirmsMissingItems() = runTest {
+        ReflectionHelpers.setStaticField(Build.VERSION::class.java, "SDK_INT", 30)
+
+        val pendingItems = listOf(
+            DeletionItem(
+                mediaId = 10L,
+                contentUri = "content://media/external/images/media/10",
+                displayName = "photo_10.jpg",
+                sizeBytes = 1_024L,
+                dateTaken = null,
+                reason = "test_reason",
+                status = DeletionItemStatus.PENDING,
+                createdAt = System.currentTimeMillis(),
+            ),
+            DeletionItem(
+                mediaId = 11L,
+                contentUri = "content://media/external/images/media/11",
+                displayName = "photo_11.jpg",
+                sizeBytes = 2_048L,
+                dateTaken = null,
+                reason = "test_reason",
+                status = DeletionItemStatus.PENDING,
+                createdAt = System.currentTimeMillis() + 1,
+            ),
+        )
+        coEvery { repository.getPending() } returns pendingItems
+        pendingItems.forEach { item ->
+            mockQueryReturnsEmpty(Uri.parse(item.contentUri))
+        }
+        coEvery { repository.markConfirmed(any()) } returns pendingItems.size
+
+        val confirmed = useCase.reconcilePending()
+
+        assertEquals(pendingItems.size, confirmed)
+        coVerify { repository.markConfirmed(pendingItems.map { it.mediaId }) }
+    }
+
     // Сценарий (d): retry-after-approval path triggers when RecoverableSecurityException is thrown
 
     @Test

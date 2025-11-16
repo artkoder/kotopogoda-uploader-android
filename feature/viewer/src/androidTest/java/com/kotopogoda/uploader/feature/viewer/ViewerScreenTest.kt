@@ -2,9 +2,6 @@ package com.kotopogoda.uploader.feature.viewer
 
 import android.net.Uri
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.ManagedActivityResultLauncher
-import androidx.activity.result.ActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,7 +72,7 @@ class ViewerScreenTest {
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
                 deletionPermissionsLauncher = mockk(relaxed = true),
-                deletionBatchLauncher = mockk(relaxed = true),
+                onLaunchDeletionBatch = {},
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},
@@ -153,7 +150,7 @@ class ViewerScreenTest {
                 onConfirmDeletion = {},
                 deletionConfirmationEvents = emptyFlow(),
                 deletionPermissionsLauncher = mockk(relaxed = true),
-                deletionBatchLauncher = mockk(relaxed = true),
+                onLaunchDeletionBatch = {},
                 onPageChanged = {},
                 onVisiblePhotoChanged = { _, _ -> },
                 onZoomStateChanged = {},

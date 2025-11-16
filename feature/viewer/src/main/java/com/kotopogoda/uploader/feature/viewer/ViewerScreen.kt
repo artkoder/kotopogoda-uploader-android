@@ -108,6 +108,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationEvent
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationUiState
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationViewModel
@@ -127,6 +128,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import kotlin.math.roundToInt
 
 @Composable
@@ -155,7 +157,7 @@ fun ViewerRoute(
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     
-    var currentDeletionBatch by remember { mutableStateOf<com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase.DeleteBatch?>(null) }
+    var currentDeletionBatch by remember { mutableStateOf<ConfirmDeletionUseCase.DeleteBatch?>(null) }
     
     val deletionPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -168,10 +170,17 @@ fun ViewerRoute(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         val batch = currentDeletionBatch
+        Timber.tag(CONFIRM_DELETION_TAG).i(
+            "Получен результат системного подтверждения: batchId=%s, resultCode=%d",
+            batch?.id ?: "null",
+            result.resultCode,
+        )
         if (batch != null) {
             deletionConfirmationViewModel.handleBatchResult(batch, result.resultCode, result.data)
-            currentDeletionBatch = null
+        } else {
+            Timber.tag(CONFIRM_DELETION_TAG).w("Получен результат удаления без активного батча")
         }
+        currentDeletionBatch = null
     }
     
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -231,6 +240,34 @@ fun ViewerRoute(
         }
     }
 
+    val launchDeletionBatch = remember(deletionBatchLauncher, deletionConfirmationViewModel) {
+        { batch: ConfirmDeletionUseCase.DeleteBatch ->
+            Timber.tag(CONFIRM_DELETION_TAG).i(
+                "Запрос системного подтверждения удаления: batchId=%s, index=%d, size=%d",
+                batch.id,
+                batch.index,
+                batch.items.size,
+            )
+            currentDeletionBatch = batch
+            val request = IntentSenderRequest.Builder(batch.intentSender.intentSender).build()
+            runCatching { deletionBatchLauncher.launch(request) }
+                .onFailure { error ->
+                    Timber.tag(CONFIRM_DELETION_TAG).e(
+                        error,
+                        "Не удалось запустить системное подтверждение для батча %s",
+                        batch.id,
+                    )
+                    currentDeletionBatch = null
+                    deletionConfirmationViewModel.handleBatchResult(
+                        batch,
+                        Activity.RESULT_CANCELED,
+                        null,
+                    )
+                }
+            Unit
+        }
+    }
+
     ViewerScreen(
         photos = photos,
         currentIndex = currentIndex,
@@ -253,7 +290,7 @@ fun ViewerRoute(
         onConfirmDeletion = deletionConfirmationViewModel::confirmPending,
         deletionConfirmationEvents = deletionConfirmationEvents,
         deletionPermissionsLauncher = deletionPermissionsLauncher,
-        deletionBatchLauncher = deletionBatchLauncher,
+        onLaunchDeletionBatch = launchDeletionBatch,
         onPageChanged = viewModel::setCurrentIndex,
         onVisiblePhotoChanged = viewModel::updateVisiblePhoto,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
@@ -315,7 +352,7 @@ internal fun ViewerScreen(
     onConfirmDeletion: () -> Unit,
     deletionConfirmationEvents: Flow<DeletionConfirmationEvent>,
     deletionPermissionsLauncher: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Map<String, Boolean>>,
-    deletionBatchLauncher: androidx.activity.compose.ManagedActivityResultLauncher<IntentSenderRequest, androidx.activity.result.ActivityResult>,
+    onLaunchDeletionBatch: (ConfirmDeletionUseCase.DeleteBatch) -> Unit,
     onPageChanged: (Int) -> Unit,
     onVisiblePhotoChanged: (Int, PhotoItem?) -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
@@ -505,7 +542,7 @@ internal fun ViewerScreen(
         }
     }
     
-    LaunchedEffect(deletionConfirmationEvents, context, currentDeletionBatch) {
+    LaunchedEffect(deletionConfirmationEvents, context) {
         deletionConfirmationEvents.collectLatest { event ->
             when (event) {
                 is DeletionConfirmationEvent.RequestPermission -> {
@@ -513,13 +550,7 @@ internal fun ViewerScreen(
                     runCatching { deletionPermissionsLauncher.launch(permissionsArray) }
                 }
                 is DeletionConfirmationEvent.LaunchBatch -> {
-                    currentDeletionBatch = event.batch
-                    val request = IntentSenderRequest.Builder(event.batch.intentSender.intentSender)
-                        .build()
-                    runCatching { deletionBatchLauncher.launch(request) }
-                        .onFailure { 
-                            currentDeletionBatch = null
-                        }
+                    onLaunchDeletionBatch(event.batch)
                 }
                 is DeletionConfirmationEvent.FinalSuccess -> {
                     val freedLabel = Formatter.formatShortFileSize(context, event.freedBytes.coerceAtLeast(0L))
@@ -1606,3 +1637,5 @@ private fun EnhancementLoaderOverlay(
         }
     }
 }
+
+private const val CONFIRM_DELETION_TAG = "ConfirmDeletion"
