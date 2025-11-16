@@ -63,7 +63,7 @@ class UploadProcessorWorkerTest {
             bytesSent = 100L,
             totalBytes = 100L,
         )
-        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(123L, 1)
+        coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(123L, 1)
         every { constraintsHelper.buildConstraints() } returns Constraints.NONE
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk<Operation>(relaxed = true)
 
@@ -89,7 +89,7 @@ class UploadProcessorWorkerTest {
         coVerify { repository.markProcessing(queueItem.id) }
         coVerify { repository.getState(queueItem.id) }
         coVerify { repository.markSucceeded(queueItem.id) }
-        coVerify { cleanupCoordinator.onUploadSucceeded(queueItem.id, queueItem.uri, queueItem.displayName, queueItem.size.takeIf { it > 0 }, null, any()) }
+        coVerify { cleanupCoordinator.handleUploadSuccess(queueItem.id, queueItem.uri, queueItem.displayName, queueItem.size.takeIf { it > 0 }, null, any()) }
         coVerify { deletionQueueRepository.markUploading(listOf(123L), true) }
         coVerify { deletionQueueRepository.markUploading(listOf(123L), false) }
     }
@@ -122,7 +122,7 @@ class UploadProcessorWorkerTest {
             bytesSent = 100L,
             totalBytes = 100L,
         )
-        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Skipped(SkipReason.SETTINGS_DISABLED)
+        coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Skipped(SkipReason.SETTINGS_DISABLED)
         every { constraintsHelper.buildConstraints() } returns Constraints.NONE
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
 
@@ -145,7 +145,7 @@ class UploadProcessorWorkerTest {
         coVerify(exactly = 0) { repository.markFailed(any(), any(), any(), any(), any()) }
         coVerify { deletionQueueRepository.markUploading(listOf(456L), true) }
         coVerify { deletionQueueRepository.markUploading(listOf(456L), false) }
-        coVerify(exactly = 0) { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -170,7 +170,7 @@ class UploadProcessorWorkerTest {
         coEvery { repository.fetchQueued(any(), recoverStuck = false) } returns listOf(queueItem)
         coEvery { repository.markProcessing(queueItem.id) } returns false
         coEvery { repository.hasQueued() } returns false
-        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Skipped(SkipReason.SETTINGS_DISABLED)
+        coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Skipped(SkipReason.SETTINGS_DISABLED)
         every { constraintsHelper.buildConstraints() } returns Constraints.NONE
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
 
@@ -192,7 +192,7 @@ class UploadProcessorWorkerTest {
         coVerify(exactly = 0) { taskRunner.run(any()) }
         coVerify { deletionQueueRepository.markUploading(listOf(789L), true) }
         coVerify { deletionQueueRepository.markUploading(listOf(789L), false) }
-        coVerify(exactly = 0) { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -224,7 +224,7 @@ class UploadProcessorWorkerTest {
             httpCode = 500,
             retryable = true,
         )
-        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Skipped(SkipReason.SETTINGS_DISABLED)
+        coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Skipped(SkipReason.SETTINGS_DISABLED)
         every { constraintsHelper.buildConstraints() } returns Constraints.NONE
         every { workManager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } returns mockk(relaxed = true)
 
@@ -245,6 +245,6 @@ class UploadProcessorWorkerTest {
         coVerify { repository.markFailed(queueItem.id, any(), any(), any(), any()) }
         coVerify { deletionQueueRepository.markUploading(listOf(222L), true) }
         coVerify { deletionQueueRepository.markUploading(listOf(222L), false) }
-        coVerify(exactly = 0) { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) }
     }
 }

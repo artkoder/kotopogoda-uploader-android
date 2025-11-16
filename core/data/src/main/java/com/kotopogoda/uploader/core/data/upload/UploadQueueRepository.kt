@@ -430,7 +430,7 @@ class UploadQueueRepository @Inject constructor(
         notifySuccess(
             id = id,
             uploadId = uploadId,
-            trigger = UploadSuccessTrigger.ACCEPTED,
+            trigger = UploadSuccessListener.TRIGGER_ACCEPTED,
         )
     }
 
@@ -453,7 +453,7 @@ class UploadQueueRepository @Inject constructor(
         notifySuccess(
             id = id,
             uploadId = null,
-            trigger = UploadSuccessTrigger.SUCCEEDED,
+            trigger = UploadSuccessListener.TRIGGER_SUCCEEDED,
         )
     }
 

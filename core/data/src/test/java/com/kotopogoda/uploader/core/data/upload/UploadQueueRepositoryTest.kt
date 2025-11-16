@@ -37,7 +37,7 @@ class UploadQueueRepositoryTest {
 
     @Before
     fun setUp() {
-        repository = UploadQueueRepository(uploadItemDao, photoDao, metadataReader, contentResolver, clock)
+        repository = newRepository()
     }
 
     @Test
@@ -407,6 +407,70 @@ class UploadQueueRepositoryTest {
     }
 
     @Test
+    fun `markAccepted notifies success listeners`() = runTest {
+        val events = mutableListOf<UploadSuccessEvent>()
+        val listener = UploadSuccessListener { events += it }
+        val repository = newRepository(setOf(listener))
+        val entity = UploadItemEntity(
+            id = 1L,
+            photoId = "photo-1",
+            idempotencyKey = "idempotent",
+            uri = "content://media/external/images/media/123",
+            displayName = "IMG_0001.jpg",
+            size = 512L,
+            state = UploadItemState.PROCESSING.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+
+        coEvery { uploadItemDao.updateState(any(), any(), any()) } just Runs
+        coEvery { uploadItemDao.getById(1L) } returns entity
+
+        repository.markAccepted(id = 1L, uploadId = "upload-123")
+
+        assertEquals(1, events.size)
+        val event = events.single()
+        assertEquals(1L, event.itemId)
+        assertEquals("photo-1", event.photoId)
+        assertEquals(Uri.parse("content://media/external/images/media/123"), event.contentUri)
+        assertEquals("IMG_0001.jpg", event.displayName)
+        assertEquals(512L, event.sizeBytes)
+        assertEquals(UploadSuccessTrigger.ACCEPTED, event.trigger)
+        assertEquals("upload-123", event.uploadId)
+    }
+
+    @Test
+    fun `markSucceeded notifies success listeners`() = runTest {
+        val events = mutableListOf<UploadSuccessEvent>()
+        val listener = UploadSuccessListener { events += it }
+        val repository = newRepository(setOf(listener))
+        val entity = UploadItemEntity(
+            id = 2L,
+            photoId = "photo-2",
+            idempotencyKey = "idempotent",
+            uri = "content://media/external/images/media/456",
+            displayName = "IMG_0002.jpg",
+            size = 2048L,
+            state = UploadItemState.PROCESSING.rawValue,
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+
+        coEvery { uploadItemDao.updateState(any(), any(), any()) } just Runs
+        coEvery { uploadItemDao.getById(2L) } returns entity
+
+        repository.markSucceeded(id = 2L)
+
+        assertEquals(1, events.size)
+        val event = events.single()
+        assertEquals(2L, event.itemId)
+        assertEquals(UploadSuccessTrigger.SUCCEEDED, event.trigger)
+        assertEquals(null, event.uploadId)
+        assertEquals(Uri.parse("content://media/external/images/media/456"), event.contentUri)
+        assertEquals(2048L, event.sizeBytes)
+    }
+
+    @Test
     fun `recoverStuckProcessing requeues stale processing items`() = runTest {
         coEvery { uploadItemDao.requeueProcessingToQueued(any(), any(), any(), any()) } returns 2
 
@@ -469,5 +533,16 @@ class UploadQueueRepositoryTest {
         val result = repository.markProcessing(6L)
 
         assertFalse(result)
+    }
+
+    private fun newRepository(listeners: Set<UploadSuccessListener> = emptySet()): UploadQueueRepository {
+        return UploadQueueRepository(
+            uploadItemDao = uploadItemDao,
+            photoDao = photoDao,
+            metadataReader = metadataReader,
+            contentResolver = contentResolver,
+            clock = clock,
+            successListeners = listeners,
+        )
     }
 }
