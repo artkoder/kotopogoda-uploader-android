@@ -111,7 +111,7 @@ import coil.compose.AsyncImage
 import com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationEvent
 import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationUiState
-import com.kotopogода.uploader.core.data.deletion.DeletionConfirmationViewModel
+import com.kotopogoda.uploader.core.data.deletion.DeletionConfirmationViewModel
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.ui.ConfirmDeletionBar
 import com.kotopogoda.uploader.core.network.health.HealthState
