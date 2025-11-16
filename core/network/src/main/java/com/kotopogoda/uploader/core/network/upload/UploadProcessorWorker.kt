@@ -1,19 +1,18 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import android.content.Context
+import android.net.Uri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
 import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
-import com.kotopogoda.uploader.core.data.deletion.DeletionRequest
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskParams
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult
-import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.kotopogoda.uploader.core.work.WorkManagerProvider
 import dagger.assisted.Assisted
@@ -22,7 +21,6 @@ import java.io.IOException
 import java.net.UnknownHostException
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
@@ -32,7 +30,7 @@ class UploadProcessorWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val repository: UploadQueueRepository,
     private val deletionQueueRepository: DeletionQueueRepository,
-    private val settingsRepository: SettingsRepository,
+    private val cleanupCoordinator: UploadCleanupCoordinator,
     private val workManagerProvider: WorkManagerProvider,
     private val constraintsHelper: UploadConstraintsHelper,
     private val taskRunner: UploadTaskRunner,
@@ -50,7 +48,6 @@ class UploadProcessorWorker @AssistedInject constructor(
                 ),
             )
         )
-        val autoDeleteAfterUpload = settingsRepository.flow.first().autoDeleteAfterUpload
         val recovered = repository.recoverStuckProcessing()
         if (recovered > 0) {
             Timber.tag("WorkManager").w(
@@ -106,7 +103,7 @@ class UploadProcessorWorker @AssistedInject constructor(
                     ),
                 )
             )
-            val mediaId = item.uri.lastPathSegment?.toLongOrNull()
+            val mediaId = item.uri.extractMediaId()
             if (mediaId != null) {
                 deletionQueueRepository.markUploading(listOf(mediaId), true)
             }
@@ -162,74 +159,14 @@ class UploadProcessorWorker @AssistedInject constructor(
                                     ),
                                 )
                             )
-                            if (autoDeleteAfterUpload) {
-                                if (mediaId == null) {
-                                    Timber.tag("WorkManager").w(
-                                        UploadLog.message(
-                                            category = CATEGORY,
-                                            action = "worker_item_enqueue_skip",
-                                            uri = item.uri,
-                                            details = arrayOf(
-                                                "queue_item_id" to item.id,
-                                                "reason" to "missing_media_id",
-                                            ),
-                                        )
-                                    )
-                                } else {
-                                    val sourceInfo = repository.findSourceForItem(item.id)
-                                    if (sourceInfo == null) {
-                                        Timber.tag("WorkManager").w(
-                                            UploadLog.message(
-                                                category = CATEGORY,
-                                                action = "worker_item_enqueue_skip",
-                                                uri = item.uri,
-                                                details = arrayOf(
-                                                    "queue_item_id" to item.id,
-                                                    "media_id" to mediaId,
-                                                    "reason" to "missing_source",
-                                                ),
-                                            )
-                                        )
-                                    } else {
-                                        val deletionRequest = DeletionRequest(
-                                            mediaId = mediaId,
-                                            contentUri = sourceInfo.uri.toString(),
-                                            displayName = item.displayName,
-                                            sizeBytes = item.size,
-                                            dateTaken = null,
-                                            reason = DELETION_REASON_UPLOADED_CLEANUP,
-                                        )
-                                        val inserted = deletionQueueRepository.enqueue(listOf(deletionRequest))
-                                        if (inserted > 0) {
-                                            Timber.tag("WorkManager").i(
-                                                UploadLog.message(
-                                                    category = CATEGORY,
-                                                    action = "worker_item_enqueued_deletion",
-                                                    uri = item.uri,
-                                                    details = arrayOf(
-                                                        "queue_item_id" to item.id,
-                                                        "media_id" to mediaId,
-                                                        "inserted" to inserted,
-                                                    ),
-                                                )
-                                            )
-                                        } else {
-                                            Timber.tag("WorkManager").i(
-                                                UploadLog.message(
-                                                    category = CATEGORY,
-                                                    action = "worker_item_enqueue_skip",
-                                                    uri = item.uri,
-                                                    details = arrayOf(
-                                                        "queue_item_id" to item.id,
-                                                        "media_id" to mediaId,
-                                                        "reason" to "duplicate",
-                                                    ),
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            cleanupCoordinator.onUploadSucceeded(
+                                itemId = item.id,
+                                uploadUri = item.uri,
+                                displayName = item.displayName,
+                                reportedSizeBytes = item.size.takeIf { it > 0 },
+                                httpCode = null,
+                                successKind = SUCCESS_KIND_PROCESSOR,
+                            )
                         }
                     }
                     is UploadTaskResult.Failure -> {
@@ -326,8 +263,21 @@ class UploadProcessorWorker @AssistedInject constructor(
         const val WORK_NAME = UPLOAD_PROCESSOR_WORK_NAME
         private const val BATCH_SIZE = 5
         private const val CATEGORY = "WORK/UPLOAD_PROCESSOR"
-        private const val DELETION_REASON_UPLOADED_CLEANUP = "uploaded_cleanup"
+        private const val SUCCESS_KIND_PROCESSOR = "processor_success"
     }
+}
+
+private fun Uri.extractMediaId(): Long? {
+    return extractMediaIdFromRaw(lastPathSegment) ?: extractMediaIdFromRaw(toString())
+}
+
+private fun extractMediaIdFromRaw(raw: String?): Long? {
+    if (raw.isNullOrBlank()) return null
+    val decoded = Uri.decode(raw)
+    decoded.toLongOrNull()?.let { return it }
+    decoded.substringAfterLast(':', "").takeIf { it.isNotEmpty() }?.toLongOrNull()?.let { return it }
+    decoded.substringAfterLast('/', "").takeIf { it.isNotEmpty() }?.toLongOrNull()?.let { return it }
+    return null
 }
 
 private fun Throwable.toUploadErrorKind(): UploadErrorKind = when (this) {

@@ -452,6 +452,7 @@ class UploadQueueRepository @Inject constructor(
         UploadSourceInfo(
             photoId = photo.id,
             uri = uri,
+            sizeBytes = photo.size.takeIf { it > 0 },
         )
     }
 
@@ -724,4 +725,5 @@ data class UploadQueueItem(
 data class UploadSourceInfo(
     val photoId: String,
     val uri: Uri,
+    val sizeBytes: Long?,
 )

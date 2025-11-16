@@ -26,6 +26,8 @@ import com.kotopogoda.uploader.core.network.api.UploadAcceptedDto
 import com.kotopogoda.uploader.core.network.api.UploadApi
 import com.kotopogoda.uploader.core.network.api.UploadLookupDto
 import com.kotopogoda.uploader.core.network.api.UploadStatusDto
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator.CleanupResult
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -53,6 +55,7 @@ class PollStatusWorkerMediaStoreTest {
     private lateinit var resolver: RecordingContentResolver
     private lateinit var workerContext: Context
     private lateinit var uploadQueueRepository: UploadQueueRepository
+    private lateinit var cleanupCoordinator: UploadCleanupCoordinator
     private lateinit var mediaStoreDeleteLauncher: RecordingDeleteLauncher
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
@@ -65,6 +68,8 @@ class PollStatusWorkerMediaStoreTest {
         TestForegroundDelegate.ensureChannel(workerContext)
         uploadQueueRepository = mockk(relaxed = true)
         coEvery { uploadQueueRepository.findSourceForItem(any()) } returns null
+        cleanupCoordinator = mockk(relaxed = true)
+        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
         mediaStoreDeleteLauncher = RecordingDeleteLauncher(resolver)
         uploadApi = SuccessUploadApi()
         workerFactory = object : WorkerFactory() {
@@ -79,6 +84,7 @@ class PollStatusWorkerMediaStoreTest {
                         workerParameters,
                         uploadApi,
                         uploadQueueRepository,
+                        cleanupCoordinator,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                         mediaStoreDeleteLauncher,

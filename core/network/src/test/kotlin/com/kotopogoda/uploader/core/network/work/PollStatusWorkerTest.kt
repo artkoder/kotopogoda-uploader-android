@@ -20,6 +20,8 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
 import com.kotopogoda.uploader.core.network.api.UploadApi
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator.CleanupResult
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.squareup.moshi.Moshi
@@ -41,6 +43,7 @@ import org.junit.runner.RunWith
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import androidx.work.ForegroundUpdater
 import org.robolectric.RobolectricTestRunner
@@ -54,6 +57,7 @@ class PollStatusWorkerTest {
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
     private lateinit var uploadQueueRepository: UploadQueueRepository
+    private lateinit var cleanupCoordinator: UploadCleanupCoordinator
     private lateinit var mediaStoreDeleteLauncher: TestMediaStoreDeleteLauncher
 
     @Before
@@ -67,6 +71,8 @@ class PollStatusWorkerTest {
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
         coEvery { uploadQueueRepository.findSourceForItem(any()) } returns null
+        cleanupCoordinator = mockk(relaxed = true)
+        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
         mediaStoreDeleteLauncher = TestMediaStoreDeleteLauncher()
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
@@ -88,6 +94,7 @@ class PollStatusWorkerTest {
                         workerParameters,
                         uploadApi,
                         uploadQueueRepository,
+                        cleanupCoordinator,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                         mediaStoreDeleteLauncher,
@@ -172,6 +179,16 @@ class PollStatusWorkerTest {
             result.outputData.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
         )
         assertFalse(file.exists())
+        coVerify(exactly = 1) {
+            cleanupCoordinator.onUploadSucceeded(
+                itemId = 1L,
+                uploadUri = any(),
+                displayName = "photo.jpg",
+                reportedSizeBytes = null,
+                httpCode = 200,
+                successKind = "poll_done",
+            )
+        }
     }
 
     @Test
@@ -191,6 +208,7 @@ class PollStatusWorkerTest {
             UploadSourceInfo(
                 photoId = "photo-id",
                 uri = Uri.fromFile(sourceFile),
+                sizeBytes = 1024L,
             ),
             null,
         )
@@ -200,6 +218,16 @@ class PollStatusWorkerTest {
 
         assertTrue(result is Success)
         assertFalse(sourceFile.exists())
+        coVerify(exactly = 1) {
+            cleanupCoordinator.onUploadSucceeded(
+                itemId = 1L,
+                uploadUri = any(),
+                displayName = "photo.jpg",
+                reportedSizeBytes = null,
+                httpCode = 200,
+                successKind = "poll_done",
+            )
+        }
     }
 
     @Test
@@ -231,6 +259,16 @@ class PollStatusWorkerTest {
             UploadEnqueuer.STATE_UPLOADED_AWAITING_DELETE,
             result.outputData.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
         )
+        coVerify(exactly = 1) {
+            cleanupCoordinator.onUploadSucceeded(
+                itemId = 1L,
+                uploadUri = any(),
+                displayName = "photo.jpg",
+                reportedSizeBytes = null,
+                httpCode = 200,
+                successKind = "poll_done",
+            )
+        }
 
         val progress = awaitProgress(workId) { data ->
             data.getString(UploadEnqueuer.KEY_COMPLETION_STATE) == UploadEnqueuer.STATE_UPLOADED_AWAITING_DELETE
@@ -285,6 +323,16 @@ class PollStatusWorkerTest {
         val result = worker.doWork()
 
         assertTrue(result is Success)
+        coVerify(exactly = 1) {
+            cleanupCoordinator.onUploadSucceeded(
+                itemId = 1L,
+                uploadUri = any(),
+                displayName = "photo.jpg",
+                reportedSizeBytes = null,
+                httpCode = 200,
+                successKind = "poll_done",
+            )
+        }
     }
 
     @Test
@@ -360,6 +408,7 @@ class PollStatusWorkerTest {
                         workerParameters,
                         failingApi,
                         uploadQueueRepository,
+                        cleanupCoordinator,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                         mediaStoreDeleteLauncher,
