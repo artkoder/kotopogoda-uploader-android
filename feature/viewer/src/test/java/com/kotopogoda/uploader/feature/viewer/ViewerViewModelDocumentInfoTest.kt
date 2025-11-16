@@ -14,6 +14,8 @@ import android.provider.MediaStore
 import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
+import com.kotopogoda.uploader.core.data.deletion.DeletionItem
+import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
@@ -57,6 +59,7 @@ import java.time.Instant
 import kotlin.text.Charsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -70,6 +73,7 @@ import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import timber.log.Timber
 import kotlin.io.path.createTempDirectory
@@ -622,10 +626,12 @@ class ViewerViewModelDocumentInfoTest {
         val saFileRepository = mockk<SaFileRepository>()
         val uploadEnqueuer = mockk<UploadEnqueuer>()
         val uploadQueueRepository = mockk<UploadQueueRepository>()
+        val deletionQueueRepository = mockk<DeletionQueueRepository>()
         val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
         val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
+        val pendingDeletions = MutableStateFlow<List<DeletionItem>>(emptyList())
 
         every { photoRepository.observePhotos() } returns flowOf(PagingData.empty())
         every { folderRepository.observeFolder() } returns flowOf(folder)
@@ -648,6 +654,10 @@ class ViewerViewModelDocumentInfoTest {
         )
         every { nativeEnhanceAdapter.isReady() } returns false
         coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
+        every { deletionQueueRepository.observePending() } returns pendingDeletions
+        coEvery { deletionQueueRepository.getPending() } coAnswers { pendingDeletions.value }
+        coEvery { deletionQueueRepository.enqueue(any()) } returns 0
+        coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
 
         val viewModel = ViewerViewModel(
             photoRepository = photoRepository,
@@ -655,6 +665,7 @@ class ViewerViewModelDocumentInfoTest {
             saFileRepository = saFileRepository,
             uploadEnqueuer = uploadEnqueuer,
             uploadQueueRepository = uploadQueueRepository,
+            deletionQueueRepository = deletionQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
             nativeEnhanceAdapter = nativeEnhanceAdapter,
@@ -667,6 +678,8 @@ class ViewerViewModelDocumentInfoTest {
             saFileRepository = saFileRepository,
             uploadEnqueuer = uploadEnqueuer,
             uploadQueueRepository = uploadQueueRepository,
+            deletionQueueRepository = deletionQueueRepository,
+            pendingDeletions = pendingDeletions,
             reviewProgressStore = reviewProgressStore
         )
     }
@@ -809,6 +822,114 @@ class ViewerViewModelDocumentInfoTest {
         assertEquals(R.string.viewer_toast_processing_success, event.messageRes)
     }
 
+
+    @Test
+    fun undoQueuedDeletionRemovesPendingItem() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val documentId = "primary:Kotopogoda/saf.jpg"
+        val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2Fsaf.jpg")
+        val resolver = buildResolver(queryHandler = { uri, _ ->
+            if (uri == fileUri) {
+                createSafCursor(documentId, displayName = "saf.jpg", size = 1024L, lastModified = 1234L)
+            } else {
+                null
+            }
+        })
+        val context = buildContext(resolver)
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        coEvery { environment.deletionQueueRepository.enqueue(any()) } returns 1
+        coEvery { environment.deletionQueueRepository.markSkipped(listOf(42L)) } returns 1
+
+        val photo = PhotoItem(id = "42", uri = fileUri, takenAt = Instant.ofEpochMilli(1_000))
+        environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
+
+        environment.viewModel.onEnqueueDeletion(photo)
+        advanceUntilIdle()
+
+        val deletionItem = DeletionItem(
+            mediaId = 42L,
+            contentUri = fileUri.toString(),
+            displayName = "saf.jpg",
+            sizeBytes = 1024L,
+            dateTaken = photo.takenAt?.toEpochMilli(),
+            reason = "user_delete",
+        )
+        environment.pendingDeletions.value = listOf(deletionItem)
+        advanceUntilIdle()
+
+        environment.viewModel.onUndo()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { environment.deletionQueueRepository.markSkipped(listOf(42L)) }
+        assertEquals(0, environment.viewModel.undoCount.value)
+        assertFalse(environment.viewModel.canUndo.value)
+    }
+
+    @Test
+    fun undoQueuedDeletionIgnoredWhenItemNotPending() = runTest(context = dispatcher) {
+        val treeUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AKotopogoda")
+        val folder = Folder(
+            id = 1,
+            treeUri = treeUri.toString(),
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            lastScanAt = null,
+            lastViewedPhotoId = null,
+            lastViewedAt = null
+        )
+        val documentId = "primary:Kotopogoda/saf.jpg"
+        val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AKotopogoda%2Fsaf.jpg")
+        val resolver = buildResolver(queryHandler = { uri, _ ->
+            if (uri == fileUri) {
+                createSafCursor(documentId, displayName = "saf.jpg", size = 1024L, lastModified = 1234L)
+            } else {
+                null
+            }
+        })
+        val context = buildContext(resolver)
+        val environment = createEnvironment(context, folder)
+        advanceUntilIdle()
+
+        coEvery { environment.deletionQueueRepository.enqueue(any()) } returns 1
+        coEvery { environment.deletionQueueRepository.markSkipped(any()) } returns 1
+
+        val photo = PhotoItem(id = "43", uri = fileUri, takenAt = Instant.ofEpochMilli(2_000))
+        environment.viewModel.updateVisiblePhoto(totalCount = 1, photo = photo)
+
+        environment.viewModel.onEnqueueDeletion(photo)
+        advanceUntilIdle()
+
+        val deletionItem = DeletionItem(
+            mediaId = 43L,
+            contentUri = fileUri.toString(),
+            displayName = "saf.jpg",
+            sizeBytes = 1024L,
+            dateTaken = photo.takenAt?.toEpochMilli(),
+            reason = "user_delete",
+        )
+        environment.pendingDeletions.value = listOf(deletionItem)
+        advanceUntilIdle()
+
+        environment.pendingDeletions.value = emptyList()
+        advanceUntilIdle()
+
+        environment.viewModel.onUndo()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { environment.deletionQueueRepository.markSkipped(any()) }
+        assertEquals(0, environment.viewModel.undoCount.value)
+        assertFalse(environment.viewModel.canUndo.value)
+    }
+
     private fun createSafCursor(
         documentId: String,
         displayName: String,
@@ -885,6 +1006,8 @@ class ViewerViewModelDocumentInfoTest {
         val saFileRepository: SaFileRepository,
         val uploadEnqueuer: UploadEnqueuer,
         val uploadQueueRepository: UploadQueueRepository,
+        val deletionQueueRepository: DeletionQueueRepository,
+        val pendingDeletions: MutableStateFlow<List<DeletionItem>>,
         val reviewProgressStore: ReviewProgressStore
     )
 }

@@ -3,6 +3,7 @@ package com.kotopogoda.uploader.feature.viewer
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
+import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
