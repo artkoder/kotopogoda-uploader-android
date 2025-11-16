@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.kotopogoda.uploader.core.logging.structuredLog
 import timber.log.Timber
 
 @HiltViewModel
@@ -36,16 +37,48 @@ class DeletionConfirmationViewModel @Inject constructor(
     
     private var pendingBatches = mutableListOf<ConfirmDeletionUseCase.DeleteBatch>()
     private var accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
+    private var lastPendingCount: Int = -1
+    private var activeBatchId: String? = null
 
     init {
         viewModelScope.launch {
             try {
                 val reconciled = confirmDeletionUseCase.reconcilePending()
                 if (reconciled > 0) {
-                    Timber.tag(TAG).i("Реконсиляция подтвердила %d элементов", reconciled)
+                    Timber.tag(TAG).i(
+                        structuredLog(
+                            "phase" to "ui_state",
+                            "event" to "reconcile_applied",
+                            "confirmed" to reconciled,
+                        )
+                    )
                 }
             } catch (error: Exception) {
-                Timber.tag(TAG).e(error, "Ошибка реконсиляции очереди удаления")
+                Timber.tag(TAG).e(
+                    error,
+                    structuredLog(
+                        "phase" to "ui_state",
+                        "event" to "reconcile_error",
+                    )
+                )
+            }
+        }
+        viewModelScope.launch {
+            pendingItems.collect { items ->
+                val newCount = items.size
+                val previous = lastPendingCount
+                if (previous != newCount) {
+                    val attributes = mutableListOf<Pair<String, Any?>>(
+                        "phase" to "ui_state",
+                        "event" to "pending_count_update",
+                        "new_count" to newCount,
+                    )
+                    if (previous >= 0) {
+                        attributes += "old_count" to previous
+                    }
+                    Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
+                    lastPendingCount = newCount
+                }
             }
         }
     }
@@ -73,20 +106,44 @@ class DeletionConfirmationViewModel @Inject constructor(
             return
         }
         confirmationInProgress.value = true
+        logInProgressStart(batch = null)
         viewModelScope.launch {
             try {
                 when (val result = confirmDeletionUseCase.prepare()) {
                     is ConfirmDeletionUseCase.PrepareResult.NoPending -> {
-                        Timber.tag(TAG).i("Нет элементов для подтверждения")
+                        Timber.tag(TAG).i(
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "confirm_prepare_no_pending",
+                            )
+                        )
+                        logInProgressStop("no_pending")
                         confirmationInProgress.value = false
                     }
                     is ConfirmDeletionUseCase.PrepareResult.PermissionRequired -> {
+                        Timber.tag(TAG).i(
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "confirm_permission_requested",
+                                "permission_count" to result.permissions.size,
+                            )
+                        )
                         _events.emit(DeletionConfirmationEvent.RequestPermission(result.permissions))
                     }
                     is ConfirmDeletionUseCase.PrepareResult.Ready -> {
                         pendingBatches = result.batches.toMutableList()
                         accumulatedOutcome = result.initialOutcome
-                        
+                        Timber.tag(TAG).i(
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "confirm_prepare_ready",
+                                "batch_total" to pendingBatches.size,
+                                "initial_confirmed" to result.initialOutcome.confirmedCount,
+                                "initial_failed" to result.initialOutcome.failedCount,
+                                "initial_skipped" to result.initialOutcome.skippedCount,
+                                "initial_freed_bytes" to result.initialOutcome.freedBytes,
+                            )
+                        )
                         if (pendingBatches.isEmpty()) {
                             emitFinalResult()
                         } else {
@@ -95,17 +152,32 @@ class DeletionConfirmationViewModel @Inject constructor(
                     }
                 }
             } catch (error: Exception) {
-                Timber.tag(TAG).e(error, "Ошибка при подготовке удаления")
+                Timber.tag(TAG).e(
+                    error,
+                    structuredLog(
+                        "phase" to "ui_state",
+                        "event" to "confirm_prepare_error",
+                    )
+                )
                 _events.emit(DeletionConfirmationEvent.FinalFailure(error))
+                logInProgressStop("prepare_error")
                 confirmationInProgress.value = false
+                pendingBatches.clear()
+                accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
             }
         }
     }
 
     fun handlePermissionResult(granted: Boolean) {
         if (!granted) {
-            Timber.tag(TAG).w("Разрешения не предоставлены")
+            Timber.tag(TAG).w(
+                structuredLog(
+                    "phase" to "ui_state",
+                    "event" to "permission_denied",
+                )
+            )
             _events.tryEmit(DeletionConfirmationEvent.FinalFailure(SecurityException("Разрешения не предоставлены")))
+            logInProgressStop("permission_denied")
             confirmationInProgress.value = false
             return
         }
@@ -114,17 +186,41 @@ class DeletionConfirmationViewModel @Inject constructor(
             try {
                 when (val result = confirmDeletionUseCase.prepare()) {
                     is ConfirmDeletionUseCase.PrepareResult.NoPending -> {
+                        Timber.tag(TAG).i(
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "confirm_prepare_no_pending",
+                            )
+                        )
+                        logInProgressStop("no_pending")
                         confirmationInProgress.value = false
                     }
                     is ConfirmDeletionUseCase.PrepareResult.PermissionRequired -> {
-                        Timber.tag(TAG).w("Разрешения все еще требуются")
+                        Timber.tag(TAG).w(
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "confirm_permission_missing",
+                                "permission_count" to result.permissions.size,
+                            )
+                        )
                         _events.emit(DeletionConfirmationEvent.FinalFailure(SecurityException("Разрешения требуются")))
+                        logInProgressStop("permission_missing")
                         confirmationInProgress.value = false
                     }
                     is ConfirmDeletionUseCase.PrepareResult.Ready -> {
                         pendingBatches = result.batches.toMutableList()
                         accumulatedOutcome = result.initialOutcome
-                        
+                        Timber.tag(TAG).i(
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "confirm_prepare_ready",
+                                "batch_total" to pendingBatches.size,
+                                "initial_confirmed" to result.initialOutcome.confirmedCount,
+                                "initial_failed" to result.initialOutcome.failedCount,
+                                "initial_skipped" to result.initialOutcome.skippedCount,
+                                "initial_freed_bytes" to result.initialOutcome.freedBytes,
+                            )
+                        )
                         if (pendingBatches.isEmpty()) {
                             emitFinalResult()
                         } else {
@@ -133,9 +229,18 @@ class DeletionConfirmationViewModel @Inject constructor(
                     }
                 }
             } catch (error: Exception) {
-                Timber.tag(TAG).e(error, "Ошибка после предоставления разрешений")
+                Timber.tag(TAG).e(
+                    error,
+                    structuredLog(
+                        "phase" to "ui_state",
+                        "event" to "confirm_after_permission_error",
+                    )
+                )
                 _events.emit(DeletionConfirmationEvent.FinalFailure(error))
+                logInProgressStop("permission_error")
                 confirmationInProgress.value = false
+                pendingBatches.clear()
+                accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
             }
         }
     }
@@ -151,19 +256,32 @@ class DeletionConfirmationViewModel @Inject constructor(
                 
                 when (processingResult) {
                     is ConfirmDeletionUseCase.BatchProcessingResult.Cancelled -> {
-                        Timber.tag(TAG).i("Батч отменен пользователем")
+                        Timber.tag(TAG).i(
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "batch_cancelled",
+                                "batch_id" to batch.id,
+                                "result_code" to resultCode,
+                            )
+                        )
                         _events.emit(DeletionConfirmationEvent.FinalFailure(Exception("Отменено пользователем")))
+                        logInProgressStop("cancelled")
                         confirmationInProgress.value = false
                         pendingBatches.clear()
+                        accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
                     }
                     is ConfirmDeletionUseCase.BatchProcessingResult.Completed -> {
                         Timber.tag(TAG).i(
-                            "Системное подтверждение батча %s завершено: confirmed=%d, failed=%d, skipped=%d, freed=%d",
-                            batch.id,
-                            processingResult.outcome.confirmedCount,
-                            processingResult.outcome.failedCount,
-                            processingResult.outcome.skippedCount,
-                            processingResult.outcome.freedBytes,
+                            structuredLog(
+                                "phase" to "ui_state",
+                                "event" to "batch_completed",
+                                "batch_id" to batch.id,
+                                "result_code" to resultCode,
+                                "confirmed" to processingResult.outcome.confirmedCount,
+                                "failed" to processingResult.outcome.failedCount,
+                                "skipped" to processingResult.outcome.skippedCount,
+                                "freed_bytes" to processingResult.outcome.freedBytes,
+                            )
                         )
                         accumulatedOutcome += processingResult.outcome
                         
@@ -175,10 +293,19 @@ class DeletionConfirmationViewModel @Inject constructor(
                     }
                 }
             } catch (error: Exception) {
-                Timber.tag(TAG).e(error, "Ошибка обработки результата батча")
+                Timber.tag(TAG).e(
+                    error,
+                    structuredLog(
+                        "phase" to "ui_state",
+                        "event" to "batch_result_error",
+                        "batch_id" to batch.id,
+                    )
+                )
                 _events.emit(DeletionConfirmationEvent.FinalFailure(error))
+                logInProgressStop("batch_error")
                 confirmationInProgress.value = false
                 pendingBatches.clear()
+                accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
             }
         }
     }
@@ -190,16 +317,21 @@ class DeletionConfirmationViewModel @Inject constructor(
         }
         
         val batch = pendingBatches.removeAt(0)
+        logInProgressStart(batch)
         Timber.tag(TAG).i(
-            "Запуск системного подтверждения удаления: batchId=%s, index=%d, size=%d",
-            batch.id,
-            batch.index,
-            batch.items.size,
+            structuredLog(
+                "phase" to "ui_state",
+                "event" to "launch_batch",
+                "batch_id" to batch.id,
+                "batch_index" to batch.index,
+                "batch_size" to batch.items.size,
+                "batches_remaining" to pendingBatches.size,
+            )
         )
         _events.emit(DeletionConfirmationEvent.LaunchBatch(batch))
     }
 
-    private suspend fun emitFinalResult() {
+    private suspend fun emitFinalResult(reason: String = "completed") {
         if (accumulatedOutcome.hasChanges) {
             _events.emit(
                 DeletionConfirmationEvent.FinalSuccess(
@@ -210,13 +342,40 @@ class DeletionConfirmationViewModel @Inject constructor(
                 )
             )
         }
+        logInProgressStop(reason)
         confirmationInProgress.value = false
         pendingBatches.clear()
         accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
     }
 
+    private fun logInProgressStart(batch: ConfirmDeletionUseCase.DeleteBatch?) {
+        activeBatchId = batch?.id
+        val attributes = mutableListOf<Pair<String, Any?>>(
+            "phase" to "ui_state",
+            "event" to "in_progress_start",
+        )
+        batch?.let {
+            attributes += "batch_id" to it.id
+            attributes += "batch_size" to it.items.size
+            attributes += "batch_index" to it.index
+            attributes += "batches_remaining" to pendingBatches.size
+        }
+        Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
+    }
+
+    private fun logInProgressStop(reason: String) {
+        val attributes = mutableListOf<Pair<String, Any?>>(
+            "phase" to "ui_state",
+            "event" to "in_progress_stop",
+            "reason" to reason,
+        )
+        activeBatchId?.let { attributes += "batch_id" to it }
+        Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
+        activeBatchId = null
+    }
+
     companion object {
-        private const val TAG = "DeletionConfirm"
+        private const val TAG = "DeletionQueue"
     }
 }
 

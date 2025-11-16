@@ -6,6 +6,7 @@ import com.kotopogoda.uploader.core.data.deletion.DeletionRequest
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
+import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import java.util.ArrayDeque
 import java.util.LinkedHashSet
@@ -50,6 +51,17 @@ class UploadCleanupCoordinator @Inject constructor(
                 reason = REASON_SETTINGS_ERROR,
                 throwable = error,
             )
+            logAutoDeletionQueueEvent(
+                stage = "settings",
+                mediaId = initialMediaId,
+                uri = uploadUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = false,
+                alreadyEnqueued = false,
+                outcome = REASON_SETTINGS_ERROR,
+                throwable = error,
+            )
             return CleanupResult.Failure(SkipReason.SETTINGS_ERROR, error)
         }
 
@@ -61,6 +73,16 @@ class UploadCleanupCoordinator @Inject constructor(
                 success = false,
                 reason = REASON_SETTINGS_DISABLED,
             )
+            logAutoDeletionQueueEvent(
+                stage = "settings",
+                mediaId = initialMediaId,
+                uri = uploadUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = false,
+                alreadyEnqueued = false,
+                outcome = REASON_SETTINGS_DISABLED,
+            )
             return CleanupResult.Skipped(SkipReason.SETTINGS_DISABLED)
         }
 
@@ -71,6 +93,16 @@ class UploadCleanupCoordinator @Inject constructor(
                 uri = uploadUri,
                 success = false,
                 reason = REASON_ALREADY_PROCESSED,
+            )
+            logAutoDeletionQueueEvent(
+                stage = "dedupe",
+                mediaId = initialMediaId,
+                uri = uploadUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = true,
+                alreadyEnqueued = true,
+                outcome = REASON_ALREADY_PROCESSED,
             )
             return CleanupResult.Skipped(SkipReason.ALREADY_PROCESSED)
         }
@@ -84,6 +116,17 @@ class UploadCleanupCoordinator @Inject constructor(
                 reason = REASON_SOURCE_LOOKUP_FAILED,
                 throwable = error,
             )
+            logAutoDeletionQueueEvent(
+                stage = "source_lookup",
+                mediaId = initialMediaId,
+                uri = uploadUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = true,
+                alreadyEnqueued = false,
+                outcome = REASON_SOURCE_LOOKUP_FAILED,
+                throwable = error,
+            )
             return CleanupResult.Failure(SkipReason.SOURCE_LOOKUP_FAILED, error)
         }
 
@@ -95,6 +138,16 @@ class UploadCleanupCoordinator @Inject constructor(
                 uri = uploadUri,
                 success = false,
                 reason = REASON_MISSING_CONTENT_URI,
+            )
+            logAutoDeletionQueueEvent(
+                stage = "resolve_uri",
+                mediaId = initialMediaId,
+                uri = uploadUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = true,
+                alreadyEnqueued = false,
+                outcome = REASON_MISSING_CONTENT_URI,
             )
             return CleanupResult.Skipped(SkipReason.MISSING_CONTENT_URI)
         }
@@ -111,6 +164,16 @@ class UploadCleanupCoordinator @Inject constructor(
                 uri = contentUri,
                 success = false,
                 reason = REASON_MISSING_MEDIA_ID,
+            )
+            logAutoDeletionQueueEvent(
+                stage = "resolve_media_id",
+                mediaId = null,
+                uri = contentUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = true,
+                alreadyEnqueued = false,
+                outcome = REASON_MISSING_MEDIA_ID,
             )
             return CleanupResult.Skipped(SkipReason.MISSING_MEDIA_ID)
         }
@@ -135,6 +198,18 @@ class UploadCleanupCoordinator @Inject constructor(
                 throwable = error,
                 sizeBytes = sizeBytes,
             )
+            logAutoDeletionQueueEvent(
+                stage = "enqueue",
+                mediaId = resolvedMediaId,
+                uri = contentUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = true,
+                alreadyEnqueued = false,
+                outcome = REASON_ENQUEUE_ERROR,
+                sizeBytes = sizeBytes,
+                throwable = error,
+            )
             return CleanupResult.Failure(SkipReason.ENQUEUE_ERROR, error)
         }
 
@@ -148,6 +223,17 @@ class UploadCleanupCoordinator @Inject constructor(
                 reason = REASON_ENQUEUED,
                 sizeBytes = sizeBytes,
             )
+            logAutoDeletionQueueEvent(
+                stage = "enqueue",
+                mediaId = resolvedMediaId,
+                uri = contentUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = true,
+                alreadyEnqueued = false,
+                outcome = REASON_ENQUEUED,
+                sizeBytes = sizeBytes,
+            )
             CleanupResult.Success(resolvedMediaId, inserted)
         } else {
             markHandled(itemId)
@@ -157,6 +243,17 @@ class UploadCleanupCoordinator @Inject constructor(
                 uri = contentUri,
                 success = false,
                 reason = REASON_ENQUEUE_DUPLICATE,
+                sizeBytes = sizeBytes,
+            )
+            logAutoDeletionQueueEvent(
+                stage = "enqueue",
+                mediaId = resolvedMediaId,
+                uri = contentUri,
+                displayName = displayName,
+                reason = DELETION_REASON_UPLOADED_CLEANUP,
+                settingEnabled = true,
+                alreadyEnqueued = true,
+                outcome = REASON_ENQUEUE_DUPLICATE,
                 sizeBytes = sizeBytes,
             )
             CleanupResult.Skipped(SkipReason.ENQUEUE_DUPLICATE)
@@ -268,6 +365,40 @@ class UploadCleanupCoordinator @Inject constructor(
         }
     }
 
+    private fun logAutoDeletionQueueEvent(
+        stage: String,
+        mediaId: Long?,
+        uri: Uri?,
+        displayName: String?,
+        reason: String,
+        settingEnabled: Boolean,
+        alreadyEnqueued: Boolean,
+        outcome: String,
+        sizeBytes: Long? = null,
+        throwable: Throwable? = null,
+    ) {
+        val attributes = mutableListOf<Pair<String, Any?>>(
+            "phase" to "enqueue",
+            "source" to "uploaded_cleanup",
+            "stage" to stage,
+            "reason" to reason,
+            "already_enqueued" to alreadyEnqueued,
+            "setting_enabled" to settingEnabled,
+            "outcome" to outcome,
+        )
+        mediaId?.let { attributes.add("media_id" to it) }
+        uri?.let { attributes.add("uri" to it.toString()) }
+        displayName?.let { attributes.add("display_name" to it) }
+        sizeBytes?.let { attributes.add("size_bytes" to it) }
+        val message = structuredLog(*attributes.toTypedArray())
+        when {
+            throwable != null -> Timber.tag(DELETION_QUEUE_TAG).e(throwable, message)
+            outcome == REASON_ALREADY_PROCESSED || outcome == REASON_ENQUEUE_DUPLICATE ->
+                Timber.tag(DELETION_QUEUE_TAG).w(message)
+            else -> Timber.tag(DELETION_QUEUE_TAG).i(message)
+        }
+    }
+
     sealed class CleanupResult {
         data class Success(val mediaId: Long, val enqueuedCount: Int) : CleanupResult()
         data class Skipped(val reason: SkipReason) : CleanupResult()
@@ -287,6 +418,7 @@ class UploadCleanupCoordinator @Inject constructor(
 
     companion object {
         private const val LOG_TAG = "WorkManager"
+        private const val DELETION_QUEUE_TAG = "DeletionQueue"
         private const val CATEGORY_CLEANUP = "UPLOAD/CLEANUP"
         private const val ACTION_SUCCESS_DETECTED = "upload_success_detected"
         private const val ACTION_ENQUEUED_FOR_CLEANUP = "enqueued_for_cleanup"

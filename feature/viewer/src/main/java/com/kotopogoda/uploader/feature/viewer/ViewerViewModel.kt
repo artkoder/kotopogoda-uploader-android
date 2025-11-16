@@ -39,6 +39,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.contentSha256FromIdempotencyKey
 import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
 import com.kotopogoda.uploader.core.data.util.Hashing
+import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
 import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import com.kotopogoda.uploader.core.work.UploadErrorKind
@@ -175,6 +176,8 @@ class ViewerViewModel @Inject constructor(
     private var pendingBatchMove: PendingBatchMove? = null
     private var pendingSingleMove: PendingSingleMove? = null
     private val pendingCleanupJobs = mutableMapOf<String, Job>()
+    @Volatile
+    private var autoDeleteEnabled: Boolean = false
 
     private fun logUi(category: String, action: String, uri: Uri? = null, vararg details: Pair<String, Any?>) {
         Timber.tag(UI_TAG).i(
@@ -197,6 +200,35 @@ class ViewerViewModel @Inject constructor(
                 details = details,
             )
         )
+    }
+
+    private fun logDeletionQueueEvent(
+        stage: String,
+        mediaId: Long?,
+        uri: Uri?,
+        displayName: String?,
+        outcome: String,
+        alreadyEnqueued: Boolean,
+        throwable: Throwable? = null,
+    ) {
+        val attributes = mutableListOf<Pair<String, Any?>>(
+            "phase" to "enqueue",
+            "source" to "user_delete",
+            "stage" to stage,
+            "reason" to QUEUE_DELETE_REASON,
+            "already_enqueued" to alreadyEnqueued,
+            "setting_enabled" to autoDeleteEnabled,
+            "outcome" to outcome,
+        )
+        mediaId?.let { attributes.add("media_id" to it) }
+        uri?.let { attributes.add("uri" to it.toString()) }
+        displayName?.let { attributes.add("display_name" to it) }
+        val message = structuredLog(*attributes.toTypedArray())
+        when {
+            throwable != null -> Timber.tag(DELETION_QUEUE_TAG).e(throwable, message)
+            outcome == "duplicate" || outcome == "already_enqueued" -> Timber.tag(DELETION_QUEUE_TAG).w(message)
+            else -> Timber.tag(DELETION_QUEUE_TAG).i(message)
+        }
     }
 
     private fun logPermissionRequest(type: MovePermissionType, uri: Uri?) {
@@ -232,6 +264,7 @@ class ViewerViewModel @Inject constructor(
 
         viewModelScope.launch {
             settingsRepository.flow.collect { settings ->
+                autoDeleteEnabled = settings.autoDeleteAfterUpload
                 if (nativeEnhanceAdapter != null) {
                     runCatching {
                         nativeEnhanceAdapter.initialize(settings.previewQuality)
@@ -844,6 +877,14 @@ class ViewerViewModel @Inject constructor(
             return
         }
         if (mediaId in pendingDeletionIds.value) {
+            logDeletionQueueEvent(
+                stage = "dedupe",
+                mediaId = mediaId,
+                uri = current.uri,
+                displayName = null,
+                outcome = "already_enqueued",
+                alreadyEnqueued = true,
+            )
             return
         }
         logUi(
@@ -854,20 +895,30 @@ class ViewerViewModel @Inject constructor(
             "current_index" to currentIndex.value,
         )
         viewModelScope.launch {
+            var documentInfo: DocumentInfo? = null
             try {
-                val documentInfo = loadDocumentInfo(current.uri)
+                documentInfo = loadDocumentInfo(current.uri)
+                val info = requireNotNull(documentInfo)
                 val fromIndex = currentIndex.value
                 val toIndex = computeNextIndex(fromIndex)
                 val request = DeletionRequest(
                     mediaId = mediaId,
-                    contentUri = documentInfo.uri.toString(),
-                    displayName = documentInfo.displayName,
-                    sizeBytes = documentInfo.size,
+                    contentUri = info.uri.toString(),
+                    displayName = info.displayName,
+                    sizeBytes = info.size,
                     dateTaken = current.takenAt?.toEpochMilli(),
                     reason = QUEUE_DELETE_REASON
                 )
                 val inserted = deletionQueueRepository.enqueue(listOf(request))
                 if (inserted <= 0) {
+                    logDeletionQueueEvent(
+                        stage = "enqueue",
+                        mediaId = mediaId,
+                        uri = info.uri,
+                        displayName = info.displayName,
+                        outcome = "duplicate",
+                        alreadyEnqueued = true,
+                    )
                     logUi(
                         category = "UI/DELETE_QUEUE",
                         action = "enqueue_skipped",
@@ -876,6 +927,14 @@ class ViewerViewModel @Inject constructor(
                     )
                     return@launch
                 }
+                logDeletionQueueEvent(
+                    stage = "enqueue",
+                    mediaId = mediaId,
+                    uri = info.uri,
+                    displayName = info.displayName,
+                    outcome = "enqueued",
+                    alreadyEnqueued = false,
+                )
                 pendingDeletionIds.update { ids -> ids + mediaId }
                 pushAction(
                     UserAction.QueuedDeletion(
@@ -899,6 +958,15 @@ class ViewerViewModel @Inject constructor(
                     "to_index" to toIndex
                 )
             } catch (error: Exception) {
+                logDeletionQueueEvent(
+                    stage = "enqueue",
+                    mediaId = mediaId,
+                    uri = documentInfo?.uri ?: current.uri,
+                    displayName = documentInfo?.displayName,
+                    outcome = "error",
+                    alreadyEnqueued = false,
+                    throwable = error,
+                )
                 logUiError(
                     category = "UI/DELETE_QUEUE",
                     action = "enqueue_failure",
@@ -3143,6 +3211,7 @@ class ViewerViewModel @Inject constructor(
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
         private const val QUEUE_DELETE_REASON = "user_delete"
+        private const val DELETION_QUEUE_TAG = "DeletionQueue"
         private const val LOG_TAG = "ViewerViewModel"
         private const val UI_TAG = "UI"
         private const val PERMISSION_TAG = "Permissions"
