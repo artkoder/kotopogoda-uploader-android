@@ -46,7 +46,6 @@
     <string name="viewer_open_latest">Latest</string>
     <string name="viewer_open_queue">Queue</string>
     <string name="viewer_back">Back</string>
-    <string name="viewer_open_status">Statuses</string>
     <string name="viewer_open_settings">Settings</string>
     <string name="viewer_open_calendar">Jump to date</string>
     <string name="viewer_jump_title">Jump to date</string>
