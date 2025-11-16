@@ -22,6 +22,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundDelegate
 import com.kotopogoda.uploader.core.network.upload.UploadForegroundKind
 import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -43,6 +44,7 @@ class PollStatusWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val uploadApi: UploadApi,
     private val uploadQueueRepository: UploadQueueRepository,
+    private val cleanupCoordinator: UploadCleanupCoordinator,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
     private val mediaStoreDeleteLauncher: MediaStoreDeleteLauncher,
@@ -163,6 +165,7 @@ class PollStatusWorker @AssistedInject constructor(
                                 uri = uri,
                                 uriString = uriString,
                                 displayName = displayName,
+                                httpCode = response.code(),
                             )
                         }
                         RemoteState.FAILED -> {
@@ -293,6 +296,7 @@ class PollStatusWorker @AssistedInject constructor(
         uri: Uri,
         uriString: String,
         displayName: String,
+        httpCode: Int,
     ): Result {
         val completionState = deleteDocument(uri)
         val sourceCleanup = cleanupSource(itemId, uri, completionState)
@@ -338,6 +342,14 @@ class PollStatusWorker @AssistedInject constructor(
         }
         recordCompletionState(completionState, displayName)
         uploadQueueRepository.markSucceeded(itemId)
+        cleanupCoordinator.onUploadSucceeded(
+            itemId = itemId,
+            uploadUri = uri,
+            displayName = displayName,
+            reportedSizeBytes = null,
+            httpCode = httpCode,
+            successKind = SUCCESS_KIND_POLL,
+        )
         Timber.tag("WorkManager").i(
             pollLogMessage(
                 action = "poll_worker_complete",
@@ -652,6 +664,7 @@ class PollStatusWorker @AssistedInject constructor(
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val INDETERMINATE_PROGRESS = -1
         private const val RETRY_AFTER_HEADER = "Retry-After"
+        private const val SUCCESS_KIND_POLL = "poll_done"
     }
 
     private enum class RemoteState {

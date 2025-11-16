@@ -20,6 +20,8 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
 import com.kotopogoda.uploader.core.network.api.UploadApi
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator.CleanupResult
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import com.squareup.moshi.Moshi
@@ -41,6 +43,7 @@ import org.junit.runner.RunWith
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import androidx.work.ForegroundUpdater
 import org.robolectric.RobolectricTestRunner
