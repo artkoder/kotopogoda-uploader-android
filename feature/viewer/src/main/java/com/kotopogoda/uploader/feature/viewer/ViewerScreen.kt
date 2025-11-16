@@ -797,11 +797,18 @@ private fun ViewerTopBar(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                HealthStatusBadge(
-                    healthState = healthState,
-                    isNetworkValidated = isNetworkValidated
-                )
+                val status = if (isNetworkValidated) {
+                    healthState.status
+                } else {
+                    HealthStatus.OFFLINE
+                }
+                if (status != HealthStatus.ONLINE) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    HealthStatusBadge(
+                        healthState = healthState,
+                        isNetworkValidated = isNetworkValidated
+                    )
+                }
             }
         },
         actions = {
