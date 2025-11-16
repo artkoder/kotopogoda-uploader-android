@@ -211,7 +211,7 @@ class ViewerViewModel @Inject constructor(
         alreadyEnqueued: Boolean,
         throwable: Throwable? = null,
     ) {
-        val attributes = mutableListOf(
+        val attributes = mutableListOf<Pair<String, Any?>>(
             "phase" to "enqueue",
             "source" to "user_delete",
             "stage" to stage,
@@ -220,9 +220,9 @@ class ViewerViewModel @Inject constructor(
             "setting_enabled" to autoDeleteEnabled,
             "outcome" to outcome,
         )
-        mediaId?.let { attributes += "media_id" to it }
-        uri?.let { attributes += "uri" to it.toString() }
-        displayName?.let { attributes += "display_name" to it }
+        mediaId?.let { attributes.add("media_id" to it) }
+        uri?.let { attributes.add("uri" to it.toString()) }
+        displayName?.let { attributes.add("display_name" to it) }
         val message = structuredLog(*attributes.toTypedArray())
         when {
             throwable != null -> Timber.tag(DELETION_QUEUE_TAG).e(throwable, message)

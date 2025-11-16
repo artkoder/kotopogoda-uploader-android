@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import timber.log.Timber
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -257,9 +258,21 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun onAutoDeleteAfterUploadChanged(enabled: Boolean) {
+        val current = uiState.value.autoDeleteAfterUpload
+        if (enabled == current) {
+            return
+        }
+        Timber.tag(DELETION_QUEUE_TAG).i(
+            structuredLog(
+                "phase" to "settings",
+                "event" to "autodelete_setting_changed",
+                "value" to enabled,
+                "previous" to current,
+            )
+        )
         togglePreference(
             enabled = enabled,
-            currentValue = uiState.value.autoDeleteAfterUpload,
+            currentValue = current,
             updateState = { value -> _uiState.update { it.copy(autoDeleteAfterUpload = value) } },
             block = { settingsRepository.setAutoDeleteAfterUpload(enabled) }
         )
@@ -307,3 +320,5 @@ sealed interface SettingsEvent {
     data class OpenDocs(val url: String) : SettingsEvent
     data object RequestNotificationPermission : SettingsEvent
 }
+
+private const val DELETION_QUEUE_TAG = "DeletionQueue"
