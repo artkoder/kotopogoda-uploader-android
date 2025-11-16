@@ -46,7 +46,6 @@ import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material3.Badge
@@ -136,7 +135,6 @@ import kotlin.math.roundToInt
 fun ViewerRoute(
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
-    onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     isNetworkValidated: Boolean,
@@ -298,7 +296,6 @@ fun ViewerRoute(
         observeDeletionQueued = viewModel::observeDeletionQueued,
         onBack = onBack,
         onOpenQueue = onOpenQueue,
-        onOpenStatus = onOpenStatus,
         onOpenSettings = onOpenSettings,
         healthState = healthState,
         isNetworkValidated = isNetworkValidated,
@@ -360,7 +357,6 @@ internal fun ViewerScreen(
     observeDeletionQueued: (PhotoItem?) -> Flow<Boolean> = { flowOf(false) },
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
-    onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
     healthState: HealthState,
     isNetworkValidated: Boolean,
@@ -591,7 +587,6 @@ internal fun ViewerScreen(
         topBar = {
             ViewerTopBar(
                 onOpenQueue = onOpenQueue,
-                onOpenStatus = onOpenStatus,
                 onOpenJumpToDate = { showJumpSheet = true },
                 onScrollToNewest = onScrollToNewest,
                 onOpenSettings = onOpenSettings,
@@ -820,7 +815,6 @@ private fun ViewerSelectionThumbnail(
 @Composable
 private fun ViewerTopBar(
     onOpenQueue: () -> Unit,
-    onOpenStatus: () -> Unit,
     onOpenJumpToDate: () -> Unit,
     onScrollToNewest: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -835,16 +829,12 @@ private fun ViewerTopBar(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
+                ConfirmDeletionBar(
+                    pendingCount = deletionConfirmationUiState.pendingCount,
+                    inProgress = deletionConfirmationUiState.inProgress,
+                    onConfirm = onConfirmDeletion,
                     modifier = Modifier.weight(1f)
-                ) {
-                    ConfirmDeletionBar(
-                        pendingCount = deletionConfirmationUiState.pendingCount,
-                        inProgress = deletionConfirmationUiState.inProgress,
-                        onConfirm = onConfirmDeletion,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                )
                 val status = if (isNetworkValidated) {
                     healthState.status
                 } else {
@@ -863,7 +853,6 @@ private fun ViewerTopBar(
             ViewerTopBarActions(
                 onScrollToNewest = onScrollToNewest,
                 onOpenJumpToDate = onOpenJumpToDate,
-                onOpenStatus = onOpenStatus,
                 onOpenQueue = onOpenQueue,
                 onOpenSettings = onOpenSettings
             )
@@ -876,7 +865,6 @@ private fun ViewerTopBar(
 private fun ViewerTopBarActions(
     onScrollToNewest: () -> Unit,
     onOpenJumpToDate: () -> Unit,
-    onOpenStatus: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -896,12 +884,6 @@ private fun ViewerTopBarActions(
             Icon(
                 imageVector = Icons.Rounded.CalendarMonth,
                 contentDescription = stringResource(id = R.string.viewer_open_calendar)
-            )
-        }
-        IconButton(onClick = onOpenStatus) {
-            Icon(
-                imageVector = Icons.Rounded.Info,
-                contentDescription = stringResource(id = R.string.viewer_open_status)
             )
         }
         IconButton(onClick = onOpenQueue) {

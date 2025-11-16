@@ -141,7 +141,6 @@ fun KotopogodaNavHost(
                     ViewerRoute(
                         onBack = navigateBack,
                         onOpenQueue = { navController.navigate(QUEUE_ROUTE) },
-                        onOpenStatus = { navController.navigate(STATUS_ROUTE) },
                         onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
                         healthState = healthState,
                         isNetworkValidated = isNetworkValidated,
