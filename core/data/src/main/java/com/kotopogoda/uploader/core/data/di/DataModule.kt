@@ -21,6 +21,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlin.jvm.JvmSuppressWildcards
 import java.time.Clock
 import javax.inject.Singleton
 
@@ -105,7 +106,7 @@ object DataModule {
         metadataReader: MediaStorePhotoMetadataReader,
         @ApplicationContext context: Context,
         clock: Clock,
-        successListeners: Set<UploadSuccessListener>,
+        successListeners: @JvmSuppressWildcards Set<UploadSuccessListener>,
     ): UploadQueueRepository = UploadQueueRepository(
         uploadItemDao = uploadItemDao,
         photoDao = photoDao,
