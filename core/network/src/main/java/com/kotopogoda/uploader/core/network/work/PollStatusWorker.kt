@@ -342,7 +342,7 @@ class PollStatusWorker @AssistedInject constructor(
         }
         recordCompletionState(completionState, displayName)
         uploadQueueRepository.markSucceeded(itemId)
-        cleanupCoordinator.onUploadSucceeded(
+        cleanupCoordinator.handleUploadSuccess(
             itemId = itemId,
             uploadUri = uri,
             displayName = displayName,

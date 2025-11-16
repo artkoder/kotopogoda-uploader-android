@@ -72,7 +72,7 @@ class PollStatusWorkerTest {
         uploadQueueRepository = mockk(relaxed = true)
         coEvery { uploadQueueRepository.findSourceForItem(any()) } returns null
         cleanupCoordinator = mockk(relaxed = true)
-        coEvery { cleanupCoordinator.onUploadSucceeded(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
+        coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
         mediaStoreDeleteLauncher = TestMediaStoreDeleteLauncher()
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
@@ -180,7 +180,7 @@ class PollStatusWorkerTest {
         )
         assertFalse(file.exists())
         coVerify(exactly = 1) {
-            cleanupCoordinator.onUploadSucceeded(
+            cleanupCoordinator.handleUploadSuccess(
                 itemId = 1L,
                 uploadUri = any(),
                 displayName = "photo.jpg",
@@ -219,7 +219,7 @@ class PollStatusWorkerTest {
         assertTrue(result is Success)
         assertFalse(sourceFile.exists())
         coVerify(exactly = 1) {
-            cleanupCoordinator.onUploadSucceeded(
+            cleanupCoordinator.handleUploadSuccess(
                 itemId = 1L,
                 uploadUri = any(),
                 displayName = "photo.jpg",
@@ -260,7 +260,7 @@ class PollStatusWorkerTest {
             result.outputData.getString(UploadEnqueuer.KEY_COMPLETION_STATE)
         )
         coVerify(exactly = 1) {
-            cleanupCoordinator.onUploadSucceeded(
+            cleanupCoordinator.handleUploadSuccess(
                 itemId = 1L,
                 uploadUri = any(),
                 displayName = "photo.jpg",
@@ -324,7 +324,7 @@ class PollStatusWorkerTest {
 
         assertTrue(result is Success)
         coVerify(exactly = 1) {
-            cleanupCoordinator.onUploadSucceeded(
+            cleanupCoordinator.handleUploadSuccess(
                 itemId = 1L,
                 uploadUri = any(),
                 displayName = "photo.jpg",

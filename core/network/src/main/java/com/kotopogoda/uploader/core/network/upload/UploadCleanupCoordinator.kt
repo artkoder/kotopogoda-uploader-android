@@ -6,10 +6,13 @@ import com.kotopogoda.uploader.core.data.deletion.DeletionRequest
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
+import com.kotopogoda.uploader.core.data.upload.UploadSuccessListener
 import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.settings.SettingsRepository
+import dagger.Lazy
 import java.util.ArrayDeque
 import java.util.LinkedHashSet
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
@@ -19,13 +22,42 @@ import timber.log.Timber
 class UploadCleanupCoordinator @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val deletionQueueRepository: DeletionQueueRepository,
-    private val uploadQueueRepository: UploadQueueRepository,
-) {
+    private val uploadQueueRepository: Lazy<UploadQueueRepository>,
+) : UploadSuccessListener {
 
     private val handledItemIds = LinkedHashSet<Long>()
     private val handledOrder = ArrayDeque<Long>()
 
-    suspend fun onUploadSucceeded(
+    override suspend fun onUploadSucceeded(
+        itemId: Long,
+        photoId: String,
+        contentUri: Uri?,
+        displayName: String,
+        sizeBytes: Long?,
+        trigger: String,
+        uploadId: String?,
+    ) {
+        val event = SuccessEvent(
+            itemId = itemId,
+            photoId = photoId,
+            contentUri = contentUri,
+            displayName = displayName,
+            sizeBytes = sizeBytes,
+            trigger = trigger,
+            uploadId = uploadId,
+        )
+        val result = handleUploadSuccess(
+            itemId = event.itemId,
+            uploadUri = event.contentUri,
+            displayName = event.displayName,
+            reportedSizeBytes = event.sizeBytes,
+            httpCode = null,
+            successKind = trigger.toSuccessKind(),
+        )
+        logHookResult(event, result)
+    }
+
+    suspend fun handleUploadSuccess(
         itemId: Long,
         uploadUri: Uri?,
         displayName: String,
@@ -107,7 +139,7 @@ class UploadCleanupCoordinator @Inject constructor(
             return CleanupResult.Skipped(SkipReason.ALREADY_PROCESSED)
         }
 
-        val sourceInfo = runCatching { uploadQueueRepository.findSourceForItem(itemId) }.getOrElse { error ->
+        val sourceInfo = runCatching { uploadQueueRepository.get().findSourceForItem(itemId) }.getOrElse { error ->
             logCleanupDecision(
                 itemId = itemId,
                 mediaId = initialMediaId,
@@ -314,6 +346,29 @@ class UploadCleanupCoordinator @Inject constructor(
         }
     }
 
+    private fun logHookResult(event: SuccessEvent, result: CleanupResult) {
+        val mediaId = when (result) {
+            is CleanupResult.Success -> result.mediaId
+            is CleanupResult.Skipped, is CleanupResult.Failure ->
+                event.contentUri.extractMediaId() ?: event.photoId.extractMediaIdCandidate()
+        }
+        val enqueued = result is CleanupResult.Success && result.enqueuedCount > 0
+        val outcome = when (result) {
+            is CleanupResult.Success -> "success"
+            is CleanupResult.Skipped -> "skipped_${result.reason.name.lowercase(Locale.US)}"
+            is CleanupResult.Failure -> "failure_${result.reason.name.lowercase(Locale.US)}"
+        }
+        Timber.tag(DELETION_QUEUE_TAG).i(
+            "auto_delete: enqueue on success, mediaId=%s, uri=%s, enqueued=%s, reason=%s, trigger=%s, outcome=%s",
+            mediaId?.toString() ?: "unknown",
+            event.contentUri?.toString() ?: "unknown",
+            enqueued,
+            DELETION_REASON_UPLOADED_CLEANUP,
+            event.trigger.lowercase(Locale.US),
+            outcome,
+        )
+    }
+
     private fun logSuccessDetected(
         itemId: Long,
         mediaId: Long?,
@@ -399,6 +454,22 @@ class UploadCleanupCoordinator @Inject constructor(
         }
     }
 
+    private data class SuccessEvent(
+        val itemId: Long,
+        val photoId: String,
+        val contentUri: Uri?,
+        val displayName: String,
+        val sizeBytes: Long?,
+        val trigger: String,
+        val uploadId: String?,
+    )
+
+    private fun String.toSuccessKind(): String = when (this) {
+        UploadSuccessListener.TRIGGER_ACCEPTED -> SUCCESS_KIND_QUEUE_ACCEPTED
+        UploadSuccessListener.TRIGGER_SUCCEEDED -> SUCCESS_KIND_QUEUE_SUCCEEDED
+        else -> this
+    }
+
     sealed class CleanupResult {
         data class Success(val mediaId: Long, val enqueuedCount: Int) : CleanupResult()
         data class Skipped(val reason: SkipReason) : CleanupResult()
@@ -422,6 +493,8 @@ class UploadCleanupCoordinator @Inject constructor(
         private const val CATEGORY_CLEANUP = "UPLOAD/CLEANUP"
         private const val ACTION_SUCCESS_DETECTED = "upload_success_detected"
         private const val ACTION_ENQUEUED_FOR_CLEANUP = "enqueued_for_cleanup"
+        private const val SUCCESS_KIND_QUEUE_ACCEPTED = "queue_mark_accepted"
+        private const val SUCCESS_KIND_QUEUE_SUCCEEDED = "queue_mark_succeeded"
         private const val DELETION_REASON_UPLOADED_CLEANUP = "uploaded_cleanup"
         private const val REASON_SETTINGS_DISABLED = "setting_disabled"
         private const val REASON_ALREADY_PROCESSED = "already_enqueued"

@@ -11,6 +11,7 @@ import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
 import com.kotopogoda.uploader.core.data.util.Hashing
 import com.kotopogoda.uploader.core.work.UploadErrorKind
 import java.time.Clock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -27,6 +28,7 @@ class UploadQueueRepository @Inject constructor(
     private val metadataReader: MediaStorePhotoMetadataReader,
     private val contentResolver: ContentResolver,
     private val clock: Clock,
+    private val successListeners: Set<UploadSuccessListener>,
 ) {
 
     fun observeQueue(): Flow<List<UploadQueueEntry>> {
@@ -425,6 +427,11 @@ class UploadQueueRepository @Inject constructor(
                 }.toTypedArray(),
             ),
         )
+        notifySuccess(
+            id = id,
+            uploadId = uploadId,
+            trigger = UploadSuccessListener.TRIGGER_ACCEPTED,
+        )
     }
 
     suspend fun markSucceeded(id: Long) = withContext(Dispatchers.IO) {
@@ -443,6 +450,60 @@ class UploadQueueRepository @Inject constructor(
                 ),
             ),
         )
+        notifySuccess(
+            id = id,
+            uploadId = null,
+            trigger = UploadSuccessListener.TRIGGER_SUCCEEDED,
+        )
+    }
+
+    private suspend fun notifySuccess(
+        id: Long,
+        uploadId: String?,
+        trigger: String,
+    ) {
+        if (successListeners.isEmpty()) {
+            return
+        }
+        val entity = runCatching { uploadItemDao.getById(id) }.getOrElse { error ->
+            Timber.tag("Queue").w(
+                error,
+                "Failed to load queue item for success listeners: queue_item_id=%d",
+                id,
+            )
+            return
+        } ?: run {
+            Timber.tag("Queue").w(
+                "Upload success listeners skipped: queue_item_id=%d missing",
+                id,
+            )
+            return
+        }
+        val displayName = entity.displayName.takeIf { it.isNotBlank() } ?: DEFAULT_DISPLAY_NAME
+        val contentUri = entity.uri.toUriOrNull()
+        val sizeBytes = entity.size.takeIf { it > 0 }
+        for (listener in successListeners) {
+            try {
+                listener.onUploadSucceeded(
+                    itemId = id,
+                    photoId = entity.photoId,
+                    contentUri = contentUri,
+                    displayName = displayName,
+                    sizeBytes = sizeBytes,
+                    trigger = trigger,
+                    uploadId = uploadId,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                Timber.tag("Queue").w(
+                    error,
+                    "Upload success listener failed: queue_item_id=%d, trigger=%s",
+                    id,
+                    trigger,
+                )
+            }
+        }
     }
 
     suspend fun findSourceForItem(id: Long): UploadSourceInfo? = withContext(Dispatchers.IO) {

@@ -159,7 +159,7 @@ class UploadProcessorWorker @AssistedInject constructor(
                                     ),
                                 )
                             )
-                            cleanupCoordinator.onUploadSucceeded(
+                            cleanupCoordinator.handleUploadSuccess(
                                 itemId = item.id,
                                 uploadUri = item.uri,
                                 displayName = item.displayName,

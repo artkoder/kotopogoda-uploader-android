@@ -351,6 +351,7 @@ class QueueViewModelTest {
             metadataReader = mockk(relaxed = true),
             contentResolver = mockk(relaxed = true),
             clock = repositoryClock,
+            successListeners = emptySet(),
         )
 
         val viewModel = QueueViewModel(
