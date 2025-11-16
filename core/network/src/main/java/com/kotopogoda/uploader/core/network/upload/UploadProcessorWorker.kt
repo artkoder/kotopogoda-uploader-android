@@ -1,6 +1,7 @@
 package com.kotopogoda.uploader.core.network.upload
 
 import android.content.Context
+import android.net.Uri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -102,7 +103,7 @@ class UploadProcessorWorker @AssistedInject constructor(
                     ),
                 )
             )
-            val mediaId = item.uri.lastPathSegment?.toLongOrNull()
+            val mediaId = item.uri.extractMediaId()
             if (mediaId != null) {
                 deletionQueueRepository.markUploading(listOf(mediaId), true)
             }
@@ -264,6 +265,19 @@ class UploadProcessorWorker @AssistedInject constructor(
         private const val CATEGORY = "WORK/UPLOAD_PROCESSOR"
         private const val SUCCESS_KIND_PROCESSOR = "processor_success"
     }
+}
+
+private fun Uri.extractMediaId(): Long? {
+    return extractMediaIdFromRaw(lastPathSegment) ?: extractMediaIdFromRaw(toString())
+}
+
+private fun extractMediaIdFromRaw(raw: String?): Long? {
+    if (raw.isNullOrBlank()) return null
+    val decoded = Uri.decode(raw)
+    decoded.toLongOrNull()?.let { return it }
+    decoded.substringAfterLast(':', "").takeIf { it.isNotEmpty() }?.toLongOrNull()?.let { return it }
+    decoded.substringAfterLast('/', "").takeIf { it.isNotEmpty() }?.toLongOrNull()?.let { return it }
+    return null
 }
 
 private fun Throwable.toUploadErrorKind(): UploadErrorKind = when (this) {

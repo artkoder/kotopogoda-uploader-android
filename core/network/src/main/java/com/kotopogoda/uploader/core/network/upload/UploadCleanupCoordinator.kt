@@ -5,8 +5,10 @@ import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.deletion.DeletionRequest
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import java.util.ArrayDeque
+import java.util.LinkedHashSet
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
@@ -30,7 +32,7 @@ class UploadCleanupCoordinator @Inject constructor(
         httpCode: Int?,
         successKind: String,
     ): CleanupResult {
-        val initialMediaId = uploadUri?.lastPathSegment?.toLongOrNull()
+        val initialMediaId = uploadUri.extractMediaId()
         logSuccessDetected(
             itemId = itemId,
             mediaId = initialMediaId,
@@ -97,9 +99,11 @@ class UploadCleanupCoordinator @Inject constructor(
             return CleanupResult.Skipped(SkipReason.MISSING_CONTENT_URI)
         }
 
-        val resolvedMediaId = initialMediaId
-            ?: sourceInfo?.photoId?.toLongOrNull()
-            ?: contentUri.lastPathSegment?.toLongOrNull()
+        val resolvedMediaId = resolveMediaId(
+            initialMediaId = initialMediaId,
+            sourceInfo = sourceInfo,
+            contentUri = contentUri,
+        )
         if (resolvedMediaId == null) {
             logCleanupDecision(
                 itemId = itemId,
@@ -157,6 +161,44 @@ class UploadCleanupCoordinator @Inject constructor(
             )
             CleanupResult.Skipped(SkipReason.ENQUEUE_DUPLICATE)
         }
+    }
+
+    private fun resolveMediaId(
+        initialMediaId: Long?,
+        sourceInfo: UploadSourceInfo?,
+        contentUri: Uri,
+    ): Long? {
+        if (initialMediaId != null) {
+            return initialMediaId
+        }
+        val sourceId = sourceInfo?.photoId.extractMediaIdCandidate()
+        if (sourceId != null) {
+            return sourceId
+        }
+        val sourceUriId = sourceInfo?.uri.extractMediaId()
+        if (sourceUriId != null) {
+            return sourceUriId
+        }
+        return contentUri.extractMediaId()
+    }
+
+    private fun String?.extractMediaIdCandidate(): Long? {
+        if (this.isNullOrBlank()) return null
+        return extractMediaIdFromRaw(this)
+    }
+
+    private fun Uri?.extractMediaId(): Long? {
+        if (this == null) return null
+        return extractMediaIdFromRaw(lastPathSegment) ?: extractMediaIdFromRaw(toString())
+    }
+
+    private fun extractMediaIdFromRaw(raw: String?): Long? {
+        if (raw.isNullOrBlank()) return null
+        val decoded = Uri.decode(raw)
+        decoded.toLongOrNull()?.let { return it }
+        decoded.substringAfterLast(':', "").takeIf { it.isNotEmpty() }?.toLongOrNull()?.let { return it }
+        decoded.substringAfterLast('/', "").takeIf { it.isNotEmpty() }?.toLongOrNull()?.let { return it }
+        return null
     }
 
     private fun isHandled(itemId: Long): Boolean = synchronized(handledItemIds) {

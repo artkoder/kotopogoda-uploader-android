@@ -13,6 +13,7 @@ import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadItemState
 import com.kotopogoda.uploader.core.data.upload.UploadQueueItem
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator
 import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator.CleanupResult
 import com.kotopogoda.uploader.core.network.upload.UploadCleanupCoordinator.SkipReason
 import com.kotopogoda.uploader.core.network.upload.UploadTaskRunner.UploadTaskResult
