@@ -9,6 +9,7 @@ import com.kotopogoda.uploader.R
 import com.kotopogoda.uploader.core.logging.LogManager
 import com.kotopogoda.uploader.core.logging.LogsExportResult
 import com.kotopogoda.uploader.core.logging.LogsExporter
+import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.AppSettingsModule

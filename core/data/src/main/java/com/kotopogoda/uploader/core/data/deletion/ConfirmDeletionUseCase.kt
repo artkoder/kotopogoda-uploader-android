@@ -16,6 +16,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.kotopogoda.uploader.core.logging.structuredLog
 import timber.log.Timber
 
 class ConfirmDeletionUseCase @Inject constructor(
@@ -33,34 +34,100 @@ class ConfirmDeletionUseCase @Inject constructor(
             context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
         }
         if (missingPermissions.isNotEmpty()) {
+            val attributes = mutableListOf<Pair<String, Any?>>(
+                "phase" to "confirm_prepare",
+                "event" to "permission_required",
+                "missing_count" to missingPermissions.size,
+            )
+            Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
             return@withContext PrepareResult.PermissionRequired(missingPermissions.toSet())
         }
 
         val pendingItems = deletionQueueRepository.getPending()
-        if (pendingItems.isEmpty()) {
+        val totalPending = pendingItems.size
+        if (totalPending == 0) {
+            Timber.tag(TAG).i(structuredLog("phase" to "confirm_prepare", "event" to "no_pending"))
             return@withContext PrepareResult.NoPending
         }
 
         val batchItems = buildBatchItems(pendingItems)
-        if (batchItems.isEmpty()) {
+        val validCount = batchItems.size
+        val invalidCount = totalPending - validCount
+        if (validCount == 0) {
+            val attributes = mutableListOf<Pair<String, Any?>>(
+                "phase" to "confirm_prepare",
+                "event" to "no_valid_items",
+                "pending_total" to totalPending,
+            )
+            if (invalidCount > 0) {
+                attributes += "pending_invalid" to invalidCount
+            }
+            Timber.tag(TAG).w(structuredLog(*attributes.toTypedArray()))
             return@withContext PrepareResult.NoPending
         }
 
+        val normalizedChunkSize = chunkSize.coerceAtLeast(1)
         if (isAtLeastR()) {
-            val batches = batchItems
-                .chunked(chunkSize.coerceAtLeast(1))
-                .mapIndexed { index, chunk ->
-                    val pendingIntent = deleteRequestFactory.create(contentResolver, chunk.map { it.uri })
-                    DeleteBatch(
-                        id = UUID.randomUUID().toString(),
-                        index = index,
-                        items = chunk,
-                        intentSender = IntentSenderWrapper(pendingIntent.intentSender),
-                        requiresRetryAfterApproval = false,
-                    )
+            val chunks = batchItems.chunked(normalizedChunkSize)
+            val chunkTotal = chunks.size
+            if (chunkTotal == 0) {
+                val attributes = mutableListOf<Pair<String, Any?>>(
+                    "phase" to "confirm_prepare",
+                    "event" to "no_pending",
+                    "pending_total" to validCount,
+                )
+                if (invalidCount > 0) {
+                    attributes += "pending_invalid" to invalidCount
                 }
+                Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
+                return@withContext PrepareResult.NoPending
+            }
+            val batches = chunks.mapIndexed { index, chunk ->
+                val batchId = UUID.randomUUID().toString()
+                val attributes = mutableListOf<Pair<String, Any?>>(
+                    "phase" to "confirm_prepare",
+                    "event" to "batch_created",
+                    "batch_id" to batchId,
+                    "chunk_index" to index + 1,
+                    "chunk_total" to chunkTotal,
+                    "chunk_size" to chunk.size,
+                    "pending_total" to validCount,
+                )
+                if (invalidCount > 0) {
+                    attributes += "pending_invalid" to invalidCount
+                }
+                Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
+                val pendingIntent = deleteRequestFactory.create(contentResolver, chunk.map { it.uri })
+                DeleteBatch(
+                    id = batchId,
+                    index = index,
+                    items = chunk,
+                    intentSender = IntentSenderWrapper(pendingIntent.intentSender),
+                    requiresRetryAfterApproval = false,
+                )
+            }
+            val summaryAttributes = mutableListOf<Pair<String, Any?>>(
+                "phase" to "confirm_prepare",
+                "event" to "batches_ready",
+                "batch_total" to chunkTotal,
+                "pending_total" to validCount,
+            )
+            if (invalidCount > 0) {
+                summaryAttributes += "pending_invalid" to invalidCount
+            }
+            Timber.tag(TAG).i(structuredLog(*summaryAttributes.toTypedArray()))
             return@withContext PrepareResult.Ready(batches = batches, initialOutcome = Outcome())
         }
+
+        val summaryAttributes = mutableListOf<Pair<String, Any?>>(
+            "phase" to "confirm_prepare",
+            "event" to "legacy_execute",
+            "pending_total" to validCount,
+        )
+        if (invalidCount > 0) {
+            summaryAttributes += "pending_invalid" to invalidCount
+        }
+        Timber.tag(TAG).i(structuredLog(*summaryAttributes.toTypedArray()))
 
         val successes = mutableListOf<BatchItem>()
         val failures = mutableListOf<BatchItem>()
@@ -77,23 +144,40 @@ class ConfirmDeletionUseCase @Inject constructor(
                 }
             } catch (error: RecoverableSecurityException) {
                 val intentSender = error.userAction.actionIntent.intentSender
+                val batchId = UUID.randomUUID().toString()
                 pendingBatches += DeleteBatch(
-                    id = UUID.randomUUID().toString(),
+                    id = batchId,
                     index = index,
                     items = listOf(item),
                     intentSender = IntentSenderWrapper(intentSender),
                     requiresRetryAfterApproval = true,
                 )
-                Timber.tag(TAG).i(
-                    error,
-                    "Требуется подтверждение пользователя для удаления %s",
-                    item.uri
+                val attributes = mutableListOf<Pair<String, Any?>>(
+                    "phase" to "confirm_prepare",
+                    "event" to "permission_prompt",
+                    "batch_id" to batchId,
+                    "item_index" to index,
+                    "pending_total" to validCount,
+                    "item_uri" to item.uri.toString(),
                 )
+                Timber.tag(TAG).i(error, structuredLog(*attributes.toTypedArray()))
             } catch (security: SecurityException) {
-                Timber.tag(TAG).w(security, "Отказано в доступе при удалении %s", item.uri)
+                val attributes = mutableListOf<Pair<String, Any?>>(
+                    "phase" to "confirm_prepare",
+                    "event" to "delete_security_error",
+                    "item_index" to index,
+                    "item_uri" to item.uri.toString(),
+                )
+                Timber.tag(TAG).w(security, structuredLog(*attributes.toTypedArray()))
                 failures += item
             } catch (throwable: Throwable) {
-                Timber.tag(TAG).w(throwable, "Не удалось удалить %s", item.uri)
+                val attributes = mutableListOf<Pair<String, Any?>>(
+                    "phase" to "confirm_prepare",
+                    "event" to "delete_error",
+                    "item_index" to index,
+                    "item_uri" to item.uri.toString(),
+                )
+                Timber.tag(TAG).w(throwable, structuredLog(*attributes.toTypedArray()))
                 failures += item
             }
         }
@@ -108,8 +192,31 @@ class ConfirmDeletionUseCase @Inject constructor(
         )
 
         if (pendingBatches.isEmpty() && !initialOutcome.hasChanges) {
+            Timber.tag(TAG).i(
+                structuredLog(
+                    "phase" to "confirm_prepare",
+                    "event" to "no_pending_after_updates",
+                    "pending_total" to validCount,
+                    "confirmed" to successes.size,
+                    "failed" to failures.size,
+                    "skipped" to skipped.size,
+                )
+            )
             return@withContext PrepareResult.NoPending
         }
+
+        Timber.tag(TAG).i(
+            structuredLog(
+                "phase" to "confirm_prepare",
+                "event" to "ready_for_confirmation",
+                "pending_total" to validCount,
+                "batches_pending" to pendingBatches.size,
+                "confirmed_initial" to successes.size,
+                "failed_initial" to failures.size,
+                "skipped_initial" to skipped.size,
+                "freed_bytes_initial" to initialOutcome.freedBytes,
+            )
+        )
 
         PrepareResult.Ready(
             batches = pendingBatches,
@@ -123,7 +230,14 @@ class ConfirmDeletionUseCase @Inject constructor(
         data: Intent?,
     ): BatchProcessingResult = withContext(ioDispatcher) {
         if (resultCode != Activity.RESULT_OK) {
-            Timber.tag(TAG).i("Пользователь отменил подтверждение удаления для батча %s", batch.id)
+            Timber.tag(TAG).i(
+                structuredLog(
+                    "phase" to "confirm_result",
+                    "event" to "cancelled",
+                    "batch_id" to batch.id,
+                    "result_code" to resultCode,
+                )
+            )
             deletionAnalytics.deletionCancelled(batch.id)
             return@withContext BatchProcessingResult.Cancelled
         }
@@ -137,10 +251,26 @@ class ConfirmDeletionUseCase @Inject constructor(
                 val deletedCount = try {
                     contentResolver.delete(item.uri, null, null)
                 } catch (security: SecurityException) {
-                    Timber.tag(TAG).w(security, "Повторное удаление %s завершилось с ошибкой", item.uri)
+                    Timber.tag(TAG).w(
+                        security,
+                        structuredLog(
+                            "phase" to "confirm_result",
+                            "event" to "retry_delete_security_error",
+                            "batch_id" to batch.id,
+                            "item_uri" to item.uri.toString(),
+                        )
+                    )
                     -1
                 } catch (throwable: Throwable) {
-                    Timber.tag(TAG).w(throwable, "Повторное удаление %s завершилось исключением", item.uri)
+                    Timber.tag(TAG).w(
+                        throwable,
+                        structuredLog(
+                            "phase" to "confirm_result",
+                            "event" to "retry_delete_error",
+                            "batch_id" to batch.id,
+                            "item_uri" to item.uri.toString(),
+                        )
+                    )
                     -1
                 }
                 when {
@@ -170,12 +300,17 @@ class ConfirmDeletionUseCase @Inject constructor(
         )
 
         Timber.tag(TAG).i(
-            "Результат батча %s: confirmed=%d, failed=%d, skipped=%d, freed=%d",
-            batch.id,
-            outcome.confirmedCount,
-            outcome.failedCount,
-            outcome.skippedCount,
-            outcome.freedBytes,
+            structuredLog(
+                "phase" to "confirm_result",
+                "event" to "batch_completed",
+                "batch_id" to batch.id,
+                "result_code" to resultCode,
+                "confirmed" to outcome.confirmedCount,
+                "failed" to outcome.failedCount,
+                "skipped" to outcome.skippedCount,
+                "freed_bytes" to outcome.freedBytes,
+                "requires_retry" to batch.requiresRetryAfterApproval,
+            )
         )
 
         BatchProcessingResult.Completed(outcome)
@@ -183,33 +318,57 @@ class ConfirmDeletionUseCase @Inject constructor(
 
     suspend fun reconcilePending(): Int = withContext(ioDispatcher) {
         val pendingItems = deletionQueueRepository.getPending()
-        if (pendingItems.isEmpty()) {
-            Timber.tag(TAG).i("Реконсиляция очереди: нет элементов для проверки")
+        val totalPending = pendingItems.size
+        if (totalPending == 0) {
+            Timber.tag(TAG).i(structuredLog("phase" to "reconcile", "event" to "no_pending"))
             return@withContext 0
         }
 
         val batchItems = buildBatchItems(pendingItems)
-        if (batchItems.isEmpty()) {
-            Timber.tag(TAG).i("Реконсиляция очереди: валидных элементов не найдено")
+        val validCount = batchItems.size
+        val invalidCount = totalPending - validCount
+        if (validCount == 0) {
+            val attributes = mutableListOf<Pair<String, Any?>>(
+                "phase" to "reconcile",
+                "event" to "no_valid_items",
+                "pending_total" to totalPending,
+            )
+            if (invalidCount > 0) {
+                attributes += "pending_invalid" to invalidCount
+            }
+            Timber.tag(TAG).w(structuredLog(*attributes.toTypedArray()))
             return@withContext 0
         }
 
         val confirmed = batchItems.filter { isMissingFromStore(it.uri) }
+        val remaining = validCount - confirmed.size
         if (confirmed.isEmpty()) {
-            Timber.tag(TAG).i(
-                "Реконсиляция очереди: все %d элементов по-прежнему доступны",
-                batchItems.size,
+            val attributes = mutableListOf<Pair<String, Any?>>(
+                "phase" to "reconcile",
+                "event" to "no_changes",
+                "pending_total" to validCount,
+                "failures" to remaining,
             )
+            if (invalidCount > 0) {
+                attributes += "pending_invalid" to invalidCount
+            }
+            Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
             return@withContext 0
         }
 
         val freedBytes = confirmed.sumOf { it.resolvedSize ?: 0L }
-        Timber.tag(TAG).i(
-            "Реконсиляция очереди подтвердила удаление %d из %d элементов (freed=%d)",
-            confirmed.size,
-            batchItems.size,
-            freedBytes,
+        val attributes = mutableListOf<Pair<String, Any?>>(
+            "phase" to "reconcile",
+            "event" to "confirmed_by_reconcile",
+            "pending_total" to validCount,
+            "confirmed" to confirmed.size,
+            "failures" to remaining,
+            "freed_bytes" to freedBytes,
         )
+        if (invalidCount > 0) {
+            attributes += "pending_invalid" to invalidCount
+        }
+        Timber.tag(TAG).i(structuredLog(*attributes.toTypedArray()))
 
         applyRepositoryUpdates(
             successes = confirmed,
@@ -224,7 +383,13 @@ class ConfirmDeletionUseCase @Inject constructor(
         items.mapNotNull { item ->
             val uri = runCatching { Uri.parse(item.contentUri) }.getOrNull()
             if (uri == null) {
-                Timber.tag(TAG).w("Некорректный URI: %s", item.contentUri)
+                Timber.tag(TAG).w(
+                    structuredLog(
+                        "phase" to "prepare_items",
+                        "event" to "invalid_uri",
+                        "content_uri" to item.contentUri,
+                    )
+                )
                 return@mapNotNull null
             }
             val resolvedSize = resolveSize(uri, item.sizeBytes)
@@ -249,10 +414,24 @@ class ConfirmDeletionUseCase @Inject constructor(
                 }
             }
         } catch (security: SecurityException) {
-            Timber.tag(TAG).w(security, "Нет доступа к размеру файла %s", uri)
+            Timber.tag(TAG).w(
+                security,
+                structuredLog(
+                    "phase" to "resolve_size",
+                    "event" to "security_error",
+                    "uri" to uri.toString(),
+                )
+            )
             null
         } catch (throwable: Throwable) {
-            Timber.tag(TAG).w(throwable, "Не удалось получить размер файла %s", uri)
+            Timber.tag(TAG).w(
+                throwable,
+                structuredLog(
+                    "phase" to "resolve_size",
+                    "event" to "error",
+                    "uri" to uri.toString(),
+                )
+            )
             null
         }
     }
@@ -263,10 +442,24 @@ class ConfirmDeletionUseCase @Inject constructor(
                 !cursor.moveToFirst()
             } ?: true
         } catch (security: SecurityException) {
-            Timber.tag(TAG).w(security, "Нет доступа при проверке удаления %s", uri)
+            Timber.tag(TAG).w(
+                security,
+                structuredLog(
+                    "phase" to "reconcile",
+                    "event" to "check_security_error",
+                    "uri" to uri.toString(),
+                )
+            )
             false
         } catch (throwable: Throwable) {
-            Timber.tag(TAG).w(throwable, "Ошибка при проверке удаления %s", uri)
+            Timber.tag(TAG).w(
+                throwable,
+                structuredLog(
+                    "phase" to "reconcile",
+                    "event" to "check_error",
+                    "uri" to uri.toString(),
+                )
+            )
             false
         }
     }
@@ -276,9 +469,10 @@ class ConfirmDeletionUseCase @Inject constructor(
         failures: List<BatchItem>,
         skipped: List<BatchItem>,
     ) {
+        var freedBytes = 0L
         if (successes.isNotEmpty()) {
             deletionQueueRepository.markConfirmed(successes.map { it.item.mediaId })
-            val freedBytes = successes.sumOf { it.resolvedSize ?: 0L }
+            freedBytes = successes.sumOf { it.resolvedSize ?: 0L }
             deletionAnalytics.deletionConfirmed(successes.size, freedBytes)
         }
         if (failures.isNotEmpty()) {
@@ -286,6 +480,20 @@ class ConfirmDeletionUseCase @Inject constructor(
         }
         if (skipped.isNotEmpty()) {
             deletionQueueRepository.markSkipped(skipped.map { it.item.mediaId })
+        }
+        if (successes.isNotEmpty() || failures.isNotEmpty() || skipped.isNotEmpty()) {
+            val pendingAfter = deletionQueueRepository.getPending().size
+            Timber.tag(TAG).i(
+                structuredLog(
+                    "phase" to "repo_update",
+                    "event" to "statuses_applied",
+                    "confirmed" to successes.size,
+                    "failed" to failures.size,
+                    "skipped" to skipped.size,
+                    "freed_bytes" to freedBytes,
+                    "pending_after" to pendingAfter,
+                )
+            )
         }
     }
 
@@ -343,7 +551,7 @@ class ConfirmDeletionUseCase @Inject constructor(
     }
 
     companion object {
-        private const val TAG = "ConfirmDeletion"
+        private const val TAG = "DeletionQueue"
         private const val DEFAULT_CHUNK_SIZE = 200
         private const val CAUSE_FAILURE = "media_store_delete_failed"
         private val SIZE_PROJECTION = arrayOf(MediaStore.MediaColumns.SIZE)

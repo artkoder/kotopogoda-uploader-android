@@ -106,6 +106,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kotopogoda.uploader.core.logging.structuredLog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase
@@ -171,14 +172,23 @@ fun ViewerRoute(
     ) { result ->
         val batch = currentDeletionBatch
         Timber.tag(CONFIRM_DELETION_TAG).i(
-            "Получен результат системного подтверждения: batchId=%s, resultCode=%d",
-            batch?.id ?: "null",
-            result.resultCode,
+            structuredLog(
+                "phase" to "confirm_result",
+                "event" to "activity_result",
+                "batch_id" to batch?.id,
+                "result_code" to result.resultCode,
+            )
         )
         if (batch != null) {
             deletionConfirmationViewModel.handleBatchResult(batch, result.resultCode, result.data)
         } else {
-            Timber.tag(CONFIRM_DELETION_TAG).w("Получен результат удаления без активного батча")
+            Timber.tag(CONFIRM_DELETION_TAG).w(
+                structuredLog(
+                    "phase" to "confirm_result",
+                    "event" to "activity_result_without_batch",
+                    "result_code" to result.resultCode,
+                )
+            )
         }
         currentDeletionBatch = null
     }
@@ -243,10 +253,13 @@ fun ViewerRoute(
     val launchDeletionBatch = remember(deletionBatchLauncher, deletionConfirmationViewModel) {
         { batch: ConfirmDeletionUseCase.DeleteBatch ->
             Timber.tag(CONFIRM_DELETION_TAG).i(
-                "Запрос системного подтверждения удаления: batchId=%s, index=%d, size=%d",
-                batch.id,
-                batch.index,
-                batch.items.size,
+                structuredLog(
+                    "phase" to "confirm_prepare",
+                    "event" to "launch_intent_sender",
+                    "batch_id" to batch.id,
+                    "batch_index" to batch.index,
+                    "batch_size" to batch.items.size,
+                )
             )
             currentDeletionBatch = batch
             val request = IntentSenderRequest.Builder(batch.intentSender.intentSender).build()
@@ -254,8 +267,11 @@ fun ViewerRoute(
                 .onFailure { error ->
                     Timber.tag(CONFIRM_DELETION_TAG).e(
                         error,
-                        "Не удалось запустить системное подтверждение для батча %s",
-                        batch.id,
+                        structuredLog(
+                            "phase" to "confirm_prepare",
+                            "event" to "intent_sender_error",
+                            "batch_id" to batch.id,
+                        )
                     )
                     currentDeletionBatch = null
                     deletionConfirmationViewModel.handleBatchResult(
@@ -1638,4 +1654,4 @@ private fun EnhancementLoaderOverlay(
     }
 }
 
-private const val CONFIRM_DELETION_TAG = "ConfirmDeletion"
+private const val CONFIRM_DELETION_TAG = "DeletionQueue"
