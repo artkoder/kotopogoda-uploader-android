@@ -460,7 +460,7 @@ class UploadQueueRepository @Inject constructor(
     private suspend fun notifySuccess(
         id: Long,
         uploadId: String?,
-        trigger: UploadSuccessTrigger,
+        trigger: String,
     ) {
         if (successListeners.isEmpty()) {
             return
@@ -480,18 +480,19 @@ class UploadQueueRepository @Inject constructor(
             return
         }
         val displayName = entity.displayName.takeIf { it.isNotBlank() } ?: DEFAULT_DISPLAY_NAME
-        val event = UploadSuccessEvent(
-            itemId = id,
-            photoId = entity.photoId,
-            contentUri = entity.uri.toUriOrNull(),
-            displayName = displayName,
-            sizeBytes = entity.size.takeIf { it > 0 },
-            trigger = trigger,
-            uploadId = uploadId,
-        )
+        val contentUri = entity.uri.toUriOrNull()
+        val sizeBytes = entity.size.takeIf { it > 0 }
         for (listener in successListeners) {
             try {
-                listener.onUploadSucceeded(event)
+                listener.onUploadSucceeded(
+                    itemId = id,
+                    photoId = entity.photoId,
+                    contentUri = contentUri,
+                    displayName = displayName,
+                    sizeBytes = sizeBytes,
+                    trigger = trigger,
+                    uploadId = uploadId,
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -499,7 +500,7 @@ class UploadQueueRepository @Inject constructor(
                     error,
                     "Upload success listener failed: queue_item_id=%d, trigger=%s",
                     id,
-                    trigger.name,
+                    trigger,
                 )
             }
         }

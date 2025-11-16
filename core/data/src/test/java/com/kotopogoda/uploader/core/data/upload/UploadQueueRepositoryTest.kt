@@ -6,6 +6,7 @@ import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadata
 import com.kotopogoda.uploader.core.data.photo.MediaStorePhotoMetadataReader
 import com.kotopogoda.uploader.core.data.photo.PhotoDao
 import com.kotopogoda.uploader.core.data.photo.PhotoEntity
+import com.kotopogoda.uploader.core.data.upload.UploadSuccessListener
 import io.mockk.*
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -408,8 +409,10 @@ class UploadQueueRepositoryTest {
 
     @Test
     fun `markAccepted notifies success listeners`() = runTest {
-        val events = mutableListOf<UploadSuccessEvent>()
-        val listener = UploadSuccessListener { events += it }
+        val events = mutableListOf<SuccessCall>()
+        val listener = UploadSuccessListener { itemId, photoId, contentUri, displayName, sizeBytes, trigger, uploadId ->
+            events += SuccessCall(itemId, photoId, contentUri, displayName, sizeBytes, trigger, uploadId)
+        }
         val repository = newRepository(setOf(listener))
         val entity = UploadItemEntity(
             id = 1L,
@@ -435,14 +438,16 @@ class UploadQueueRepositoryTest {
         assertEquals(Uri.parse("content://media/external/images/media/123"), event.contentUri)
         assertEquals("IMG_0001.jpg", event.displayName)
         assertEquals(512L, event.sizeBytes)
-        assertEquals(UploadSuccessTrigger.ACCEPTED, event.trigger)
+        assertEquals(UploadSuccessListener.TRIGGER_ACCEPTED, event.trigger)
         assertEquals("upload-123", event.uploadId)
     }
 
     @Test
     fun `markSucceeded notifies success listeners`() = runTest {
-        val events = mutableListOf<UploadSuccessEvent>()
-        val listener = UploadSuccessListener { events += it }
+        val events = mutableListOf<SuccessCall>()
+        val listener = UploadSuccessListener { itemId, photoId, contentUri, displayName, sizeBytes, trigger, uploadId ->
+            events += SuccessCall(itemId, photoId, contentUri, displayName, sizeBytes, trigger, uploadId)
+        }
         val repository = newRepository(setOf(listener))
         val entity = UploadItemEntity(
             id = 2L,
@@ -464,7 +469,7 @@ class UploadQueueRepositoryTest {
         assertEquals(1, events.size)
         val event = events.single()
         assertEquals(2L, event.itemId)
-        assertEquals(UploadSuccessTrigger.SUCCEEDED, event.trigger)
+        assertEquals(UploadSuccessListener.TRIGGER_SUCCEEDED, event.trigger)
         assertEquals(null, event.uploadId)
         assertEquals(Uri.parse("content://media/external/images/media/456"), event.contentUri)
         assertEquals(2048L, event.sizeBytes)
@@ -546,3 +551,13 @@ class UploadQueueRepositoryTest {
         )
     }
 }
+
+private data class SuccessCall(
+    val itemId: Long,
+    val photoId: String,
+    val contentUri: Uri?,
+    val displayName: String,
+    val sizeBytes: Long?,
+    val trigger: String,
+    val uploadId: String?,
+)

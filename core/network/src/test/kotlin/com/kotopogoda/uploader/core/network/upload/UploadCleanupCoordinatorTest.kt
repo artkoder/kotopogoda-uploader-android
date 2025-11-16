@@ -4,9 +4,8 @@ import android.net.Uri
 import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.deletion.DeletionRequest
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
+import com.kotopogoda.uploader.core.data.upload.UploadSuccessListener
 import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
-import com.kotopogoda.uploader.core.data.upload.UploadSuccessEvent
-import com.kotopogoda.uploader.core.data.upload.UploadSuccessTrigger
 import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.core.settings.SettingsRepository
@@ -37,24 +36,23 @@ class UploadCleanupCoordinatorTest {
             uploadQueueRepository = immediateLazy(uploadQueueRepository),
         )
         val contentUri = Uri.parse("content://media/external/images/media/123")
-        val event = UploadSuccessEvent(
-            itemId = 10L,
-            photoId = "photo-10",
-            contentUri = contentUri,
-            displayName = "IMG_0010.jpg",
-            sizeBytes = 4096L,
-            trigger = UploadSuccessTrigger.ACCEPTED,
-            uploadId = "upload-123",
-        )
 
-        coEvery { uploadQueueRepository.findSourceForItem(event.itemId) } returns UploadSourceInfo(
-            photoId = event.photoId,
+        coEvery { uploadQueueRepository.findSourceForItem(10L) } returns UploadSourceInfo(
+            photoId = "photo-10",
             uri = contentUri,
             sizeBytes = 4096L,
         )
         coEvery { deletionQueueRepository.enqueue(any()) } returns 1
 
-        coordinator.onUploadSucceeded(event)
+        coordinator.onUploadSucceeded(
+            itemId = 10L,
+            photoId = "photo-10",
+            contentUri = contentUri,
+            displayName = "IMG_0010.jpg",
+            sizeBytes = 4096L,
+            trigger = UploadSuccessListener.TRIGGER_ACCEPTED,
+            uploadId = "upload-123",
+        )
 
         coVerify(exactly = 1) {
             deletionQueueRepository.enqueue(match { requests ->
@@ -109,28 +107,35 @@ class UploadCleanupCoordinatorTest {
             uploadQueueRepository = immediateLazy(uploadQueueRepository),
         )
         val contentUri = Uri.parse("content://media/external/images/media/555")
-        val event = UploadSuccessEvent(
-            itemId = 55L,
-            photoId = "photo-55",
-            contentUri = contentUri,
-            displayName = "IMG_0055.jpg",
-            sizeBytes = 2048L,
-            trigger = UploadSuccessTrigger.SUCCEEDED,
-            uploadId = null,
-        )
 
-        coEvery { uploadQueueRepository.findSourceForItem(event.itemId) } returns UploadSourceInfo(
-            photoId = event.photoId,
+        coEvery { uploadQueueRepository.findSourceForItem(55L) } returns UploadSourceInfo(
+            photoId = "photo-55",
             uri = contentUri,
             sizeBytes = 2048L,
         )
         coEvery { deletionQueueRepository.enqueue(any()) } returns 1
 
-        coordinator.onUploadSucceeded(event)
-        coordinator.onUploadSucceeded(event)
+        coordinator.onUploadSucceeded(
+            itemId = 55L,
+            photoId = "photo-55",
+            contentUri = contentUri,
+            displayName = "IMG_0055.jpg",
+            sizeBytes = 2048L,
+            trigger = UploadSuccessListener.TRIGGER_SUCCEEDED,
+            uploadId = null,
+        )
+        coordinator.onUploadSucceeded(
+            itemId = 55L,
+            photoId = "photo-55",
+            contentUri = contentUri,
+            displayName = "IMG_0055.jpg",
+            sizeBytes = 2048L,
+            trigger = UploadSuccessListener.TRIGGER_SUCCEEDED,
+            uploadId = null,
+        )
 
         coVerify(exactly = 1) { deletionQueueRepository.enqueue(any()) }
-        coVerify(exactly = 1) { uploadQueueRepository.findSourceForItem(event.itemId) }
+        coVerify(exactly = 1) { uploadQueueRepository.findSourceForItem(55L) }
     }
 
     private fun appSettings(autoDeleteAfterUpload: Boolean): AppSettings {
