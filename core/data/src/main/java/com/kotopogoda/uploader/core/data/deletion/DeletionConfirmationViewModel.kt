@@ -37,6 +37,19 @@ class DeletionConfirmationViewModel @Inject constructor(
     private var pendingBatches = mutableListOf<ConfirmDeletionUseCase.DeleteBatch>()
     private var accumulatedOutcome = ConfirmDeletionUseCase.Outcome()
 
+    init {
+        viewModelScope.launch {
+            try {
+                val reconciled = confirmDeletionUseCase.reconcilePending()
+                if (reconciled > 0) {
+                    Timber.tag(TAG).i("Реконсиляция подтвердила %d элементов", reconciled)
+                }
+            } catch (error: Exception) {
+                Timber.tag(TAG).e(error, "Ошибка реконсиляции очереди удаления")
+            }
+        }
+    }
+
     val uiState: StateFlow<DeletionConfirmationUiState> = combine(
         pendingItems,
         confirmationInProgress,
@@ -144,6 +157,14 @@ class DeletionConfirmationViewModel @Inject constructor(
                         pendingBatches.clear()
                     }
                     is ConfirmDeletionUseCase.BatchProcessingResult.Completed -> {
+                        Timber.tag(TAG).i(
+                            "Системное подтверждение батча %s завершено: confirmed=%d, failed=%d, skipped=%d, freed=%d",
+                            batch.id,
+                            processingResult.outcome.confirmedCount,
+                            processingResult.outcome.failedCount,
+                            processingResult.outcome.skippedCount,
+                            processingResult.outcome.freedBytes,
+                        )
                         accumulatedOutcome += processingResult.outcome
                         
                         if (pendingBatches.isEmpty()) {
@@ -169,6 +190,12 @@ class DeletionConfirmationViewModel @Inject constructor(
         }
         
         val batch = pendingBatches.removeAt(0)
+        Timber.tag(TAG).i(
+            "Запуск системного подтверждения удаления: batchId=%s, index=%d, size=%d",
+            batch.id,
+            batch.index,
+            batch.items.size,
+        )
         _events.emit(DeletionConfirmationEvent.LaunchBatch(batch))
     }
 

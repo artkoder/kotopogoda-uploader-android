@@ -37,6 +37,7 @@ class DeletionConfirmationViewModelTest {
     fun setUp() {
         MockKAnnotations.init(this, relaxUnitFun = true)
         every { repository.observePending() } returns pendingFlow
+        coEvery { confirmDeletionUseCase.reconcilePending() } returns 0
     }
 
     @Test
