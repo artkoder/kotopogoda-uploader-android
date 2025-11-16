@@ -96,6 +96,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
@@ -123,6 +124,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -259,6 +261,7 @@ fun ViewerRoute(
         onCancelSelection = viewModel::onCancelSelection,
         onMoveSelection = viewModel::onMoveSelection,
         onEnqueueUpload = viewModel::onEnqueueUpload,
+        onEnqueueDeletion = viewModel::onEnqueueDeletion,
         onUndo = viewModel::onUndo,
         onDelete = viewModel::onDelete,
         onDeleteSelection = viewModel::onDeleteSelection,
@@ -300,7 +303,7 @@ internal fun ViewerScreen(
     selection: Set<PhotoItem>,
     isSelectionMode: Boolean,
     observeUploadEnqueued: (PhotoItem?) -> Flow<Boolean>,
-    observeDeletionQueued: (PhotoItem?) -> Flow<Boolean>,
+    observeDeletionQueued: (PhotoItem?) -> Flow<Boolean> = { flowOf(false) },
     onBack: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenStatus: () -> Unit,
@@ -319,6 +322,7 @@ internal fun ViewerScreen(
     onMoveToProcessing: (PhotoItem?) -> Unit,
     onMoveSelection: () -> Unit,
     onEnqueueUpload: (PhotoItem?) -> Unit,
+    onEnqueueDeletion: (PhotoItem?) -> Unit = { _ -> },
     onUndo: () -> Unit,
     onDelete: (PhotoItem?) -> Unit,
     onDeleteSelection: () -> Unit,
@@ -390,10 +394,15 @@ internal fun ViewerScreen(
     } else {
         null
     }
-    val isQueuedFlow = remember(currentPhoto?.id, currentPhoto?.uri) {
+    val uploadQueuedFlow = remember(currentPhoto?.id, currentPhoto?.uri) {
         observeUploadEnqueued(currentPhoto)
     }
-    val isCurrentQueued by isQueuedFlow.collectAsState(initial = false)
+    val isCurrentUploadQueued by uploadQueuedFlow.collectAsState(initial = false)
+
+    val deletionQueuedFlow = remember(currentPhoto?.id, currentPhoto?.uri) {
+        observeDeletionQueued(currentPhoto)
+    }
+    val isCurrentDeletionQueued by deletionQueuedFlow.collectAsState(initial = false)
     val isBusy = actionInProgress != null
     if (showJumpSheet) {
         ModalBottomSheet(
@@ -558,7 +567,7 @@ internal fun ViewerScreen(
                 }
                 val processingBusy = enhancementInProgress ||
                     actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing
-                val publishBaseEnabled = !isBusy && currentPhoto != null && !isCurrentQueued && !isSelectionMode
+                val publishBaseEnabled = !isBusy && currentPhoto != null && !isCurrentUploadQueued && !isSelectionMode
                 val publishBlockedByEnhancement = publishBaseEnabled && !enhancementReady
                 ViewerActionBar(
                     isSelectionMode = isSelectionMode,
@@ -570,6 +579,8 @@ internal fun ViewerScreen(
                     processingEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !enhancementInProgress,
                     publishEnabled = publishBaseEnabled && enhancementReady,
                     deleteEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
+                    enqueueDeletionEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !isCurrentDeletionQueued,
+                    isDeletionQueued = isCurrentDeletionQueued,
                     processingBusy = processingBusy,
                     publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
                     deleteBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Delete,
@@ -578,6 +589,7 @@ internal fun ViewerScreen(
                     onSkip = { onSkip(currentPhoto) },
                     onMoveToProcessing = { onMoveToProcessing(currentPhoto) },
                     onEnqueueUpload = { onEnqueueUpload(currentPhoto) },
+                    onEnqueueDeletion = { onEnqueueDeletion(currentPhoto) },
                     onUndo = onUndo,
                     onDelete = { onDelete(currentPhoto) },
                     publishBlockedByProcessing = publishBlockedByEnhancement
@@ -652,7 +664,7 @@ internal fun ViewerScreen(
                                 )
                             }
                             
-                            if (isCurrentPage && isCurrentQueued) {
+                            if (isCurrentPage && isCurrentUploadQueued) {
                                 UploadQueuedBadge(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
@@ -990,6 +1002,8 @@ private fun ViewerActionBar(
     processingEnabled: Boolean,
     publishEnabled: Boolean,
     deleteEnabled: Boolean,
+    enqueueDeletionEnabled: Boolean,
+    isDeletionQueued: Boolean,
     processingBusy: Boolean,
     publishBusy: Boolean,
     deleteBusy: Boolean,
@@ -998,6 +1012,7 @@ private fun ViewerActionBar(
     onSkip: () -> Unit,
     onMoveToProcessing: () -> Unit,
     onEnqueueUpload: () -> Unit,
+    onEnqueueDeletion: () -> Unit,
     onUndo: () -> Unit,
     onDelete: () -> Unit,
     publishBlockedByProcessing: Boolean,
@@ -1089,7 +1104,7 @@ private fun ViewerActionBar(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 UndoActionButton(
@@ -1097,39 +1112,41 @@ private fun ViewerActionBar(
                     count = undoCount,
                     onUndo = onUndo
                 )
+                QueueDeletionButton(
+                    enabled = enqueueDeletionEnabled,
+                    queued = isDeletionQueued,
+                    onClick = onEnqueueDeletion
+                )
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                val skipColors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FilledTonalButton(
+                    onClick = onSkip,
+                    enabled = skipEnabled,
+                    modifier = Modifier.height(buttonHeight),
+                    colors = skipColors
                 ) {
-                    val skipColors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    FilledTonalButton(
-                        onClick = onSkip,
-                        enabled = skipEnabled,
-                        modifier = Modifier.height(buttonHeight),
-                        colors = skipColors
-                    ) {
-                        ActionButtonContent(text = stringResource(id = R.string.viewer_action_skip))
-                    }
+                    ActionButtonContent(text = stringResource(id = R.string.viewer_action_skip))
+                }
 
-                    val deleteColors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                Spacer(modifier = Modifier.weight(1f))
+
+                val deleteColors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+                FilledTonalButton(
+                    onClick = onDelete,
+                    enabled = deleteEnabled,
+                    modifier = Modifier.height(buttonHeight),
+                    colors = deleteColors
+                ) {
+                    ActionButtonContent(
+                        text = stringResource(id = R.string.viewer_action_delete),
+                        busy = deleteBusy
                     )
-                    FilledTonalButton(
-                        onClick = onDelete,
-                        enabled = deleteEnabled,
-                        modifier = Modifier.height(buttonHeight),
-                        colors = deleteColors
-                    ) {
-                        ActionButtonContent(
-                            text = stringResource(id = R.string.viewer_action_delete),
-                            busy = deleteBusy
-                        )
-                    }
                 }
             }
         }
@@ -1274,6 +1291,67 @@ private fun UndoActionButton(
 }
 
 @Composable
+private fun QueueDeletionButton(
+    enabled: Boolean,
+    queued: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val buttonDescription = stringResource(id = R.string.viewer_action_delete_queue)
+    val queuedStateDescription = stringResource(id = R.string.viewer_action_delete_queue_state)
+    val semanticsModifier = modifier.semantics {
+        contentDescription = buttonDescription
+        role = Role.Button
+        if (queued) {
+            stateDescription = queuedStateDescription
+        }
+        if (!enabled) {
+            disabled()
+        }
+    }
+
+    val containerColor = if (queued) {
+        MaterialTheme.colorScheme.errorContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = if (queued) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Box(modifier = semanticsModifier) {
+        Surface(
+            modifier = Modifier.size(56.dp),
+            shape = CircleShape,
+            color = containerColor,
+            contentColor = contentColor
+        ) {
+            IconButton(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Delete,
+                    contentDescription = null
+                )
+            }
+        }
+        if (queued) {
+            Badge(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 2.dp, y = (-2).dp),
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            ) { }
+        }
+    }
+}
+
+@Composable
 private fun ActionButtonContent(
     text: String,
     busy: Boolean = false
@@ -1324,6 +1402,8 @@ private fun ViewerActionBarPreview() {
             processingEnabled = true,
             publishEnabled = true,
             deleteEnabled = true,
+            enqueueDeletionEnabled = true,
+            isDeletionQueued = false,
             processingBusy = true,
             publishBusy = false,
             deleteBusy = false,
@@ -1332,6 +1412,7 @@ private fun ViewerActionBarPreview() {
             onSkip = {},
             onMoveToProcessing = {},
             onEnqueueUpload = {},
+            onEnqueueDeletion = {},
             onUndo = {},
             onDelete = {},
             publishBlockedByProcessing = true
