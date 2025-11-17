@@ -459,7 +459,31 @@ class ViewerViewModelEnhancementStateTest {
         assertTrue(stateAfterHigh.isResultReady)
     }
 
-    private fun createViewModel(): ViewerViewModel {
+    @Test
+    fun `strength change ignored when enhancement adapter unavailable`() = runTest {
+        val photo = PhotoItem(id = "photo1", uri = Uri.parse("content://photo/1"), takenAt = Instant.now())
+        val viewModel = createViewModel(nativeAdapter = null)
+        viewModel.updateVisiblePhoto(1, photo)
+        advanceUntilIdle()
+
+        val initialState = viewModel.enhancementState.first()
+        assertFalse(viewModel.isEnhancementAvailable.first())
+
+        viewModel.onEnhancementStrengthChange(0.8f)
+        viewModel.onEnhancementStrengthChangeFinished()
+        advanceUntilIdle()
+
+        val state = viewModel.enhancementState.first()
+        assertEquals(initialState, state)
+        assertEquals(0.5f, state.strength)
+        assertTrue(state.isResultReady)
+        assertFalse(state.inProgress)
+        assertTrue(state.progressByTile.isEmpty())
+    }
+
+    private fun createViewModel(
+        nativeAdapter: NativeEnhanceAdapter? = nativeEnhanceAdapter,
+    ): ViewerViewModel {
         return ViewerViewModel(
             photoRepository = photoRepository,
             folderRepository = folderRepository,
@@ -469,7 +493,7 @@ class ViewerViewModelEnhancementStateTest {
             deletionQueueRepository = deletionQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
-            nativeEnhanceAdapter = nativeEnhanceAdapter,
+            nativeEnhanceAdapter = nativeAdapter,
             settingsRepository = settingsRepository,
             savedStateHandle = SavedStateHandle(),
         )

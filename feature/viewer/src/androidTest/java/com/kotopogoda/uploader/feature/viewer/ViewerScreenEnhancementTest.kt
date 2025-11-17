@@ -8,9 +8,12 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -104,7 +107,9 @@ class ViewerScreenEnhancementTest {
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = emptyMap(),
                 onEnhancementStrengthChange = { newStrength -> strength = newStrength },
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -176,13 +181,15 @@ class ViewerScreenEnhancementTest {
                 enhancementResultUri = null,
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = emptyMap(),
-                onEnhancementStrengthChange = { newStrength -> 
+                onEnhancementStrengthChange = { newStrength ->
                     strength = newStrength
                     changedValues.add(newStrength)
                 },
                 onEnhancementStrengthChangeFinished = { newStrength ->
                     finishedValue = newStrength
-                }
+                },
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -254,12 +261,14 @@ class ViewerScreenEnhancementTest {
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = emptyMap(),
                 onEnhancementStrengthChange = {},
-                onEnhancementStrengthChangeFinished = { inProgress = true }
+                onEnhancementStrengthChangeFinished = { inProgress = true },
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
         // В начале loader не показан
-        composeRule.onNodeWithTag("enhancement_loader").assertDoesNotExist()
+        composeRule.onNodeWithTag("enhancement_overlay").assertDoesNotExist()
         
         // Симулируем начало обработки
         composeRule.onNodeWithTag("enhancement_slider")
@@ -268,8 +277,8 @@ class ViewerScreenEnhancementTest {
         composeRule.waitForIdle()
         
         // Теперь loader должен быть показан
-        composeRule.onNodeWithTag("enhancement_loader").assertExists()
-        composeRule.onNodeWithTag("enhancement_loader").assertIsDisplayed()
+        composeRule.onNodeWithTag("enhancement_overlay").assertExists()
+        composeRule.onNodeWithTag("enhancement_overlay").assertIsDisplayed()
     }
 
     @Test
@@ -337,7 +346,9 @@ class ViewerScreenEnhancementTest {
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = progress,
                 onEnhancementStrengthChange = {},
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -404,7 +415,9 @@ class ViewerScreenEnhancementTest {
                 isEnhancementResultForCurrentPhoto = true,
                 enhancementProgress = emptyMap(),
                 onEnhancementStrengthChange = {},
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -423,7 +436,7 @@ class ViewerScreenEnhancementTest {
 
         composeRule.setContent {
             val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
-            
+
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
@@ -470,13 +483,91 @@ class ViewerScreenEnhancementTest {
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = mapOf(0 to 0.5f),
                 onEnhancementStrengthChange = {},
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
         // Слайдер должен быть доступен даже во время обработки (для предпросмотра изменения)
         // но возможно с ограничениями или визуальным индикатором
         composeRule.onNodeWithTag("enhancement_slider").assertExists()
+    }
+
+    @Test
+    fun enhancementSliderDisabledWhenAdapterUnavailable() {
+        val photo = PhotoItem(
+            id = "test-photo",
+            uri = Uri.parse("content://photo/1"),
+            takenAt = null
+        )
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            var hintShown by remember { mutableStateOf(false) }
+
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                onLaunchDeletionBatch = {},
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = 0.5f,
+                enhancementInProgress = true,
+                enhancementReady = false,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = false,
+                onEnhancementUnavailable = { hintShown = true }
+            )
+        }
+
+        val slider = composeRule.onNodeWithTag("enhancement_slider")
+        slider.assertExists()
+        slider.assertIsNotEnabled()
+        composeRule.onNodeWithTag("enhancement_overlay").assertDoesNotExist()
+
+        slider.performTouchInput { click(center) }
+
+        composeRule.runOnIdle {
+            assertTrue(hintShown)
+        }
     }
 
     @Test
@@ -541,7 +632,9 @@ class ViewerScreenEnhancementTest {
                     capturedValues.add(newValue)
                     strength = newValue
                 },
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -620,7 +713,9 @@ class ViewerScreenEnhancementTest {
                 },
                 onEnhancementStrengthChangeFinished = {
                     finishedValue = strength
-                }
+                },
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -695,7 +790,9 @@ class ViewerScreenEnhancementTest {
                 onEnhancementStrengthChange = { newValue ->
                     strength = newValue
                 },
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 

@@ -18,7 +18,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +37,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -150,6 +154,7 @@ fun ViewerRoute(
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val currentFolderUri by viewModel.currentFolderTreeUri.collectAsState()
     val enhancementState by viewModel.enhancementState.collectAsState()
+    val isEnhancementAvailable by viewModel.isEnhancementAvailable.collectAsState()
     val deletionConfirmationViewModel = hiltViewModel<DeletionConfirmationViewModel>()
     val deletionConfirmationUiState by deletionConfirmationViewModel.uiState.collectAsStateWithLifecycle()
     val deletionConfirmationEvents = deletionConfirmationViewModel.events
@@ -332,7 +337,9 @@ fun ViewerRoute(
         isEnhancementResultForCurrentPhoto = enhancementState.isResultForCurrentPhoto,
         enhancementProgress = enhancementState.progressByTile,
         onEnhancementStrengthChange = viewModel::onEnhancementStrengthChange,
-        onEnhancementStrengthChangeFinished = viewModel::onEnhancementStrengthChangeFinished
+        onEnhancementStrengthChangeFinished = viewModel::onEnhancementStrengthChangeFinished,
+        isEnhancementAvailable = isEnhancementAvailable,
+        onEnhancementUnavailable = viewModel::onEnhancementUnavailableInteraction
     )
 }
 
@@ -392,6 +399,8 @@ internal fun ViewerScreen(
     enhancementProgress: Map<Int, Float>,
     onEnhancementStrengthChange: (Float) -> Unit,
     onEnhancementStrengthChangeFinished: () -> Unit,
+    isEnhancementAvailable: Boolean,
+    onEnhancementUnavailable: () -> Unit,
 ) {
     BackHandler {
         if (isSelectionMode) {
@@ -605,7 +614,9 @@ internal fun ViewerScreen(
                         isReady = enhancementReady,
                         progressByTile = enhancementProgress,
                         onValueChange = onEnhancementStrengthChange,
-                        onValueChangeFinished = onEnhancementStrengthChangeFinished
+                        onValueChangeFinished = onEnhancementStrengthChangeFinished,
+                        enabled = isEnhancementAvailable,
+                        onUnavailableClick = onEnhancementUnavailable
                     )
                 }
                 val processingBusy = enhancementInProgress ||
@@ -682,6 +693,7 @@ internal fun ViewerScreen(
                             
                             val showLoader = isCurrentPage &&
                                 enhancementInProgress &&
+                                isEnhancementAvailable &&
                                 enhancementStrength > 0f
                             
                             if (useEnhancedPreview) {
@@ -1473,6 +1485,8 @@ private fun ViewerEnhancementSlider(
     progressByTile: Map<Int, Float>,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
+    enabled: Boolean,
+    onUnavailableClick: () -> Unit,
 ) {
     val percent = (value * 100).roundToInt().coerceIn(0, 100)
     val sliderLabel = stringResource(id = R.string.viewer_improve_label)
@@ -1507,23 +1521,39 @@ private fun ViewerEnhancementSlider(
                     modifier = Modifier.testTag("enhancement_strength_label")
                 )
             }
-            Slider(
-                value = percent.toFloat(),
-                onValueChange = { intValue ->
-                    val normalizedFloat = (intValue / 100f).coerceIn(0f, 1f)
-                    onValueChange(normalizedFloat)
-                },
-                valueRange = 0f..100f,
-                steps = 99,
-                onValueChangeFinished = onValueChangeFinished,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("enhancement_slider")
-                    .semantics {
-                        contentDescription = sliderLabel
-                        stateDescription = sliderStateDescription ?: sliderValueDescription
-                    }
-            )
+            Box {
+                Slider(
+                    value = percent.toFloat(),
+                    onValueChange = { intValue ->
+                        val normalizedFloat = (intValue / 100f).coerceIn(0f, 1f)
+                        onValueChange(normalizedFloat)
+                    },
+                    valueRange = 0f..100f,
+                    steps = 99,
+                    onValueChangeFinished = onValueChangeFinished,
+                    enabled = enabled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("enhancement_slider")
+                        .semantics {
+                            contentDescription = sliderLabel
+                            stateDescription = sliderStateDescription ?: sliderValueDescription
+                        }
+                )
+                if (!enabled) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .pointerInput(onUnavailableClick) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    onUnavailableClick()
+                                    waitForUpOrCancellation()
+                                }
+                            }
+                    )
+                }
+            }
         }
     }
 }

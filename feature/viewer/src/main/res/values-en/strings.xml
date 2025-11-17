@@ -38,6 +38,7 @@
     <string name="viewer_improve_state_ready">Enhancement ready</string>
     <string name="viewer_improve_state_pending">Result will be updated after applying</string>
     <string name="viewer_improve_progress">%1$d%% done</string>
+    <string name="viewer_improve_unavailable_hint">Enhancement is not available on this device</string>
     <string name="viewer_error_title">Failed to load photos</string>
     <string name="viewer_error_body">Try refreshing the screen or check media access.</string>
     <string name="viewer_error_select_again">Select folder again</string>

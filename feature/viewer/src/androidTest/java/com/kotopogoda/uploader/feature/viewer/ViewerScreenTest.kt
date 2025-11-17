@@ -98,7 +98,9 @@ class ViewerScreenTest {
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = emptyMap(),
                 onEnhancementStrengthChange = {},
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -181,7 +183,9 @@ class ViewerScreenTest {
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = emptyMap(),
                 onEnhancementStrengthChange = {},
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
@@ -264,7 +268,9 @@ class ViewerScreenTest {
                 isEnhancementResultForCurrentPhoto = false,
                 enhancementProgress = emptyMap(),
                 onEnhancementStrengthChange = {},
-                onEnhancementStrengthChangeFinished = {}
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {}
             )
         }
 
