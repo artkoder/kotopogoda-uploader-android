@@ -4,7 +4,7 @@
     "zerodcepp_fp16": {
       "release": "models-v1",
       "asset": "zerodcepp_fp16_v1.zip",
-      "unzipped": "models",
+      "unzipped": ".",
       "sha256": "0c9dbddfcaded9a5086d4580b62530736413041461f93ef1dcdf9f102d328da5",
       "backend": "ncnn",
       "min_mb": 0.0390,
@@ -38,7 +38,7 @@
           "included": true
         },
         {
-          "path": "zerodcepp_simplified.onnx",
+          "path": "models/zerodcepp_simplified.onnx",
           "sha256": "a865dea3cdc002886bd4892385c90c3fd1a3f67cdbd5b865cd8bee773759a233",
           "size_mb": 0.0528,
           "label": "onnx",
@@ -54,7 +54,7 @@
           "sha256_bin": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73"
         },
         "onnx": {
-          "path": "zerodcepp_simplified.onnx",
+          "path": "models/zerodcepp_simplified.onnx",
           "sha256": "a865dea3cdc002886bd4892385c90c3fd1a3f67cdbd5b865cd8bee773759a233",
           "size_mib": 0.0528,
           "operators": [
@@ -73,7 +73,7 @@
     "restormer_fp16": {
       "release": "models-v1",
       "asset": "restormer_fp16_v1.zip",
-      "unzipped": "models",
+      "unzipped": ".",
       "sha256": "c91dbe7bc65e41303caadc93cf8480cbc3d0d67be434360e3d3a187a31befa5a",
       "backend": "ncnn",
       "min_mb": 34.6450,
@@ -107,7 +107,7 @@
           "included": true
         },
         {
-          "path": "restormer_simplified.onnx",
+          "path": "models/restormer_simplified.onnx",
           "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
           "size_mb": 100.9805,
           "label": "onnx",
@@ -124,7 +124,7 @@
           "tile_size": 512
         },
         "onnx": {
-          "path": "restormer_simplified.onnx",
+          "path": "models/restormer_simplified.onnx",
           "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
           "size_mib": 100.9805,
           "operators": [
