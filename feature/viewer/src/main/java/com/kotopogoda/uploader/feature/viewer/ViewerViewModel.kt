@@ -166,6 +166,9 @@ class ViewerViewModel @Inject constructor(
 
     private val _enhancementState = MutableStateFlow(EnhancementState())
     val enhancementState: StateFlow<EnhancementState> = _enhancementState.asStateFlow()
+
+    private val _isEnhancementAvailable = MutableStateFlow(false)
+    val isEnhancementAvailable: StateFlow<Boolean> = _isEnhancementAvailable.asStateFlow()
     private var enhancementJob: Job? = null
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
@@ -261,13 +264,18 @@ class ViewerViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.flow.collect { settings ->
                 autoDeleteEnabled = settings.autoDeleteAfterUpload
-                if (nativeEnhanceAdapter != null) {
+                val adapter = nativeEnhanceAdapter
+                if (adapter != null) {
                     runCatching {
-                        nativeEnhanceAdapter.initialize(settings.previewQuality)
+                        adapter.initialize(settings.previewQuality)
+                    }.onSuccess {
+                        _isEnhancementAvailable.value = true
                     }.onFailure { error ->
+                        _isEnhancementAvailable.value = false
                         Timber.tag(LOG_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
                     }
                 } else {
+                    _isEnhancementAvailable.value = false
                     Timber.tag(LOG_TAG).w("NativeEnhanceAdapter is null, enhancement disabled")
                 }
             }
@@ -537,6 +545,10 @@ class ViewerViewModel @Inject constructor(
         val clamped = value.coerceIn(MIN_ENHANCEMENT_STRENGTH, MAX_ENHANCEMENT_STRENGTH)
         val currentState = _enhancementState.value
 
+        if (!_isEnhancementAvailable.value) {
+            return
+        }
+
         if (clamped == 0f) {
             cancelEnhancementJob()
             disposeEnhancementResult(currentState.result)
@@ -599,6 +611,10 @@ class ViewerViewModel @Inject constructor(
         val target = currentPhoto.value ?: return
         val currentState = _enhancementState.value
 
+        if (!_isEnhancementAvailable.value) {
+            return
+        }
+
         if (currentState.strength == 0f) {
             return
         }
@@ -611,6 +627,16 @@ class ViewerViewModel @Inject constructor(
         }
 
         startEnhancementJob(target, currentState.strength)
+    }
+
+    fun onEnhancementUnavailableInteraction() {
+        viewModelScope.launch {
+            _events.emit(
+                ViewerEvent.ShowToast(
+                    messageRes = R.string.viewer_improve_unavailable_hint
+                )
+            )
+        }
     }
 
     fun onMoveToProcessing(photo: PhotoItem?) {

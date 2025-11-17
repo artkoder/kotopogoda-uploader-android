@@ -37,6 +37,7 @@
     <string name="viewer_improve_state_ready">Улучшение готово</string>
     <string name="viewer_improve_state_pending">Результат будет обновлён после применения</string>
     <string name="viewer_improve_progress">%1$d%% готово</string>
+    <string name="viewer_improve_unavailable_hint">Улучшение недоступно на этом устройстве</string>
     <string name="viewer_error_title">Не удалось загрузить фотографии</string>
     <string name="viewer_error_body">Попробуйте обновить экран или проверить доступ к медиа.</string>
     <string name="viewer_error_select_again">Выбрать папку снова</string>
