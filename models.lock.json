@@ -10,13 +10,13 @@
       "min_mb": 0.0390,
       "files": [
         {
-          "path": "zerodcepp_fp16.param",
+          "path": "models/zerodcepp_fp16.param",
           "sha256": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
           "min_mb": 0.0095,
           "label": "param"
         },
         {
-          "path": "zerodcepp_fp16.bin",
+          "path": "models/zerodcepp_fp16.bin",
           "sha256": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
           "min_mb": 0.0400,
           "label": "bin"
@@ -79,13 +79,13 @@
       "min_mb": 34.6450,
       "files": [
         {
-          "path": "restormer_fp16.param",
+          "path": "models/restormer_fp16.param",
           "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
           "min_mb": 0.6850,
           "label": "param"
         },
         {
-          "path": "restormer_fp16.bin",
+          "path": "models/restormer_fp16.bin",
           "sha256": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
           "min_mb": 50.3670,
           "label": "bin"

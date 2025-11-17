@@ -67,7 +67,7 @@ abstract class FetchModelsTask : DefaultTask() {
         group = "models"
         description = "Скачивает и распаковывает ML-модели согласно models.lock.json"
         lockFile.convention(project.layout.projectDirectory.file("models.lock.json"))
-        targetDir.convention(project.layout.projectDirectory.dir("app/src/main/assets/models"))
+        targetDir.convention(project.layout.projectDirectory.dir("app/src/main/assets"))
         buildDir.convention(project.layout.buildDirectory.dir("models"))
     }
 

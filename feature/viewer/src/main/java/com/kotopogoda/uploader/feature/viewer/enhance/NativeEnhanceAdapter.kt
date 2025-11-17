@@ -26,6 +26,7 @@ import javax.inject.Singleton
 class NativeEnhanceAdapter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val controller: NativeEnhanceController,
+    private val modelsInstaller: EnhancerModelsInstaller,
     @Named("zeroDceChecksum") private val zeroDceChecksum: String,
     @Named("restormerChecksum") private val restormerChecksum: String,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -60,7 +61,7 @@ class NativeEnhanceAdapter @Inject constructor(
             return@withContext
         }
 
-        val modelsDir = File(context.filesDir, "models")
+        val modelsDir = modelsInstaller.ensureInstalled()
         val profile = when (previewQuality) {
             PreviewQuality.BALANCED -> NativeEnhanceController.PreviewProfile.BALANCED
             PreviewQuality.QUALITY -> NativeEnhanceController.PreviewProfile.QUALITY

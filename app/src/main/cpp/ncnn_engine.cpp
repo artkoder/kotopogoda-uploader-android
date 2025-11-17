@@ -100,10 +100,10 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     restormerNet_->opt.use_fp16_arithmetic = false;
     restormerNet_->opt.num_threads = 8;
     
-    std::string zeroDceParam = modelsDir + "/zerodce.param";
-    std::string zeroDceBin = modelsDir + "/zerodce.bin";
-    std::string restormerParam = modelsDir + "/restormer.param";
-    std::string restormerBin = modelsDir + "/restormer.bin";
+    std::string zeroDceParam = modelsDir + "/zerodcepp_fp16.param";
+    std::string zeroDceBin = modelsDir + "/zerodcepp_fp16.bin";
+    std::string restormerParam = modelsDir + "/restormer_fp16.param";
+    std::string restormerBin = modelsDir + "/restormer_fp16.bin";
     
     LOGI("Загрузка Zero-DCE++ из %s", zeroDceParam.c_str());
     int ret = zeroDceNet_->load_param(zeroDceParam.c_str());
