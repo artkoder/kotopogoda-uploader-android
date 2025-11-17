@@ -65,9 +65,10 @@ target_include_directories(kotopogoda_enhance PRIVATE
 # Определяем макрос для Vulkan поддержки
 target_compile_definitions(kotopogoda_enhance PRIVATE NCNN_VULKAN=1)
 
-# Включаем OpenMP поддержку
+# Включаем OpenMP поддержку. Используем статическую линковку, чтобы не
+# зависеть от наличия libomp.so в APK и избежать ошибок загрузки.
 target_compile_options(kotopogoda_enhance PRIVATE -fopenmp)
-target_link_options(kotopogoda_enhance PRIVATE -fopenmp)
+target_link_options(kotopogoda_enhance PRIVATE -static-openmp)
 
 # Линкуем библиотеки
 target_link_libraries(kotopogoda_enhance
