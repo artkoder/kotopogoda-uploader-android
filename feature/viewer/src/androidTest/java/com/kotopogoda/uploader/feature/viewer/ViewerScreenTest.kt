@@ -205,4 +205,71 @@ class ViewerScreenTest {
             assertEquals(2, deleted.size)
         }
     }
+
+    @Test
+    fun enhancementLoaderShowsZeroPercentForEmptyProgressMap() {
+        val photo = PhotoItem(
+            id = "id",
+            uri = Uri.parse("content://photo/1"),
+            takenAt = null
+        )
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                observeDeletionQueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                onLaunchDeletionBatch = {},
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onEnqueueDeletion = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = 1f,
+                enhancementInProgress = true,
+                enhancementReady = false,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {}
+            )
+        }
+
+        val zeroPercentText = composeRule.activity.getString(R.string.viewer_improve_progress, 0)
+        composeRule.onNodeWithTag("enhancement_overlay").assertExists()
+        composeRule.onNodeWithText(zeroPercentText).assertExists()
+    }
 }

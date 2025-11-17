@@ -701,9 +701,17 @@ internal fun ViewerScreen(
                             }
                             
                             if (showLoader) {
+                                val loaderProgress = enhancementProgress.values
+                                    .ifEmpty { listOf(0f) }
+                                    .average()
+                                    .toFloat()
+                                    .let { value ->
+                                        value.takeIf { it.isFinite() && !it.isNaN() } ?: 0f
+                                    }
+                                    .coerceIn(0f, 1f)
                                 EnhancementLoaderOverlay(
                                     modifier = Modifier.fillMaxSize(),
-                                    progress = enhancementProgress.values.average().toFloat().coerceIn(0f, 1f)
+                                    progress = loaderProgress
                                 )
                             }
                             
@@ -1602,7 +1610,8 @@ private fun EnhancementLoaderOverlay(
     modifier: Modifier = Modifier,
     progress: Float = 0f
 ) {
-    val progressPercent = (progress * 100).roundToInt().coerceIn(0, 100)
+    val safe = progress.takeIf { it.isFinite() && !it.isNaN() }?.coerceIn(0f, 1f) ?: 0f
+    val progressPercent = (safe * 100).roundToInt().coerceIn(0, 100)
     val loaderDescription = stringResource(id = R.string.viewer_improve_state_running)
     val progressDescription = stringResource(id = R.string.viewer_improve_progress, progressPercent)
     
