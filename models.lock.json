@@ -4,7 +4,7 @@
     "zerodcepp_fp16": {
       "release": "models-v1",
       "asset": "zerodcepp_fp16_v1.zip",
-      "unzipped": "models",
+      "unzipped": ".",
       "sha256": "0c9dbddfcaded9a5086d4580b62530736413041461f93ef1dcdf9f102d328da5",
       "backend": "ncnn",
       "min_mb": 0.0390,
@@ -73,7 +73,7 @@
     "restormer_fp16": {
       "release": "models-v1",
       "asset": "restormer_fp16_v1.zip",
-      "unzipped": "models",
+      "unzipped": ".",
       "sha256": "c91dbe7bc65e41303caadc93cf8480cbc3d0d67be434360e3d3a187a31befa5a",
       "backend": "ncnn",
       "min_mb": 34.6450,
