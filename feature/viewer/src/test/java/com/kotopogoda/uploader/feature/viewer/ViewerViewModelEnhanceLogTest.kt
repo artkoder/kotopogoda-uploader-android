@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import io.mockk.MockKAnnotations
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockkObject
@@ -47,6 +48,9 @@ class ViewerViewModelEnhanceLogTest {
     private lateinit var uploadQueueRepository: UploadQueueRepository
 
     @MockK(relaxed = true)
+    private lateinit var deletionQueueRepository: DeletionQueueRepository
+
+    @MockK(relaxed = true)
     private lateinit var reviewProgressStore: ReviewProgressStore
 
     @MockK(relaxed = true)
@@ -70,6 +74,10 @@ class ViewerViewModelEnhanceLogTest {
             autoDeleteAfterUpload = false,
         )
         every { settingsRepository.flow } returns kotlinx.coroutines.flow.flowOf(defaultSettings)
+        every { deletionQueueRepository.observePending() } returns kotlinx.coroutines.flow.flowOf(emptyList())
+        coEvery { deletionQueueRepository.getPending() } returns emptyList()
+        coEvery { deletionQueueRepository.enqueue(any()) } returns 0
+        coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
     }
 
     @AfterTest
@@ -91,6 +99,7 @@ class ViewerViewModelEnhanceLogTest {
             saFileRepository = saFileRepository,
             uploadEnqueuer = uploadEnqueuer,
             uploadQueueRepository = uploadQueueRepository,
+            deletionQueueRepository = deletionQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
             nativeEnhanceAdapter = nativeEnhanceAdapter,

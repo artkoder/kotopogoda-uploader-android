@@ -936,6 +936,7 @@ class ViewerViewModel @Inject constructor(
                     alreadyEnqueued = false,
                 )
                 pendingDeletionIds.update { ids -> ids + mediaId }
+                updateCanUndo()
                 pushAction(
                     UserAction.QueuedDeletion(
                         mediaId = mediaId,
@@ -1360,47 +1361,6 @@ class ViewerViewModel @Inject constructor(
                         return@launch
                     }
 
-                    val stillPending = runCatching { deletionQueueRepository.getPending() }
-                        .map { items -> items.any { it.mediaId == mediaId } }
-                        .getOrElse { error ->
-                            if (error is CancellationException) {
-                                throw error
-                            }
-                            logUiError(
-                                category = "UI/DELETE_QUEUE",
-                                action = "undo_pending_check_failed",
-                                error = error,
-                                uri = action.uri,
-                            )
-                            false
-                        }
-
-                    if (!stillPending) {
-                        logUndoUnavailable("not_pending_repository")
-                        _actionInProgress.value = null
-                        return@launch
-                    }
-
-                    val documentAvailable = runCatching { loadDocumentInfo(action.uri) }
-                        .map { true }
-                        .getOrElse { error ->
-                            if (error is CancellationException) {
-                                throw error
-                            }
-                            Timber.tag(LOG_TAG).w(
-                                error,
-                                "Не удалось прочитать документ для отмены удаления %s",
-                                action.uri,
-                            )
-                            logUndoUnavailable("document_missing")
-                            false
-                        }
-
-                    if (!documentAvailable) {
-                        _actionInProgress.value = null
-                        return@launch
-                    }
-
                     try {
                         val removed = runCatching {
                             deletionQueueRepository.markSkipped(listOf(mediaId))
@@ -1414,6 +1374,7 @@ class ViewerViewModel @Inject constructor(
                         }.getOrDefault(0)
                         if (removed > 0) {
                             pendingDeletionIds.update { ids -> ids - mediaId }
+                            updateCanUndo()
                             val targetIndex = clampIndex(action.fromIndex)
                             setCurrentIndex(targetIndex)
                             logUi(
@@ -2039,16 +2000,24 @@ class ViewerViewModel @Inject constructor(
     }
 
     private fun updateCanUndo() {
-        var actionable = false
-        val iterator = undoStack.descendingIterator()
-        while (iterator.hasNext()) {
-            val action = iterator.next()
-            if (isActionActionable(action)) {
-                actionable = true
+        var trimmed = false
+        while (true) {
+            val lastAction = undoStack.lastOrNull() ?: break
+            if (isActionActionable(lastAction)) {
                 break
             }
+            undoStack.removeLast()
+            trimmed = true
         }
-        _canUndo.value = actionable
+        if (trimmed) {
+            _undoCount.value = undoStack.size
+            val states = ArrayList<UndoEntryState>(undoStack.size)
+            undoStack.forEach { action ->
+                states.add(action.toState())
+            }
+            savedStateHandle[undoStackKey] = states
+        }
+        _canUndo.value = undoStack.isNotEmpty()
     }
 
     private fun isActionActionable(action: UserAction): Boolean {
