@@ -257,9 +257,16 @@ abstract class FetchModelsTask : DefaultTask() {
         for (name in normalisedRelative) {
             require(name.toString() != "..") { "Пути файлов моделей не должны содержать '..'" }
         }
+        val basePath = baseDir.toPath()
         val rootDir = resolveRootDir(baseDir, root).toPath()
-        val target = rootDir.resolve(normalisedRelative).normalize()
-        if (!target.startsWith(baseDir.toPath())) {
+        val relativeInsideRoot = if (root != null && normalisedRelative.startsWith(root)) {
+            if (normalisedRelative.nameCount == root.nameCount) null
+            else normalisedRelative.subpath(root.nameCount, normalisedRelative.nameCount)
+        } else {
+            normalisedRelative
+        }
+        val target = (relativeInsideRoot?.let { rootDir.resolve(it) } ?: rootDir).normalize()
+        if (!target.startsWith(basePath)) {
             throw IllegalStateException("Путь файла выходит за пределы каталога моделей: $target")
         }
         return target.toFile()
