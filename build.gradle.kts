@@ -106,10 +106,10 @@ abstract class FetchModelsTask : DefaultTask() {
             val assetSha = payload["sha256"]?.toString()?.lowercase(Locale.US)
             val assetMinBytes = payload["min_mb"]?.let { toMegabytes(it) } ?: 0L
             val payloadUrl = payload["url"]?.toString()?.takeIf { it.isNotBlank() }
+            val files = readFileEntries(name, payload)
             val unzipped = payload["unzipped"]?.toString()
                 ?: error("Для модели '$name' не указан unzipped")
-            val unzippedPath = normaliseUnzipped(unzipped)
-            val files = readFileEntries(name, payload)
+            val unzippedPath = effectiveUnzippedPath(normaliseUnzipped(unzipped), files)
             val packagingRaw = payload["packaging"]?.toString()?.lowercase(Locale.US)
             val packaging = packagingRaw
                 ?: if (assetName?.endsWith(".zip", ignoreCase = true) == true) "zip" else "file"
@@ -229,6 +229,17 @@ abstract class FetchModelsTask : DefaultTask() {
             require(name.toString() != "..") { "Поле 'unzipped' не должно содержать '..'" }
         }
         return if (path.nameCount == 0) null else path
+    }
+
+    private fun effectiveUnzippedPath(unzipped: Path?, files: List<FileEntry>): Path? {
+        if (unzipped == null) return null
+        val prefix = unzipped.toString().replace('\\', '/')
+        if (prefix.isEmpty()) return null
+        val prefixWithSlash = "$prefix/"
+        val allFilesPrefixed = files.all { entry ->
+            entry.path == prefix || entry.path.startsWith(prefixWithSlash)
+        }
+        return if (allFilesPrefixed) null else unzipped
     }
 
     private fun resolveRootDir(baseDir: java.io.File, root: Path?): java.io.File {
