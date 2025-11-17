@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
+import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
@@ -133,6 +134,7 @@ class ViewerViewModelBatchDeleteTest {
         val saFileRepository = mockk<SaFileRepository>()
         val uploadEnqueuer = mockk<UploadEnqueuer>()
         val uploadQueueRepository = mockk<UploadQueueRepository>()
+        val deletionQueueRepository = mockk<DeletionQueueRepository>()
         val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
         val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
@@ -144,6 +146,10 @@ class ViewerViewModelBatchDeleteTest {
         every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
         every { uploadQueueRepository.observeQueuedOrProcessing(any<String>()) } returns flowOf(false)
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
+        every { deletionQueueRepository.observePending() } returns flowOf(emptyList())
+        coEvery { deletionQueueRepository.getPending() } returns emptyList()
+        coEvery { deletionQueueRepository.enqueue(any()) } returns 0
+        coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
         coEvery { folderRepository.getFolder() } returns null
         coEvery { reviewProgressStore.loadPosition(any()) } returns null
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
@@ -171,6 +177,7 @@ class ViewerViewModelBatchDeleteTest {
             saFileRepository = saFileRepository,
             uploadEnqueuer = uploadEnqueuer,
             uploadQueueRepository = uploadQueueRepository,
+            deletionQueueRepository = deletionQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
             nativeEnhanceAdapter = nativeEnhanceAdapter,

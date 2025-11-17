@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
+import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
@@ -93,6 +94,7 @@ class ViewerViewModelJumpToDateTest {
         val saFileRepository = mockk<SaFileRepository>()
         val uploadEnqueuer = mockk<UploadEnqueuer>()
         val uploadQueueRepository = mockk<UploadQueueRepository>()
+        val deletionQueueRepository = mockk<DeletionQueueRepository>()
         val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
         val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
@@ -107,6 +109,10 @@ class ViewerViewModelJumpToDateTest {
         every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
         every { uploadQueueRepository.observeQueuedOrProcessing(any<String>()) } returns flowOf(false)
         every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
+        every { deletionQueueRepository.observePending() } returns flowOf(emptyList())
+        coEvery { deletionQueueRepository.getPending() } returns emptyList()
+        coEvery { deletionQueueRepository.enqueue(any()) } returns 0
+        coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
         every { settingsRepository.flow } returns flowOf(
             AppSettings(
                 baseUrl = "https://example.com",
@@ -128,6 +134,7 @@ class ViewerViewModelJumpToDateTest {
             saFileRepository = saFileRepository,
             uploadEnqueuer = uploadEnqueuer,
             uploadQueueRepository = uploadQueueRepository,
+            deletionQueueRepository = deletionQueueRepository,
             reviewProgressStore = reviewProgressStore,
             context = context,
             nativeEnhanceAdapter = nativeEnhanceAdapter,

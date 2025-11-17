@@ -134,20 +134,16 @@ class ViewerViewModel @Inject constructor(
     private val undoStack = ArrayDeque<UserAction>()
     private val undoStackKey = "viewer_undo_stack"
     private val handledDeletionWarnings = mutableSetOf<Long>()
+    private var pendingDeletionInitialized: Boolean = false
 
     private val _undoCount = MutableStateFlow(0)
     val undoCount: StateFlow<Int> = _undoCount.asStateFlow()
 
+    private val _canUndo = MutableStateFlow(false)
+    val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
+
     private val initialIndexRestored = MutableStateFlow(false)
     private var pendingInitialIndex: Int? = null
-
-    val canUndo: StateFlow<Boolean> = undoCount
-        .map { it > 0 }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = _undoCount.value > 0
-        )
 
     private val _actionInProgress = MutableStateFlow<ViewerActionInProgress?>(null)
     val actionInProgress: StateFlow<ViewerActionInProgress?> = _actionInProgress.asStateFlow()
@@ -363,7 +359,11 @@ class ViewerViewModel @Inject constructor(
             deletionQueueRepository.observePending()
                 .map { items -> items.map { it.mediaId }.toSet() }
                 .distinctUntilChanged()
-                .collect { ids -> pendingDeletionIds.value = ids }
+                .collect { ids ->
+                    pendingDeletionIds.value = ids
+                    pendingDeletionInitialized = true
+                    updateCanUndo()
+                }
         }
     }
 
@@ -936,6 +936,7 @@ class ViewerViewModel @Inject constructor(
                     alreadyEnqueued = false,
                 )
                 pendingDeletionIds.update { ids -> ids + mediaId }
+                updateCanUndo()
                 pushAction(
                     UserAction.QueuedDeletion(
                         mediaId = mediaId,
@@ -1341,10 +1342,28 @@ class ViewerViewModel @Inject constructor(
             }
             is UserAction.QueuedDeletion -> {
                 viewModelScope.launch {
+                    fun logUndoUnavailable(reason: String) {
+                        logUi(
+                            category = "UI/DELETE_QUEUE",
+                            action = "undo_unavailable",
+                            uri = action.uri,
+                            "media_id" to action.mediaId,
+                            "reason" to reason,
+                        )
+                    }
+
                     _actionInProgress.value = ViewerActionInProgress.Delete
+                    val mediaId = action.mediaId
+
+                    if (mediaId !in pendingDeletionIds.value) {
+                        logUndoUnavailable("not_pending")
+                        _actionInProgress.value = null
+                        return@launch
+                    }
+
                     try {
                         val removed = runCatching {
-                            deletionQueueRepository.markSkipped(listOf(action.mediaId))
+                            deletionQueueRepository.markSkipped(listOf(mediaId))
                         }.onFailure { error ->
                             logUiError(
                                 category = "UI/DELETE_QUEUE",
@@ -1354,14 +1373,15 @@ class ViewerViewModel @Inject constructor(
                             )
                         }.getOrDefault(0)
                         if (removed > 0) {
-                            pendingDeletionIds.update { ids -> ids - action.mediaId }
+                            pendingDeletionIds.update { ids -> ids - mediaId }
+                            updateCanUndo()
                             val targetIndex = clampIndex(action.fromIndex)
                             setCurrentIndex(targetIndex)
                             logUi(
                                 category = "UI/DELETE_QUEUE",
                                 action = "undo_success",
                                 uri = action.uri,
-                                "media_id" to action.mediaId,
+                                "media_id" to mediaId,
                                 "from_index" to action.fromIndex,
                                 "to_index" to action.toIndex
                             )
@@ -1375,7 +1395,7 @@ class ViewerViewModel @Inject constructor(
                                 category = "UI/DELETE_QUEUE",
                                 action = "undo_skipped",
                                 uri = action.uri,
-                                "media_id" to action.mediaId
+                                "media_id" to mediaId
                             )
                             pushAction(action)
                             _events.emit(
@@ -1976,6 +1996,39 @@ class ViewerViewModel @Inject constructor(
             states.add(action.toState())
         }
         savedStateHandle[undoStackKey] = states
+        updateCanUndo()
+    }
+
+    private fun updateCanUndo() {
+        var trimmed = false
+        while (true) {
+            val lastAction = undoStack.lastOrNull() ?: break
+            if (isActionActionable(lastAction)) {
+                break
+            }
+            undoStack.removeLast()
+            trimmed = true
+        }
+        if (trimmed) {
+            _undoCount.value = undoStack.size
+            val states = ArrayList<UndoEntryState>(undoStack.size)
+            undoStack.forEach { action ->
+                states.add(action.toState())
+            }
+            savedStateHandle[undoStackKey] = states
+        }
+        _canUndo.value = undoStack.isNotEmpty()
+    }
+
+    private fun isActionActionable(action: UserAction): Boolean {
+        return when (action) {
+            is UserAction.QueuedDeletion -> if (!pendingDeletionInitialized) {
+                true
+            } else {
+                action.mediaId in pendingDeletionIds.value
+            }
+            else -> true
+        }
     }
 
     private fun startEnhancementJob(photo: PhotoItem, strength: Float) {
@@ -2945,6 +2998,7 @@ class ViewerViewModel @Inject constructor(
         val saved = savedStateHandle.get<ArrayList<UndoEntryState>>(undoStackKey)
         if (saved.isNullOrEmpty()) {
             _undoCount.value = 0
+            updateCanUndo()
             return
         }
         saved.mapNotNull { state ->
@@ -2953,6 +3007,7 @@ class ViewerViewModel @Inject constructor(
             undoStack.addLast(action)
         }
         _undoCount.value = undoStack.size
+        updateCanUndo()
     }
 
     private suspend fun buildIdempotencyKey(info: DocumentInfo): String = withContext(Dispatchers.IO) {
