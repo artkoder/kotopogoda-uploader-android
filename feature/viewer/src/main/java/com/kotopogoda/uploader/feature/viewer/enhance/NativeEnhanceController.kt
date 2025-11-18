@@ -60,6 +60,7 @@ class NativeEnhanceController(
         val zeroDceChecksums: ModelChecksums,
         val restormerChecksums: ModelChecksums,
         val previewProfile: PreviewProfile,
+        val forceCpu: Boolean = isForceCpuForced(),
     )
 
     data class IntegrityFailure(
@@ -117,6 +118,7 @@ class NativeEnhanceController(
                 params.restormerChecksums.param,
                 params.restormerChecksums.bin,
                 params.previewProfile.ordinal,
+                params.forceCpu,
             )
 
             if (handle == 0L) {
@@ -148,6 +150,17 @@ class NativeEnhanceController(
                     "zero_dce_bin_checksum" to params.zeroDceChecksums.bin.take(8),
                     "restormer_param_checksum" to params.restormerChecksums.param.take(8),
                     "restormer_bin_checksum" to params.restormerChecksums.bin.take(8),
+                    "force_cpu" to params.forceCpu,
+                ),
+            )
+
+            val delegateAvailable = if (nativeIsGpuDelegateAvailable(handle)) "gpu" else "cpu"
+            EnhanceLogging.logEvent(
+                "native_delegate_status",
+                mapOf(
+                    "handle" to handle,
+                    "delegate_available" to delegateAvailable,
+                    "force_cpu" to params.forceCpu,
                 ),
             )
         } catch (error: Exception) {
@@ -334,6 +347,7 @@ class NativeEnhanceController(
         restormerParamChecksum: String,
         restormerBinChecksum: String,
         previewProfile: Int,
+        forceCpu: Boolean,
     ): Long
 
     private external fun nativeRunPreview(
@@ -352,6 +366,8 @@ class NativeEnhanceController(
     private external fun nativeCancel(handle: Long)
 
     private external fun nativeRelease(handle: Long)
+
+    private external fun nativeIsGpuDelegateAvailable(handle: Long): Boolean
 
     companion object {
         private const val LOG_TAG = "NativeEnhanceController"
@@ -374,6 +390,23 @@ class NativeEnhanceController(
                 Timber.tag(LOG_TAG).e(error, "Не удалось загрузить нативную библиотеку %s", LIBRARY_NAME)
                 throw error
             }
+        }
+
+        private const val ENV_FORCE_CPU = "ENHANCE_FORCE_CPU"
+        @Volatile
+        private var forceCpuOverride: Boolean? = null
+
+        fun setForceCpuOverride(enabled: Boolean?) {
+            forceCpuOverride = enabled
+        }
+
+        fun isForceCpuForced(): Boolean {
+            val override = forceCpuOverride
+            if (override != null) {
+                return override
+            }
+            val envValue = System.getenv(ENV_FORCE_CPU)
+            return envValue == "1"
         }
     }
 
