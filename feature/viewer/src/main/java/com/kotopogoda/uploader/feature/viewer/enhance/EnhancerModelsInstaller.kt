@@ -46,11 +46,12 @@ class EnhancerModelsInstaller @Inject constructor(
 
     private fun installModel(model: ModelDefinition) {
         model.files.forEach { file ->
-            val target = resolveTarget(file.path)
+            val assetPath = file.assetPath()
+            val target = resolveTarget(assetPath)
             val needsCopy = !target.exists() || !verifyFile(target, file.sha256)
             if (needsCopy) {
-                Timber.tag(TAG).i("Копируем %s -> %s", file.path, target.absolutePath)
-                copyAsset(file.path, target)
+                Timber.tag(TAG).i("Копируем %s -> %s", assetPath, target.absolutePath)
+                copyAsset(assetPath, target)
                 if (!verifyFile(target, file.sha256)) {
                     throw IOException("Не удалось проверить контрольную сумму ${file.path}")
                 }

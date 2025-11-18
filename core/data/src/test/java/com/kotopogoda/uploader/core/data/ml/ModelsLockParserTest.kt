@@ -174,4 +174,16 @@ class ModelsLockParserTest {
         assertEquals(null, model.sha256)
         assertEquals(0L, model.minBytes)
     }
+
+    @Test
+    fun `assetPath добавляет префикс models когда путь без директории`() {
+        val file = ModelFile(path = "model.bin", sha256 = "abc123", minBytes = 0)
+        assertEquals("models/model.bin", file.assetPath())
+
+        val nested = ModelFile(path = "models/restormer.bin", sha256 = "def456", minBytes = 0)
+        assertEquals("models/restormer.bin", nested.assetPath())
+
+        val custom = ModelFile(path = "weights/zero.bin", sha256 = "ghi789", minBytes = 0)
+        assertEquals("weights/zero.bin", custom.assetPath())
+    }
 }

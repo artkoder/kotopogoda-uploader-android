@@ -92,14 +92,15 @@ object EnhancerModelProbe {
         assetManager: AssetManager,
         file: ModelFile,
     ): EnhanceLogging.FileSummary {
+        val assetPath = file.assetPath()
         return runCatching {
-            val info = readAssetInfo(assetManager, file.path)
+            val info = readAssetInfo(assetManager, assetPath)
             val checksumOk = info.sha.equals(file.sha256, ignoreCase = true)
             val minOk = file.minBytes <= 0 || info.bytes >= file.minBytes
             if (!checksumOk) {
                 Timber.tag(TAG).w(
                     "Несовпадение SHA-256 для %s: ожидается=%s, фактически=%s",
-                    file.path,
+                    assetPath,
                     file.sha256,
                     info.sha,
                 )
@@ -107,13 +108,13 @@ object EnhancerModelProbe {
             if (!minOk) {
                 Timber.tag(TAG).w(
                     "Размер файла %s меньше ожидаемого: %d < %d",
-                    file.path,
+                    assetPath,
                     info.bytes,
                     file.minBytes,
                 )
             }
             EnhanceLogging.FileSummary(
-                path = file.path,
+                path = assetPath,
                 bytes = info.bytes,
                 checksum = info.sha,
                 expectedChecksum = file.sha256,
@@ -122,9 +123,9 @@ object EnhancerModelProbe {
                 minBytesOk = minOk,
             )
         }.getOrElse { error ->
-            Timber.tag(TAG).e(error, "Не удалось прочитать файл модели %s", file.path)
+            Timber.tag(TAG).e(error, "Не удалось прочитать файл модели %s", assetPath)
             EnhanceLogging.FileSummary(
-                path = file.path,
+                path = assetPath,
                 bytes = -1L,
                 checksum = "",
                 expectedChecksum = file.sha256,
@@ -161,8 +162,10 @@ object EnhancerModelProbe {
                 ),
             )
         }
+        val paramAsset = paramFile.assetPath()
+        val binAsset = binFile.assetPath()
         return mapOf(
-            "ncnn" to runDelegateCheck("ncnn") { checkNcnnDelegate(context, paramFile.path, binFile.path) },
+            "ncnn" to runDelegateCheck("ncnn") { checkNcnnDelegate(context, paramAsset, binAsset) },
         )
     }
 
