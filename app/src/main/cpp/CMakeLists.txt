@@ -66,9 +66,11 @@ target_include_directories(kotopogoda_enhance PRIVATE
 target_compile_definitions(kotopogoda_enhance PRIVATE NCNN_VULKAN=1)
 
 # Включаем OpenMP поддержку. Используем статическую линковку, чтобы не
-# зависеть от наличия libomp.so в APK и избежать ошибок загрузки.
+# зависеть от наличия libomp.so в APK и избежать ошибок загрузки. Флаг
+# `-fopenmp` также добавляем на стадию линковки, иначе clang не подтягивает
+# libomp, из-за чего сборка падала с ошибками `undefined symbol __kmpc_*`.
 target_compile_options(kotopogoda_enhance PRIVATE -fopenmp)
-target_link_options(kotopogoda_enhance PRIVATE -static-openmp)
+target_link_options(kotopogoda_enhance PRIVATE -fopenmp -static-openmp)
 
 # Линкуем библиотеки
 target_link_libraries(kotopogoda_enhance
