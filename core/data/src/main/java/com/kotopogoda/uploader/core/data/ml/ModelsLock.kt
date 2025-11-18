@@ -36,7 +36,24 @@ data class ModelFile(
     val path: String,
     val sha256: String,
     val minBytes: Long,
-)
+) {
+    fun assetPath(defaultPrefix: String = DEFAULT_ASSET_PREFIX): String {
+        val normalized = path.trim().removePrefix("/")
+        if (normalized.contains('/')) {
+            return normalized
+        }
+        val prefix = defaultPrefix.trim('/').takeIf { it.isNotEmpty() }
+        return if (prefix != null) {
+            "$prefix/$normalized"
+        } else {
+            normalized
+        }
+    }
+
+    companion object {
+        private const val DEFAULT_ASSET_PREFIX = "models"
+    }
+}
 
 enum class ModelBackend { TFLITE, NCNN }
 

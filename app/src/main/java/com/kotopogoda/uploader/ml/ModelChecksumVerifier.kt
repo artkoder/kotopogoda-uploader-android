@@ -19,14 +19,15 @@ object ModelChecksumVerifier {
         val modelsLock = ModelsLockParser.parse(BuildConfig.MODELS_LOCK_JSON)
         modelsLock.models.values.forEach { model ->
             model.files.forEach { file ->
-                val actual = calculateChecksum(assetManager, file)
+                val assetPath = file.assetPath()
+                val actual = calculateChecksum(assetManager, assetPath, file)
                 if (!actual.sha.equals(file.sha256, ignoreCase = true)) {
                     val logMessage = UploadLog.message(
                         category = "ML/CHECKSUM",
                         action = "mismatch",
                         details = arrayOf(
                             "model" to model.name,
-                            "asset" to file.path,
+                            "asset" to assetPath,
                             "expected" to file.sha256,
                             "actual" to actual.sha,
                             "bytes" to actual.bytes,
@@ -41,7 +42,7 @@ object ModelChecksumVerifier {
                         action = "size_mismatch",
                         details = arrayOf(
                             "model" to model.name,
-                            "asset" to file.path,
+                            "asset" to assetPath,
                             "expected_min_bytes" to file.minBytes,
                             "actual_bytes" to actual.bytes,
                         ),
@@ -55,7 +56,7 @@ object ModelChecksumVerifier {
                         action = "sha256_ok",
                         details = arrayOf(
                             "model" to model.name,
-                            "asset" to file.path,
+                            "asset" to assetPath,
                             "expected" to file.sha256,
                             "actual" to actual.sha,
                             "bytes" to actual.bytes,
@@ -67,10 +68,14 @@ object ModelChecksumVerifier {
         }
     }
 
-    private fun calculateChecksum(assetManager: AssetManager, file: ModelFile): ChecksumResult {
+    private fun calculateChecksum(
+        assetManager: AssetManager,
+        assetPath: String,
+        file: ModelFile,
+    ): ChecksumResult {
         val digest = MessageDigest.getInstance("SHA-256")
         var totalBytes = 0L
-        assetManager.open(file.path).use { input ->
+        assetManager.open(assetPath).use { input ->
             DigestInputStream(BufferedInputStream(input), digest).use { stream ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 while (true) {

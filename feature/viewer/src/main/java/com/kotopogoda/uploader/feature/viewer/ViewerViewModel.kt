@@ -3325,7 +3325,7 @@ class ViewerViewModel @Inject constructor(
     }
 
     data class EnhancementState(
-        val strength: Float = 0.5f,
+        val strength: Float = 0f,
         val progressByTile: Map<Int, Float> = emptyMap(),
         val inProgress: Boolean = false,
         val isResultReady: Boolean = true,

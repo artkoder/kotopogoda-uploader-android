@@ -133,7 +133,7 @@ class ViewerViewModelEnhancementStateTest {
         val viewModel = createViewModel()
         val state = viewModel.enhancementState.first()
         
-        assertEquals(0.5f, state.strength)
+        assertEquals(0f, state.strength)
         assertFalse(state.inProgress)
         assertTrue(state.isResultReady)
         assertNull(state.result)
@@ -404,7 +404,7 @@ class ViewerViewModelEnhancementStateTest {
         val viewModel = createViewModel()
         
         val initialState = viewModel.enhancementState.first()
-        assertEquals(0.5f, initialState.strength)
+        assertEquals(0f, initialState.strength)
         
         viewModel.onEnhancementStrengthChange(-0.3f)
         advanceUntilIdle()
@@ -423,7 +423,7 @@ class ViewerViewModelEnhancementStateTest {
         advanceUntilIdle()
         
         val initialState = viewModel.enhancementState.first()
-        assertEquals(0.5f, initialState.strength)
+        assertEquals(0f, initialState.strength)
         
         viewModel.onEnhancementStrengthChange(1.5f)
         advanceUntilIdle()
@@ -475,7 +475,7 @@ class ViewerViewModelEnhancementStateTest {
 
         val state = viewModel.enhancementState.first()
         assertEquals(initialState, state)
-        assertEquals(0.5f, state.strength)
+        assertEquals(0f, state.strength)
         assertTrue(state.isResultReady)
         assertFalse(state.inProgress)
         assertTrue(state.progressByTile.isEmpty())
