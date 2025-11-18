@@ -36,12 +36,29 @@ class NativeEnhanceController(
         ERROR,
     }
 
+    data class ModelChecksums(
+        val param: String,
+        val bin: String,
+    )
+
     data class InitParams(
         val assetManager: AssetManager,
         val modelsDir: File,
-        val zeroDceChecksum: String,
-        val restormerChecksum: String,
+        val zeroDceChecksums: ModelChecksums,
+        val restormerChecksums: ModelChecksums,
         val previewProfile: PreviewProfile,
+    )
+
+    data class IntegrityFailure(
+        val filePath: String,
+        val expectedChecksum: String,
+        val actualChecksum: String,
+    )
+
+    class ModelIntegrityException(
+        val failure: IntegrityFailure,
+    ) : IllegalStateException(
+        "Повреждение модели ${failure.filePath}: ожидалось ${failure.expectedChecksum}, получено ${failure.actualChecksum}"
     )
 
     data class PreviewResult(
@@ -74,12 +91,20 @@ class NativeEnhanceController(
             val handle = nativeInit(
                 params.assetManager,
                 params.modelsDir.absolutePath,
-                params.zeroDceChecksum,
-                params.restormerChecksum,
+                params.zeroDceChecksums.param,
+                params.zeroDceChecksums.bin,
+                params.restormerChecksums.param,
+                params.restormerChecksums.bin,
                 params.previewProfile.ordinal,
             )
 
             if (handle == 0L) {
+                initializationFlag.set(INITIALIZATION_FAILED)
+                val integrityFailure = consumeIntegrityFailure()
+                if (integrityFailure != null) {
+                    logIntegrityFailure(integrityFailure, params)
+                    throw ModelIntegrityException(integrityFailure)
+                }
                 throw IllegalStateException("Нативная инициализация вернула нулевой handle")
             }
 
@@ -98,8 +123,10 @@ class NativeEnhanceController(
                     "handle" to handle,
                     "models_dir" to params.modelsDir.absolutePath,
                     "preview_profile" to params.previewProfile.name,
-                    "zero_dce_checksum" to params.zeroDceChecksum.take(8),
-                    "restormer_checksum" to params.restormerChecksum.take(8),
+                    "zero_dce_param_checksum" to params.zeroDceChecksums.param.take(8),
+                    "zero_dce_bin_checksum" to params.zeroDceChecksums.bin.take(8),
+                    "restormer_param_checksum" to params.restormerChecksums.param.take(8),
+                    "restormer_bin_checksum" to params.restormerChecksums.bin.take(8),
                 ),
             )
         } catch (error: Exception) {
@@ -255,8 +282,10 @@ class NativeEnhanceController(
     private external fun nativeInit(
         assetManager: AssetManager,
         modelsDir: String,
-        zeroDceChecksum: String,
-        restormerChecksum: String,
+        zeroDceParamChecksum: String,
+        zeroDceBinChecksum: String,
+        restormerParamChecksum: String,
+        restormerBinChecksum: String,
         previewProfile: Int,
     ): Long
 
@@ -287,6 +316,9 @@ class NativeEnhanceController(
         private const val INITIALIZATION_FAILED = 3
         private const val RELEASED = 4
 
+        @JvmStatic
+        private external fun nativeConsumeIntegrityFailure(): Array<String>?
+
         fun loadLibrary() {
             try {
                 System.loadLibrary(LIBRARY_NAME)
@@ -296,5 +328,34 @@ class NativeEnhanceController(
                 throw error
             }
         }
+    }
+
+    private fun consumeIntegrityFailure(): IntegrityFailure? {
+        val payload = nativeConsumeIntegrityFailure() ?: return null
+        if (payload.size < 3) return null
+        return IntegrityFailure(
+            filePath = payload[0],
+            expectedChecksum = payload[1],
+            actualChecksum = payload[2],
+        )
+    }
+
+    private fun logIntegrityFailure(failure: IntegrityFailure, params: InitParams) {
+        Timber.tag(LOG_TAG).e(
+            "Обнаружено повреждение модели %s: expected=%s actual=%s",
+            failure.filePath,
+            failure.expectedChecksum,
+            failure.actualChecksum,
+        )
+        EnhanceLogging.logEvent(
+            "native_model_integrity_failure",
+            mapOf(
+                "file" to failure.filePath,
+                "expected" to failure.expectedChecksum,
+                "actual" to failure.actualChecksum,
+                "models_dir" to params.modelsDir.absolutePath,
+                "preview_profile" to params.previewProfile.name,
+            ),
+        )
     }
 }

@@ -3,7 +3,6 @@ package com.kotopogoda.uploader.feature.viewer.di
 import android.content.Context
 import com.kotopogoda.uploader.feature.viewer.BuildConfig
 import com.kotopogoda.uploader.core.data.ml.ModelDefinition
-import com.kotopogoda.uploader.core.data.ml.ModelFile
 import com.kotopogoda.uploader.core.data.ml.ModelsLock
 import com.kotopogoda.uploader.core.data.ml.ModelsLockParser
 import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceController
@@ -34,53 +33,52 @@ object ViewerEnhanceModule {
 
     @Provides
     @Singleton
-    @Named("zeroDceChecksum")
-    fun provideZeroDceChecksum(lock: ModelsLock): String {
+    @Named("zeroDceChecksums")
+    fun provideZeroDceChecksums(lock: ModelsLock): NativeEnhanceController.ModelChecksums {
         return try {
-            requireNcnnChecksum(lock.require("zerodcepp_fp16"))
+            requireModelChecksums(lock.require("zerodcepp_fp16"))
         } catch (e: Exception) {
-            Timber.e(e, "Failed to get zero-dce checksum from models.lock.json")
+            Timber.e(e, "Failed to get zero-dce checksums from models.lock.json")
             throw e
         }
     }
 
     @Provides
     @Singleton
-    @Named("restormerChecksum")
-    fun provideRestormerChecksum(lock: ModelsLock): String {
+    @Named("restormerChecksums")
+    fun provideRestormerChecksums(lock: ModelsLock): NativeEnhanceController.ModelChecksums {
         return try {
-            requireNcnnChecksum(lock.require("restormer_fp16"))
+            requireModelChecksums(lock.require("restormer_fp16"))
         } catch (e: Exception) {
-            Timber.e(e, "Failed to get restormer checksum from models.lock.json")
+            Timber.e(e, "Failed to get restormer checksums from models.lock.json")
             throw e
         }
     }
 
-    // TODO: Заменить сырые String на типизированный value object (Checksums)
     @Provides
     @Singleton
     fun provideNativeEnhanceAdapter(
         @ApplicationContext context: Context,
         controller: NativeEnhanceController,
         modelsInstaller: EnhancerModelsInstaller,
-        @Named("zeroDceChecksum") zeroDceChecksum: String,
-        @Named("restormerChecksum") restormerChecksum: String,
+        @Named("zeroDceChecksums") zeroDceChecksums: NativeEnhanceController.ModelChecksums,
+        @Named("restormerChecksums") restormerChecksums: NativeEnhanceController.ModelChecksums,
     ): NativeEnhanceAdapter {
         return NativeEnhanceAdapter(
             context = context,
             controller = controller,
             modelsInstaller = modelsInstaller,
-            zeroDceChecksum = zeroDceChecksum,
-            restormerChecksum = restormerChecksum,
+            zeroDceChecksums = zeroDceChecksums,
+            restormerChecksums = restormerChecksums,
         )
     }
 }
 
-private fun requireNcnnChecksum(definition: ModelDefinition): String =
-    requireNcnnFile(definition).sha256
-
-private fun requireNcnnFile(definition: ModelDefinition): ModelFile =
-    definition.files.firstOrNull { 
-        it.path.endsWith(".param") || it.path.endsWith(".bin") || it.path.endsWith(".ncnn")
-    } ?: definition.files.firstOrNull()
-        ?: throw IllegalStateException("Для модели ${definition.name} не найдены файлы в models.lock.json")
+private fun requireModelChecksums(definition: ModelDefinition): NativeEnhanceController.ModelChecksums {
+    val filesByExt = definition.filesByExtension()
+    val param = filesByExt["param"]?.sha256
+        ?: throw IllegalStateException("Для модели ${definition.name} не найден .param в models.lock.json")
+    val bin = filesByExt["bin"]?.sha256
+        ?: throw IllegalStateException("Для модели ${definition.name} не найден .bin в models.lock.json")
+    return NativeEnhanceController.ModelChecksums(param = param, bin = bin)
+}

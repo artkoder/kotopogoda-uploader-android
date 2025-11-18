@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <atomic>
+#include <mutex>
 #include <jni.h>
 #include <android/asset_manager.h>
 #include <android/bitmap.h>
@@ -30,14 +31,26 @@ struct TelemetryData {
 
 class NcnnEngine {
 public:
+    struct ModelChecksums {
+        std::string param;
+        std::string bin;
+    };
+
+    struct IntegrityFailure {
+        bool hasFailure = false;
+        std::string filePath;
+        std::string expectedChecksum;
+        std::string actualChecksum;
+    };
+
     NcnnEngine();
     ~NcnnEngine();
 
     bool initialize(
         AAssetManager* assetManager,
         const std::string& modelsDir,
-        const std::string& zeroDceChecksum,
-        const std::string& restormerChecksum,
+        const ModelChecksums& zeroDceChecksums,
+        const ModelChecksums& restormerChecksums,
         PreviewProfile profile
     );
 
@@ -62,26 +75,33 @@ public:
     bool isInitialized() const { return initialized_; }
     bool hasVulkan() const { return vulkanAvailable_; }
 
+    static IntegrityFailure consumeLastIntegrityFailure();
+
 private:
     bool loadModels(AAssetManager* assetManager, const std::string& modelsDir);
     bool verifyChecksum(const std::string& filePath, const std::string& expectedChecksum);
+    static void reportIntegrityFailure(
+        const std::string& filePath,
+        const std::string& expectedChecksum,
+        const std::string& actualChecksum
+    );
     void setupVulkan();
     void cleanupVulkan();
 
     std::unique_ptr<ncnn::Net> zeroDceNet_;
     std::unique_ptr<ncnn::Net> restormerNet_;
     ncnn::VulkanDevice* vulkanDevice_;
-    
-    std::string zeroDceChecksum_;
-    std::string restormerChecksum_;
+
+    ModelChecksums zeroDceChecksums_;
+    ModelChecksums restormerChecksums_;
     PreviewProfile previewProfile_;
-    
+
     std::atomic<bool> initialized_;
     std::atomic<bool> cancelled_;
     std::atomic<bool> vulkanAvailable_;
-    
-    static std::atomic<bool> checksumVerified_;
-    static std::atomic<bool> checksumMismatchLogged_;
+
+    static std::mutex integrityMutex_;
+    static IntegrityFailure lastIntegrityFailure_;
 };
 
 }
