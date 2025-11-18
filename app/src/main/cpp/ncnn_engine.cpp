@@ -20,6 +20,12 @@
 
 namespace kotopogoda {
 
+namespace {
+const char* delegateToString(DelegateType delegate) {
+    return delegate == DelegateType::VULKAN ? "vulkan" : "cpu";
+}
+}
+
 std::mutex NcnnEngine::integrityMutex_;
 NcnnEngine::IntegrityFailure NcnnEngine::lastIntegrityFailure_;
 
@@ -352,6 +358,21 @@ bool NcnnEngine::runPreview(
     telemetry.durationMsCpu = 0;
     telemetry.fallbackCause = FallbackCause::NONE;
     telemetry.delegate = vulkanAvailable_.load() ? DelegateType::VULKAN : DelegateType::CPU;
+    telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
+
+    auto propagateExtractorError = [&](const TelemetryData& sourceTelemetry, const char* stage) {
+        if (!sourceTelemetry.extractorError.hasError) {
+            return;
+        }
+        telemetry.extractorError = sourceTelemetry.extractorError;
+        LOGE(
+            "ENHANCE/ERROR: stage=%s delegate=%s extractor_ret=%d duration_ms=%ld",
+            stage,
+            delegateToString(telemetry.delegate),
+            sourceTelemetry.extractorError.ret,
+            sourceTelemetry.extractorError.durationMs
+        );
+    };
 
     auto runPipeline = [&, strength](
         ncnn::Mat& output,
@@ -369,6 +390,7 @@ bool NcnnEngine::runPreview(
             TelemetryData restormerTelemetry;
 
             if (!restormer.process(inputMat, restOutput, restormerTelemetry, delegateFailed, fallbackCause)) {
+                propagateExtractorError(restormerTelemetry, "restormer_preview");
                 return false;
             }
 
@@ -379,6 +401,7 @@ bool NcnnEngine::runPreview(
             ncnn::Mat finalMat;
 
             if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, delegateFailed, fallbackCause)) {
+                propagateExtractorError(zeroDceTelemetry, "zerodce_preview_quality");
                 return false;
             }
 
@@ -391,7 +414,11 @@ bool NcnnEngine::runPreview(
         }
 
         ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_, vulkanAvailable_.load());
-        return zeroDce.process(inputMat, output, strength, telemetry, delegateFailed, fallbackCause);
+        bool ok = zeroDce.process(inputMat, output, strength, telemetry, delegateFailed, fallbackCause);
+        if (!ok) {
+            propagateExtractorError(telemetry, "zerodce_preview_balanced");
+        }
+        return ok;
     };
 
     bool delegateFailed = false;
@@ -462,6 +489,21 @@ bool NcnnEngine::runFull(
     telemetry.durationMsCpu = 0;
     telemetry.fallbackCause = FallbackCause::NONE;
     telemetry.delegate = vulkanAvailable_.load() ? DelegateType::VULKAN : DelegateType::CPU;
+    telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
+
+    auto propagateExtractorError = [&](const TelemetryData& sourceTelemetry, const char* stage) {
+        if (!sourceTelemetry.extractorError.hasError) {
+            return;
+        }
+        telemetry.extractorError = sourceTelemetry.extractorError;
+        LOGE(
+            "ENHANCE/ERROR: stage=%s delegate=%s extractor_ret=%d duration_ms=%ld",
+            stage,
+            delegateToString(telemetry.delegate),
+            sourceTelemetry.extractorError.ret,
+            sourceTelemetry.extractorError.durationMs
+        );
+    };
 
     auto runPipeline = [&, strength](
         ncnn::Mat& finalMat,
@@ -478,6 +520,7 @@ bool NcnnEngine::runFull(
 
         ncnn::Mat restOutput;
         if (!restormer.process(inputMat, restOutput, restormerTelemetry, delegateFailed, fallbackCause)) {
+            propagateExtractorError(restormerTelemetry, "restormer_full");
             return false;
         }
 
@@ -487,6 +530,7 @@ bool NcnnEngine::runFull(
         TelemetryData zeroDceTelemetry;
 
         if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, delegateFailed, fallbackCause)) {
+            propagateExtractorError(zeroDceTelemetry, "zerodce_full");
             return false;
         }
 

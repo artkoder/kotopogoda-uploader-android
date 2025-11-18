@@ -32,7 +32,8 @@ private:
         const ncnn::Mat& input,
         ncnn::Mat& output,
         bool* delegateFailed,
-        FallbackCause* fallbackCause
+        FallbackCause* fallbackCause,
+        int* lastErrorCode = nullptr
     );
 
     ncnn::Net* net_;

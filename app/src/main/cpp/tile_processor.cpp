@@ -148,13 +148,18 @@ bool TileProcessor::processTiled(
     const ncnn::Mat& input,
     ncnn::Mat& output,
     ncnn::Net* net,
-    std::function<bool(const ncnn::Mat&, ncnn::Mat&, ncnn::Net*)> processFunc,
+    std::function<bool(const ncnn::Mat&, ncnn::Mat&, ncnn::Net*, int*)> processFunc,
     std::function<void(int, int)> progressCallback,
-    TileProcessStats* stats
+    TileProcessStats* stats,
+    int* errorCode
 ) {
     if (cancelFlag_.load()) {
         LOGW("ENHANCE/ERROR: Обработка отменена перед началом");
         return false;
+    }
+
+    if (errorCode) {
+        *errorCode = 0;
     }
 
     std::vector<TileInfo> tiles;
@@ -168,7 +173,7 @@ bool TileProcessor::processTiled(
             stats->overlap = config_.overlap;
             stats->seamMaxDelta = 0.0f;
         }
-        return processFunc(input, output, net);
+        return processFunc(input, output, net, errorCode);
     }
     
     output.create(input.w, input.h, input.c);
@@ -192,8 +197,17 @@ bool TileProcessor::processTiled(
         ncnn::Mat tileInput, tileOutput;
         extractTile(input, tile, tileInput);
 
-        if (!processFunc(tileInput, tileOutput, net)) {
-            LOGW("ENHANCE/ERROR: Ошибка обработки тайла %d", processed);
+        if (errorCode) {
+            *errorCode = 0;
+        }
+
+        if (!processFunc(tileInput, tileOutput, net, errorCode)) {
+            int reportedCode = errorCode ? *errorCode : 0;
+            LOGW(
+                "ENHANCE/ERROR: Ошибка обработки тайла %d ret=%d",
+                processed,
+                reportedCode
+            );
             return false;
         }
 

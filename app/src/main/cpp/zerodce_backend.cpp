@@ -9,6 +9,7 @@
 #define LOG_TAG "ZeroDceBackend"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace kotopogoda {
 
@@ -30,22 +31,38 @@ bool ZeroDceBackend::processDirectly(
     ncnn::Mat& output,
     float strength,
     bool* delegateFailed,
-    FallbackCause* fallbackCause
+    FallbackCause* fallbackCause,
+    int* lastErrorCode
 ) {
     if (cancelFlag_.load()) {
         LOGW("ENHANCE/ERROR: Обработка Zero-DCE++ отменена до старта");
         return false;
     }
 
+    if (lastErrorCode) {
+        *lastErrorCode = 0;
+    }
+
+    const char* delegateName = usingVulkan_ ? "vulkan" : "cpu";
     ncnn::Extractor ex = net_->create_extractor();
     int ret = ex.input("input", input);
     if (ret != 0) {
+        if (lastErrorCode) {
+            *lastErrorCode = ret;
+        }
+        LOGE(
+            "ENHANCE/ERROR: layer=zerodce_input delegate=%s size=%dx%dx%d ret=%d",
+            delegateName,
+            input.w,
+            input.h,
+            input.c,
+            ret
+        );
         if (usingVulkan_ && delegateFailed) {
             *delegateFailed = true;
             if (fallbackCause) {
                 *fallbackCause = FallbackCause::EXTRACT_FAILED;
             }
-            LOGW("delegate=vulkan cause=extract_failed stage=zerodce_input ret=%d", ret);
         } else {
             LOGW("ENHANCE/ERROR: Не удалось подать вход в Zero-DCE++ (ret=%d)", ret);
         }
@@ -55,16 +72,31 @@ bool ZeroDceBackend::processDirectly(
     ncnn::Mat enhancedOutput;
     ret = ex.extract("output", enhancedOutput);
 
-    if (ret != 0 || cancelFlag_.load()) {
-        if (ret != 0 && usingVulkan_ && delegateFailed) {
+    if (ret != 0) {
+        if (lastErrorCode) {
+            *lastErrorCode = ret;
+        }
+        LOGE(
+            "ENHANCE/ERROR: layer=zerodce_output delegate=%s size=%dx%dx%d ret=%d",
+            delegateName,
+            input.w,
+            input.h,
+            input.c,
+            ret
+        );
+        if (usingVulkan_ && delegateFailed) {
             *delegateFailed = true;
             if (fallbackCause) {
                 *fallbackCause = FallbackCause::EXTRACT_FAILED;
             }
-            LOGW("delegate=vulkan cause=extract_failed stage=zerodce_output ret=%d", ret);
         } else {
             LOGW("ENHANCE/ERROR: Ошибка извлечения выхода Zero-DCE++ (код=%d)", ret);
         }
+        return false;
+    }
+
+    if (cancelFlag_.load()) {
+        LOGW("ENHANCE/ERROR: Обработка Zero-DCE++ прервана после экстракции");
         return false;
     }
 
@@ -116,6 +148,8 @@ bool ZeroDceBackend::process(
 
     bool success = false;
     int gpuAllocRetryCount = 0;
+    int extractorErrorCode = 0;
+    telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
 
     if (shouldTile) {
         auto processFunc = [
@@ -127,7 +161,8 @@ bool ZeroDceBackend::process(
         ](
             const ncnn::Mat& tileIn,
             ncnn::Mat& tileOut,
-            ncnn::Net* net
+            ncnn::Net* net,
+            int* errorCode
         ) -> bool {
             const int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
@@ -139,6 +174,9 @@ bool ZeroDceBackend::process(
                 ncnn::Extractor ex = net->create_extractor();
                 int ret = ex.input("input", tileIn);
                 if (ret != 0) {
+                    if (errorCode) {
+                        *errorCode = ret;
+                    }
                     if (usingVulkan_ && delegateFailed) {
                         *delegateFailed = true;
                         if (fallbackCause) {
@@ -167,6 +205,9 @@ bool ZeroDceBackend::process(
                     return true;
                 }
 
+                if (errorCode) {
+                    *errorCode = ret;
+                }
                 gpuAllocRetryCount++;
                 LOGW(
                     "ENHANCE/ERROR: Ошибка Zero-DCE++ (ret=%d) на тайле, попытка %d/%d",
@@ -197,7 +238,8 @@ bool ZeroDceBackend::process(
             net_,
             processFunc,
             progressCallback,
-            &stats
+            &stats,
+            &extractorErrorCode
         );
         telemetry.seamMaxDelta = stats.seamMaxDelta;
         telemetry.tileTelemetry.totalTiles = stats.tileCount;
@@ -210,7 +252,7 @@ bool ZeroDceBackend::process(
         telemetry.tileTelemetry.tileUsed = false;
         telemetry.tileTelemetry.totalTiles = 0;
         telemetry.tileTelemetry.processedTiles = 0;
-        success = processDirectly(input, output, strength, delegateFailed, fallbackCause);
+        success = processDirectly(input, output, strength, delegateFailed, fallbackCause, &extractorErrorCode);
         telemetry.seamMaxDelta = 0.0f;
     }
 
@@ -228,7 +270,22 @@ bool ZeroDceBackend::process(
     );
 
     if (!success) {
-        LOGW("ENHANCE/ERROR: Обработка Zero-DCE++ завершилась с ошибкой");
+        if (extractorErrorCode != 0) {
+            telemetry.extractorError.hasError = true;
+            telemetry.extractorError.ret = extractorErrorCode;
+            telemetry.extractorError.durationMs = telemetry.timingMs;
+            LOGE(
+                "ENHANCE/ERROR: Zero-DCE++ extractor_failed ret=%d duration_ms=%ld delegate=%s size=%dx%dx%d",
+                extractorErrorCode,
+                telemetry.extractorError.durationMs,
+                usingVulkan_ ? "vulkan" : "cpu",
+                input.w,
+                input.h,
+                input.c
+            );
+        } else {
+            LOGW("ENHANCE/ERROR: Обработка Zero-DCE++ завершилась с ошибкой");
+        }
     }
 
     return success && !cancelFlag_.load();

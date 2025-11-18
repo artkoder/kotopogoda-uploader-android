@@ -50,9 +50,10 @@ public:
         const ncnn::Mat& input,
         ncnn::Mat& output,
         ncnn::Net* net,
-        std::function<bool(const ncnn::Mat&, ncnn::Mat&, ncnn::Net*)> processFunc,
+        std::function<bool(const ncnn::Mat&, ncnn::Mat&, ncnn::Net*, int*)> processFunc,
         std::function<void(int, int)> progressCallback = nullptr,
-        TileProcessStats* stats = nullptr
+        TileProcessStats* stats = nullptr,
+        int* errorCode = nullptr
     );
 
 private:
