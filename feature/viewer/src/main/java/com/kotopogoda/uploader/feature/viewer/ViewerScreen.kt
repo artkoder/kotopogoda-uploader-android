@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -1543,7 +1542,7 @@ private fun ViewerEnhancementSlider(
                 if (!enabled) {
                     Box(
                         modifier = Modifier
-                            .matchParentSize()
+                            .fillMaxSize()
                             .pointerInput(onUnavailableClick) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
