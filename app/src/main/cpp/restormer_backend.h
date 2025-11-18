@@ -16,24 +16,29 @@ struct TelemetryData;
 
 class RestormerBackend {
 public:
-    RestormerBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag);
+    RestormerBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag, bool usingVulkan);
     ~RestormerBackend();
 
     bool process(
         const ncnn::Mat& input,
         ncnn::Mat& output,
-        TelemetryData& telemetry
+        TelemetryData& telemetry,
+        bool* delegateFailed = nullptr,
+        FallbackCause* fallbackCause = nullptr
     );
 
 private:
     bool processDirectly(
         const ncnn::Mat& input,
-        ncnn::Mat& output
+        ncnn::Mat& output,
+        bool* delegateFailed,
+        FallbackCause* fallbackCause
     );
 
     ncnn::Net* net_;
     std::atomic<bool>& cancelFlag_;
     std::unique_ptr<TileProcessor> tileProcessor_;
+    bool usingVulkan_;
 };
 
 }

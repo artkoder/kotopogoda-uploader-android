@@ -36,6 +36,19 @@ class NativeEnhanceController(
         ERROR,
     }
 
+    enum class FallbackCause(val code: Int) {
+        NONE(0),
+        LOAD_FAILED(1),
+        EXTRACT_FAILED(2);
+
+        companion object {
+            fun fromCode(code: Long): FallbackCause? {
+                val matched = values().firstOrNull { it.code.toLong() == code }
+                return matched?.takeUnless { it == NONE }
+            }
+        }
+    }
+
     data class ModelChecksums(
         val param: String,
         val bin: String,
@@ -66,6 +79,10 @@ class NativeEnhanceController(
         val timingMs: Long,
         val usedVulkan: Boolean,
         val peakMemoryMb: Float,
+        val fallbackUsed: Boolean,
+        val fallbackCause: FallbackCause?,
+        val durationMsVulkan: Long?,
+        val durationMsCpu: Long?,
     )
 
     data class FullResult(
@@ -74,6 +91,10 @@ class NativeEnhanceController(
         val usedVulkan: Boolean,
         val peakMemoryMb: Float,
         val cancelled: Boolean,
+        val fallbackUsed: Boolean,
+        val fallbackCause: FallbackCause?,
+        val durationMsVulkan: Long?,
+        val durationMsCpu: Long?,
     )
 
     data class ProgressInfo(
@@ -162,6 +183,11 @@ class NativeEnhanceController(
             val timing = result[1]
             val usedVulkan = result[2] > 0
             val peakMemory = result[3].toFloat() / 1024f
+            val cancelled = result[4] > 0
+            val fallbackUsed = result[5] > 0
+            val fallbackCause = FallbackCause.fromCode(result[6])
+            val durationVulkan = result[7].takeIf { it > 0 }
+            val durationCpu = result[8].takeIf { it > 0 }
 
             EnhanceLogging.logEvent(
                 "native_preview_complete",
@@ -171,6 +197,11 @@ class NativeEnhanceController(
                     "elapsed_ms" to elapsed,
                     "used_vulkan" to usedVulkan,
                     "peak_memory_mb" to peakMemory,
+                    "cancelled" to cancelled,
+                    "fallback_used" to fallbackUsed,
+                    "fallback_cause" to fallbackCause?.name?.lowercase(),
+                    "duration_ms_vulkan" to durationVulkan,
+                    "duration_ms_cpu" to durationCpu,
                 ),
             )
 
@@ -179,6 +210,10 @@ class NativeEnhanceController(
                 timingMs = timing,
                 usedVulkan = usedVulkan,
                 peakMemoryMb = peakMemory,
+                fallbackUsed = fallbackUsed,
+                fallbackCause = fallbackCause,
+                durationMsVulkan = durationVulkan,
+                durationMsCpu = durationCpu,
             )
         } finally {
             activeOperations.decrementAndGet()
@@ -222,6 +257,10 @@ class NativeEnhanceController(
             val usedVulkan = result[2] > 0
             val peakMemory = result[3].toFloat() / 1024f
             val cancelled = result[4] > 0
+            val fallbackUsed = result[5] > 0
+            val fallbackCause = FallbackCause.fromCode(result[6])
+            val durationVulkan = result[7].takeIf { it > 0 }
+            val durationCpu = result[8].takeIf { it > 0 }
 
             EnhanceLogging.logEvent(
                 "native_full_complete",
@@ -232,6 +271,10 @@ class NativeEnhanceController(
                     "used_vulkan" to usedVulkan,
                     "peak_memory_mb" to peakMemory,
                     "cancelled" to cancelled,
+                    "fallback_used" to fallbackUsed,
+                    "fallback_cause" to fallbackCause?.name?.lowercase(),
+                    "duration_ms_vulkan" to durationVulkan,
+                    "duration_ms_cpu" to durationCpu,
                 ),
             )
 
@@ -241,6 +284,10 @@ class NativeEnhanceController(
                 usedVulkan = usedVulkan,
                 peakMemoryMb = peakMemory,
                 cancelled = cancelled,
+                fallbackUsed = fallbackUsed,
+                fallbackCause = fallbackCause,
+                durationMsVulkan = durationVulkan,
+                durationMsCpu = durationCpu,
             )
         } finally {
             activeOperations.decrementAndGet()

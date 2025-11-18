@@ -12,8 +12,8 @@
 
 namespace kotopogoda {
 
-ZeroDceBackend::ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag)
-    : net_(net), cancelFlag_(cancelFlag) {
+ZeroDceBackend::ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag, bool usingVulkan)
+    : net_(net), cancelFlag_(cancelFlag), usingVulkan_(usingVulkan) {
     TileConfig config;
     config.tileSize = 512;
     config.overlap = 64;
@@ -28,7 +28,9 @@ ZeroDceBackend::~ZeroDceBackend() {
 bool ZeroDceBackend::processDirectly(
     const ncnn::Mat& input,
     ncnn::Mat& output,
-    float strength
+    float strength,
+    bool* delegateFailed,
+    FallbackCause* fallbackCause
 ) {
     if (cancelFlag_.load()) {
         LOGW("ENHANCE/ERROR: Обработка Zero-DCE++ отменена до старта");
@@ -36,16 +38,33 @@ bool ZeroDceBackend::processDirectly(
     }
 
     ncnn::Extractor ex = net_->create_extractor();
-    if (ex.input("input", input) != 0) {
-        LOGW("ENHANCE/ERROR: Не удалось подать вход в Zero-DCE++");
+    int ret = ex.input("input", input);
+    if (ret != 0) {
+        if (usingVulkan_ && delegateFailed) {
+            *delegateFailed = true;
+            if (fallbackCause) {
+                *fallbackCause = FallbackCause::EXTRACT_FAILED;
+            }
+            LOGW("delegate=vulkan cause=extract_failed stage=zerodce_input ret=%d", ret);
+        } else {
+            LOGW("ENHANCE/ERROR: Не удалось подать вход в Zero-DCE++ (ret=%d)", ret);
+        }
         return false;
     }
 
     ncnn::Mat enhancedOutput;
-    int ret = ex.extract("output", enhancedOutput);
+    ret = ex.extract("output", enhancedOutput);
 
     if (ret != 0 || cancelFlag_.load()) {
-        LOGW("ENHANCE/ERROR: Ошибка извлечения выхода Zero-DCE++ (код=%d)", ret);
+        if (ret != 0 && usingVulkan_ && delegateFailed) {
+            *delegateFailed = true;
+            if (fallbackCause) {
+                *fallbackCause = FallbackCause::EXTRACT_FAILED;
+            }
+            LOGW("delegate=vulkan cause=extract_failed stage=zerodce_output ret=%d", ret);
+        } else {
+            LOGW("ENHANCE/ERROR: Ошибка извлечения выхода Zero-DCE++ (код=%d)", ret);
+        }
         return false;
     }
 
@@ -68,7 +87,9 @@ bool ZeroDceBackend::process(
     const ncnn::Mat& input,
     ncnn::Mat& output,
     float strength,
-    TelemetryData& telemetry
+    TelemetryData& telemetry,
+    bool* delegateFailed,
+    FallbackCause* fallbackCause
 ) {
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -97,7 +118,13 @@ bool ZeroDceBackend::process(
     int gpuAllocRetryCount = 0;
 
     if (shouldTile) {
-        auto processFunc = [this, strength, &gpuAllocRetryCount](
+        auto processFunc = [
+            this,
+            strength,
+            &gpuAllocRetryCount,
+            delegateFailed,
+            fallbackCause
+        ](
             const ncnn::Mat& tileIn,
             ncnn::Mat& tileOut,
             ncnn::Net* net
@@ -110,13 +137,22 @@ bool ZeroDceBackend::process(
                 }
 
                 ncnn::Extractor ex = net->create_extractor();
-                if (ex.input("input", tileIn) != 0) {
-                    LOGW("ENHANCE/ERROR: Не удалось подать данные тайла в Zero-DCE++");
+                int ret = ex.input("input", tileIn);
+                if (ret != 0) {
+                    if (usingVulkan_ && delegateFailed) {
+                        *delegateFailed = true;
+                        if (fallbackCause) {
+                            *fallbackCause = FallbackCause::EXTRACT_FAILED;
+                        }
+                        LOGW("delegate=vulkan cause=extract_failed stage=zerodce_tile_input ret=%d", ret);
+                    } else {
+                        LOGW("ENHANCE/ERROR: Не удалось подать данные тайла в Zero-DCE++ (ret=%d)", ret);
+                    }
                     return false;
                 }
 
                 ncnn::Mat enhancedTile;
-                int ret = ex.extract("output", enhancedTile);
+                ret = ex.extract("output", enhancedTile);
                 if (ret == 0) {
                     tileOut.create(tileIn.w, tileIn.h, tileIn.c);
                     for (int c = 0; c < tileIn.c; ++c) {
@@ -138,6 +174,12 @@ bool ZeroDceBackend::process(
                     attempt,
                     maxAttempts
                 );
+                if (usingVulkan_ && delegateFailed) {
+                    *delegateFailed = true;
+                    if (fallbackCause) {
+                        *fallbackCause = FallbackCause::EXTRACT_FAILED;
+                    }
+                }
             }
             return false;
         };
@@ -168,7 +210,7 @@ bool ZeroDceBackend::process(
         telemetry.tileTelemetry.tileUsed = false;
         telemetry.tileTelemetry.totalTiles = 0;
         telemetry.tileTelemetry.processedTiles = 0;
-        success = processDirectly(input, output, strength);
+        success = processDirectly(input, output, strength, delegateFailed, fallbackCause);
         telemetry.seamMaxDelta = 0.0f;
     }
 
