@@ -23,10 +23,20 @@ enum class PreviewProfile {
 };
 
 struct TelemetryData {
+    struct TileTelemetry {
+        bool tileUsed = false;
+        int tileSize = 0;
+        int overlap = 0;
+        int totalTiles = 0;
+        int processedTiles = 0;
+    } tileTelemetry;
+
     long timingMs = 0;
     bool usedVulkan = false;
     long peakMemoryKb = 0;
     bool cancelled = false;
+    float seamMaxDelta = 0.0f;
+    int gpuAllocRetryCount = 0;
 };
 
 class NcnnEngine {

@@ -2,6 +2,7 @@
 #define ZERODCE_BACKEND_H
 
 #include <atomic>
+#include <memory>
 
 namespace ncnn {
     class Mat;
@@ -10,6 +11,7 @@ namespace ncnn {
 
 namespace kotopogoda {
 
+class TileProcessor;
 struct TelemetryData;
 
 class ZeroDceBackend {
@@ -25,8 +27,15 @@ public:
     );
 
 private:
+    bool processDirectly(
+        const ncnn::Mat& input,
+        ncnn::Mat& output,
+        float strength
+    );
+
     ncnn::Net* net_;
     std::atomic<bool>& cancelFlag_;
+    std::unique_ptr<TileProcessor> tileProcessor_;
 };
 
 }
