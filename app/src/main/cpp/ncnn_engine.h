@@ -83,7 +83,8 @@ public:
         const std::string& modelsDir,
         const ModelChecksums& zeroDceChecksums,
         const ModelChecksums& restormerChecksums,
-        PreviewProfile profile
+        PreviewProfile profile,
+        bool forceCpu
     );
 
     bool runPreview(
@@ -106,6 +107,7 @@ public:
 
     bool isInitialized() const { return initialized_; }
     bool hasVulkan() const { return vulkanAvailable_; }
+    bool isGpuDelegateAvailable() const { return gpuDelegateAvailable_; }
 
     static IntegrityFailure consumeLastIntegrityFailure();
 
@@ -119,7 +121,7 @@ private:
         const std::string& expectedChecksum,
         const std::string& actualChecksum
     );
-    void setupVulkan();
+    void setupVulkan(int gpuCount);
     void cleanupVulkan();
 
     std::unique_ptr<ncnn::Net> zeroDceNet_;
@@ -135,6 +137,7 @@ private:
     std::atomic<bool> initialized_;
     std::atomic<bool> cancelled_;
     std::atomic<bool> vulkanAvailable_;
+    std::atomic<bool> gpuDelegateAvailable_;
 
     static std::mutex integrityMutex_;
     static IntegrityFailure lastIntegrityFailure_;
