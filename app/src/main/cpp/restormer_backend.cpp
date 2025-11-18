@@ -9,6 +9,7 @@
 #define LOG_TAG "RestormerBackend"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace kotopogoda {
 
@@ -31,33 +32,59 @@ bool RestormerBackend::processDirectly(
     const ncnn::Mat& input,
     ncnn::Mat& output,
     bool* delegateFailed,
-    FallbackCause* fallbackCause
+    FallbackCause* fallbackCause,
+    int* lastErrorCode
 ) {
     if (cancelFlag_.load()) {
         return false;
     }
 
+    if (lastErrorCode) {
+        *lastErrorCode = 0;
+    }
+
+    const char* delegateName = usingVulkan_ ? "vulkan" : "cpu";
     ncnn::Extractor ex = net_->create_extractor();
     int ret = ex.input("input", input);
     if (ret != 0) {
+        if (lastErrorCode) {
+            *lastErrorCode = ret;
+        }
+        LOGE(
+            "ENHANCE/ERROR: layer=restormer_input delegate=%s size=%dx%dx%d ret=%d",
+            delegateName,
+            input.w,
+            input.h,
+            input.c,
+            ret
+        );
         if (usingVulkan_ && delegateFailed) {
             *delegateFailed = true;
             if (fallbackCause) {
                 *fallbackCause = FallbackCause::EXTRACT_FAILED;
             }
-            LOGW("delegate=vulkan cause=extract_failed stage=restormer_input ret=%d", ret);
         }
         return false;
     }
 
     ret = ex.extract("output", output);
     if (ret != 0) {
+        if (lastErrorCode) {
+            *lastErrorCode = ret;
+        }
+        LOGE(
+            "ENHANCE/ERROR: layer=restormer_output delegate=%s size=%dx%dx%d ret=%d",
+            delegateName,
+            input.w,
+            input.h,
+            input.c,
+            ret
+        );
         if (usingVulkan_ && delegateFailed) {
             *delegateFailed = true;
             if (fallbackCause) {
                 *fallbackCause = FallbackCause::EXTRACT_FAILED;
             }
-            LOGW("delegate=vulkan cause=extract_failed stage=restormer_output ret=%d", ret);
         }
         return false;
     }
@@ -73,35 +100,53 @@ bool RestormerBackend::process(
     FallbackCause* fallbackCause
 ) {
     auto startTime = std::chrono::high_resolution_clock::now();
-    
+
     LOGI("Начало обработки Restormer: %dx%dx%d", input.w, input.h, input.c);
-    
+
     bool needsTiling = input.w > 512 || input.h > 512;
     bool success = false;
-    
+    int extractorErrorCode = 0;
+    telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
+
     if (needsTiling) {
         LOGI("Используется тайловая обработка");
-        
+
         auto processFunc = [this, delegateFailed, fallbackCause](
             const ncnn::Mat& tileIn,
             ncnn::Mat& tileOut,
-            ncnn::Net* net
+            ncnn::Net* net,
+            int* errorCode
         ) -> bool {
             (void)net;
-            return this->processDirectly(tileIn, tileOut, delegateFailed, fallbackCause);
+            return this->processDirectly(tileIn, tileOut, delegateFailed, fallbackCause, errorCode);
         };
 
-        success = tileProcessor_->processTiled(input, output, net_, processFunc);
+        success = tileProcessor_->processTiled(input, output, net_, processFunc, nullptr, nullptr, &extractorErrorCode);
     } else {
         LOGI("Обработка без тайлинга");
-        success = processDirectly(input, output, delegateFailed, fallbackCause);
+        success = processDirectly(input, output, delegateFailed, fallbackCause, &extractorErrorCode);
     }
-    
+
     auto endTime = std::chrono::high_resolution_clock::now();
     telemetry.timingMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-    
+
     LOGI("Обработка Restormer завершена за %ld мс, успех=%d", telemetry.timingMs, success);
-    
+
+    if (!success && extractorErrorCode != 0) {
+        telemetry.extractorError.hasError = true;
+        telemetry.extractorError.ret = extractorErrorCode;
+        telemetry.extractorError.durationMs = telemetry.timingMs;
+        LOGE(
+            "ENHANCE/ERROR: Restormer extractor_failed ret=%d duration_ms=%ld delegate=%s size=%dx%dx%d",
+            extractorErrorCode,
+            telemetry.extractorError.durationMs,
+            usingVulkan_ ? "vulkan" : "cpu",
+            input.w,
+            input.h,
+            input.c
+        );
+    }
+
     return success;
 }
 

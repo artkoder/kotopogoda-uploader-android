@@ -42,6 +42,12 @@ struct TelemetryData {
         int processedTiles = 0;
     } tileTelemetry;
 
+    struct ExtractorErrorTelemetry {
+        bool hasError = false;
+        int ret = 0;
+        long durationMs = 0;
+    } extractorError;
+
     long timingMs = 0;
     bool usedVulkan = false;
     long peakMemoryKb = 0;

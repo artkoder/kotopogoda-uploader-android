@@ -34,7 +34,8 @@ private:
         ncnn::Mat& output,
         float strength,
         bool* delegateFailed,
-        FallbackCause* fallbackCause
+        FallbackCause* fallbackCause,
+        int* lastErrorCode = nullptr
     );
 
     ncnn::Net* net_;
