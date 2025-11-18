@@ -15,13 +15,44 @@ import java.io.FileInputStream
 import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import timber.log.Timber
 
 object EnhancerModelProbe {
 
     private const val TAG = "Enhance/Probe"
+    private val probeRunning = AtomicBoolean(false)
+    private val lastProbeSignature = AtomicReference<String?>(null)
 
     fun run(context: Context) {
+        val modelsSignature = currentModelsSignature()
+        if (isProbeSummaryFresh(modelsSignature)) {
+            Timber.tag(TAG).d("Результаты проверки моделей актуальны, повторный запуск не требуется")
+            return
+        }
+        if (!probeRunning.compareAndSet(false, true)) {
+            Timber.tag(TAG).d("Проверка моделей уже выполняется, пропускаем повторный запуск")
+            return
+        }
+        try {
+            executeProbe(context, modelsSignature)
+        } finally {
+            probeRunning.set(false)
+        }
+    }
+
+    private fun isProbeSummaryFresh(modelsSignature: String): Boolean {
+        val cachedSummary = EnhanceLogging.probeSummary
+        val cachedSignature = lastProbeSignature.get()
+        return cachedSummary != null && cachedSignature == modelsSignature
+    }
+
+    private fun currentModelsSignature(): String {
+        return BuildConfig.MODELS_LOCK_JSON.hashCode().toString()
+    }
+
+    private fun executeProbe(context: Context, modelsSignature: String) {
         val start = SystemClock.elapsedRealtime()
         EnhanceLogging.clearProbeSummary()
         val probeResult = runCatching {
@@ -58,6 +89,7 @@ object EnhancerModelProbe {
                     "status" to "success",
                 ),
             )
+            lastProbeSignature.set(modelsSignature)
         }.onFailure { error ->
             EnhanceLogging.logEvent(
                 "enhancer_probe",

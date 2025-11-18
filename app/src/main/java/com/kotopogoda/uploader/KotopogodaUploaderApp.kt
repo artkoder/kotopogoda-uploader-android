@@ -125,7 +125,7 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         }.onFailure { error ->
             Timber.tag("NativeEnhance").e(error, "Не удалось загрузить нативную библиотеку")
         }
-        runBlocking(Dispatchers.IO) {
+        scope.launch(Dispatchers.IO) {
             runCatching { EnhancerModelProbe.run(this@KotopogodaUploaderApp) }
                 .onFailure { error ->
                     Timber.tag("Enhance/Probe").e(error, "EnhancerModelProbe завершился с ошибкой")
