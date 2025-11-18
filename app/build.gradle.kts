@@ -134,7 +134,7 @@ android {
             excludes += "**/*.dll" // Windows libraries
             excludes += "sqlite4java/**" // Неиспользуемые SQLite4Java библиотеки
             excludes += "META-INF/native/**" // Conscrypt Windows/macOS natives
-            excludes += "models/**" // OCR модели от ML Kit
+            // Не исключаем "models/**", чтобы assets/models остались в сборке
             excludes += "icu/**" // ICU data files
             excludes += "fonts/NotoSans**" // Шрифты (NotoSansCJK занимают ~120 МБ)
         }
