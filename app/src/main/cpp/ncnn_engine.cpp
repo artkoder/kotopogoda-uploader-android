@@ -8,6 +8,8 @@
 #include <android/asset_manager.h>
 #include <android/bitmap.h>
 #include <fstream>
+#include <algorithm>
+#include <cctype>
 
 #define LOG_TAG "NcnnEngine"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -16,8 +18,8 @@
 
 namespace kotopogoda {
 
-std::atomic<bool> NcnnEngine::checksumVerified_(false);
-std::atomic<bool> NcnnEngine::checksumMismatchLogged_(false);
+std::mutex NcnnEngine::integrityMutex_;
+NcnnEngine::IntegrityFailure NcnnEngine::lastIntegrityFailure_;
 
 NcnnEngine::NcnnEngine()
     : vulkanDevice_(nullptr),
@@ -51,29 +53,57 @@ void NcnnEngine::cleanupVulkan() {
     vulkanAvailable_ = false;
 }
 
+void NcnnEngine::reportIntegrityFailure(
+    const std::string& filePath,
+    const std::string& expectedChecksum,
+    const std::string& actualChecksum
+) {
+    std::lock_guard<std::mutex> lock(integrityMutex_);
+    lastIntegrityFailure_.hasFailure = true;
+    lastIntegrityFailure_.filePath = filePath;
+    lastIntegrityFailure_.expectedChecksum = expectedChecksum;
+    lastIntegrityFailure_.actualChecksum = actualChecksum;
+}
+
+NcnnEngine::IntegrityFailure NcnnEngine::consumeLastIntegrityFailure() {
+    std::lock_guard<std::mutex> lock(integrityMutex_);
+    IntegrityFailure failure = lastIntegrityFailure_;
+    lastIntegrityFailure_ = IntegrityFailure{};
+    return failure;
+}
+
 bool NcnnEngine::verifyChecksum(const std::string& filePath, const std::string& expectedChecksum) {
-    if (checksumVerified_.load()) {
-        return true;
+    if (expectedChecksum.empty()) {
+        LOGE("Ожидаемая контрольная сумма не указана для %s", filePath.c_str());
+        reportIntegrityFailure(filePath, expectedChecksum, "");
+        return false;
     }
-    
+
     std::string computed = Sha256Verifier::computeSha256(filePath);
-    
+
     if (computed.empty()) {
         LOGE("Не удалось вычислить SHA256 для %s", filePath.c_str());
+        reportIntegrityFailure(filePath, expectedChecksum, "");
         return false;
     }
-    
-    if (computed != expectedChecksum) {
-        if (!checksumMismatchLogged_.exchange(true)) {
-            LOGW("Несоответствие контрольной суммы для %s", filePath.c_str());
-            LOGW("Ожидалось: %s", expectedChecksum.c_str());
-            LOGW("Получено:  %s", computed.c_str());
-        }
+
+    std::string normalizedExpected = expectedChecksum;
+    std::transform(
+        normalizedExpected.begin(),
+        normalizedExpected.end(),
+        normalizedExpected.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); }
+    );
+
+    if (computed != normalizedExpected) {
+        LOGW("Несоответствие контрольной суммы для %s", filePath.c_str());
+        LOGW("Ожидалось: %s", normalizedExpected.c_str());
+        LOGW("Получено:  %s", computed.c_str());
+        reportIntegrityFailure(filePath, normalizedExpected, computed);
         return false;
     }
-    
+
     LOGI("Контрольная сумма проверена для %s", filePath.c_str());
-    checksumVerified_ = true;
     return true;
 }
 
@@ -105,26 +135,46 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     std::string restormerParam = modelsDir + "/restormer_fp16.param";
     std::string restormerBin = modelsDir + "/restormer_fp16.bin";
     
+    if (!verifyChecksum(zeroDceParam, zeroDceChecksums_.param)) {
+        LOGE("Контрольная сумма Zero-DCE++ param не совпадает");
+        return false;
+    }
+
     LOGI("Загрузка Zero-DCE++ из %s", zeroDceParam.c_str());
     int ret = zeroDceNet_->load_param(zeroDceParam.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить параметры Zero-DCE++: %d", ret);
         return false;
     }
-    
+
+    if (!verifyChecksum(zeroDceBin, zeroDceChecksums_.bin)) {
+        LOGE("Контрольная сумма Zero-DCE++ bin не совпадает");
+        return false;
+    }
+
     ret = zeroDceNet_->load_model(zeroDceBin.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить модель Zero-DCE++: %d", ret);
         return false;
     }
-    
+
+    if (!verifyChecksum(restormerParam, restormerChecksums_.param)) {
+        LOGE("Контрольная сумма Restormer param не совпадает");
+        return false;
+    }
+
     LOGI("Загрузка Restormer из %s", restormerParam.c_str());
     ret = restormerNet_->load_param(restormerParam.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить параметры Restormer: %d", ret);
         return false;
     }
-    
+
+    if (!verifyChecksum(restormerBin, restormerChecksums_.bin)) {
+        LOGE("Контрольная сумма Restormer bin не совпадает");
+        return false;
+    }
+
     ret = restormerNet_->load_model(restormerBin.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить модель Restormer: %d", ret);
@@ -138,8 +188,8 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
 bool NcnnEngine::initialize(
     AAssetManager* assetManager,
     const std::string& modelsDir,
-    const std::string& zeroDceChecksum,
-    const std::string& restormerChecksum,
+    const ModelChecksums& zeroDceChecksums,
+    const ModelChecksums& restormerChecksums,
     PreviewProfile profile
 ) {
     if (initialized_.load()) {
@@ -151,8 +201,8 @@ bool NcnnEngine::initialize(
     LOGI("Директория моделей: %s", modelsDir.c_str());
     LOGI("Профиль превью: %d", static_cast<int>(profile));
     
-    zeroDceChecksum_ = zeroDceChecksum;
-    restormerChecksum_ = restormerChecksum;
+    zeroDceChecksums_ = zeroDceChecksums;
+    restormerChecksums_ = restormerChecksums;
     previewProfile_ = profile;
     
     setupVulkan();

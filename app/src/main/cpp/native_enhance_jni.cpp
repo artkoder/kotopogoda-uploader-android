@@ -21,15 +21,19 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     jobject thiz,
     jobject assetManager,
     jstring modelsDir,
-    jstring zeroDceChecksum,
-    jstring restormerChecksum,
+    jstring zeroDceParamChecksum,
+    jstring zeroDceBinChecksum,
+    jstring restormerParamChecksum,
+    jstring restormerBinChecksum,
     jint previewProfile
 ) {
     LOGI("nativeInit вызван");
     
     const char* modelsDirStr = env->GetStringUTFChars(modelsDir, nullptr);
-    const char* zeroDceChecksumStr = env->GetStringUTFChars(zeroDceChecksum, nullptr);
-    const char* restormerChecksumStr = env->GetStringUTFChars(restormerChecksum, nullptr);
+    const char* zeroDceParamChecksumStr = env->GetStringUTFChars(zeroDceParamChecksum, nullptr);
+    const char* zeroDceBinChecksumStr = env->GetStringUTFChars(zeroDceBinChecksum, nullptr);
+    const char* restormerParamChecksumStr = env->GetStringUTFChars(restormerParamChecksum, nullptr);
+    const char* restormerBinChecksumStr = env->GetStringUTFChars(restormerBinChecksum, nullptr);
     
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
     
@@ -42,14 +46,16 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     bool success = engine->initialize(
         mgr,
         std::string(modelsDirStr),
-        std::string(zeroDceChecksumStr),
-        std::string(restormerChecksumStr),
+        { std::string(zeroDceParamChecksumStr), std::string(zeroDceBinChecksumStr) },
+        { std::string(restormerParamChecksumStr), std::string(restormerBinChecksumStr) },
         profile
     );
-    
+
     env->ReleaseStringUTFChars(modelsDir, modelsDirStr);
-    env->ReleaseStringUTFChars(zeroDceChecksum, zeroDceChecksumStr);
-    env->ReleaseStringUTFChars(restormerChecksum, restormerChecksumStr);
+    env->ReleaseStringUTFChars(zeroDceParamChecksum, zeroDceParamChecksumStr);
+    env->ReleaseStringUTFChars(zeroDceBinChecksum, zeroDceBinChecksumStr);
+    env->ReleaseStringUTFChars(restormerParamChecksum, restormerParamChecksumStr);
+    env->ReleaseStringUTFChars(restormerBinChecksum, restormerBinChecksumStr);
     
     if (!success) {
         LOGE("Не удалось инициализировать движок");
@@ -191,6 +197,44 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     delete engine;
     
     LOGI("Движок с handle=%lld освобожден", (long long)handle);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeConsumeIntegrityFailure(
+    JNIEnv* env,
+    jclass clazz
+) {
+    (void)clazz;
+    kotopogoda::NcnnEngine::IntegrityFailure failure =
+        kotopogoda::NcnnEngine::consumeLastIntegrityFailure();
+
+    if (!failure.hasFailure) {
+        return nullptr;
+    }
+
+    jclass stringClass = env->FindClass("java/lang/String");
+    if (stringClass == nullptr) {
+        return nullptr;
+    }
+
+    jobjectArray array = env->NewObjectArray(3, stringClass, nullptr);
+    if (array == nullptr) {
+        return nullptr;
+    }
+
+    jstring filePath = env->NewStringUTF(failure.filePath.c_str());
+    jstring expected = env->NewStringUTF(failure.expectedChecksum.c_str());
+    jstring actual = env->NewStringUTF(failure.actualChecksum.c_str());
+
+    env->SetObjectArrayElement(array, 0, filePath);
+    env->SetObjectArrayElement(array, 1, expected);
+    env->SetObjectArrayElement(array, 2, actual);
+
+    env->DeleteLocalRef(filePath);
+    env->DeleteLocalRef(expected);
+    env->DeleteLocalRef(actual);
+
+    return array;
 }
 
 }

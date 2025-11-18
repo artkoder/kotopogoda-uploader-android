@@ -27,8 +27,8 @@ class NativeEnhanceAdapter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val controller: NativeEnhanceController,
     private val modelsInstaller: EnhancerModelsInstaller,
-    @Named("zeroDceChecksum") private val zeroDceChecksum: String,
-    @Named("restormerChecksum") private val restormerChecksum: String,
+    @Named("zeroDceChecksums") private val zeroDceChecksums: NativeEnhanceController.ModelChecksums,
+    @Named("restormerChecksums") private val restormerChecksums: NativeEnhanceController.ModelChecksums,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
@@ -44,14 +44,14 @@ class NativeEnhanceAdapter @Inject constructor(
     fun modelsTelemetry(): EnhanceEngine.ModelsTelemetry = EnhanceEngine.ModelsTelemetry(
         zeroDce = ModelUsage(
             backend = ModelBackend.NCNN,
-            checksum = zeroDceChecksum,
-            expectedChecksum = zeroDceChecksum,
+            checksum = zeroDceChecksums.bin,
+            expectedChecksum = zeroDceChecksums.bin,
             checksumOk = true,
         ),
         restormer = ModelUsage(
             backend = ModelBackend.NCNN,
-            checksum = restormerChecksum,
-            expectedChecksum = restormerChecksum,
+            checksum = restormerChecksums.bin,
+            expectedChecksum = restormerChecksums.bin,
             checksumOk = true,
         ),
     )
@@ -70,8 +70,8 @@ class NativeEnhanceAdapter @Inject constructor(
         val params = NativeEnhanceController.InitParams(
             assetManager = context.assets,
             modelsDir = modelsDir,
-            zeroDceChecksum = zeroDceChecksum,
-            restormerChecksum = restormerChecksum,
+            zeroDceChecksums = zeroDceChecksums,
+            restormerChecksums = restormerChecksums,
             previewProfile = profile,
         )
 
