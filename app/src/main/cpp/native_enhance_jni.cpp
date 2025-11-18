@@ -96,14 +96,19 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     kotopogoda::TelemetryData telemetry;
     bool success = engine->runPreview(env, bitmap, strength, telemetry);
     
-    jlongArray result = env->NewLongArray(4);
-    jlong data[4];
+    jlongArray result = env->NewLongArray(9);
+    jlong data[9];
     data[0] = success ? 1 : 0;
     data[1] = telemetry.timingMs;
     data[2] = telemetry.usedVulkan ? 1 : 0;
     data[3] = telemetry.peakMemoryKb;
-    
-    env->SetLongArrayRegion(result, 0, 4, data);
+    data[4] = telemetry.cancelled ? 1 : 0;
+    data[5] = telemetry.fallbackUsed ? 1 : 0;
+    data[6] = static_cast<jlong>(telemetry.fallbackCause);
+    data[7] = telemetry.durationMsVulkan;
+    data[8] = telemetry.durationMsCpu;
+
+    env->SetLongArrayRegion(result, 0, 9, data);
     
     LOGI("nativeRunPreview завершен: success=%d, timing=%ldms", success, telemetry.timingMs);
     
@@ -135,15 +140,19 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     kotopogoda::TelemetryData telemetry;
     bool success = engine->runFull(env, sourceBitmap, strength, outputBitmap, telemetry);
     
-    jlongArray result = env->NewLongArray(5);
-    jlong data[5];
+    jlongArray result = env->NewLongArray(9);
+    jlong data[9];
     data[0] = success ? 1 : 0;
     data[1] = telemetry.timingMs;
     data[2] = telemetry.usedVulkan ? 1 : 0;
     data[3] = telemetry.peakMemoryKb;
     data[4] = telemetry.cancelled ? 1 : 0;
-    
-    env->SetLongArrayRegion(result, 0, 5, data);
+    data[5] = telemetry.fallbackUsed ? 1 : 0;
+    data[6] = static_cast<jlong>(telemetry.fallbackCause);
+    data[7] = telemetry.durationMsVulkan;
+    data[8] = telemetry.durationMsCpu;
+
+    env->SetLongArrayRegion(result, 0, 9, data);
     
     LOGI("nativeRunFull завершен: success=%d, timing=%ldms, cancelled=%d", 
          success, telemetry.timingMs, telemetry.cancelled);

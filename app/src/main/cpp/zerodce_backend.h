@@ -16,26 +16,31 @@ struct TelemetryData;
 
 class ZeroDceBackend {
 public:
-    ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag);
+    ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag, bool usingVulkan);
     ~ZeroDceBackend();
 
     bool process(
         const ncnn::Mat& input,
         ncnn::Mat& output,
         float strength,
-        TelemetryData& telemetry
+        TelemetryData& telemetry,
+        bool* delegateFailed = nullptr,
+        FallbackCause* fallbackCause = nullptr
     );
 
 private:
     bool processDirectly(
         const ncnn::Mat& input,
         ncnn::Mat& output,
-        float strength
+        float strength,
+        bool* delegateFailed,
+        FallbackCause* fallbackCause
     );
 
     ncnn::Net* net_;
     std::atomic<bool>& cancelFlag_;
     std::unique_ptr<TileProcessor> tileProcessor_;
+    bool usingVulkan_;
 };
 
 }

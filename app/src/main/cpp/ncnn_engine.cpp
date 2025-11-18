@@ -4,12 +4,14 @@
 #include "zerodce_backend.h"
 #include <ncnn/net.h>
 #include <ncnn/gpu.h>
+#include <ncnn/cpu.h>
 #include <android/log.h>
 #include <android/asset_manager.h>
 #include <android/bitmap.h>
 #include <fstream>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 
 #define LOG_TAG "NcnnEngine"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -24,6 +26,8 @@ NcnnEngine::IntegrityFailure NcnnEngine::lastIntegrityFailure_;
 NcnnEngine::NcnnEngine()
     : vulkanDevice_(nullptr),
       previewProfile_(PreviewProfile::BALANCED),
+      modelsDir_(),
+      assetManager_(nullptr),
       initialized_(false),
       cancelled_(false),
       vulkanAvailable_(false) {
@@ -51,6 +55,18 @@ void NcnnEngine::setupVulkan() {
 void NcnnEngine::cleanupVulkan() {
     vulkanDevice_ = nullptr;
     vulkanAvailable_ = false;
+}
+
+bool NcnnEngine::switchToCpuFallback() {
+    if (modelsDir_.empty()) {
+        LOGE("Невозможно выполнить CPU fallback: неизвестна директория моделей");
+        return false;
+    }
+
+    LOGW("ENHANCE/FALLBACK: переключение на CPU после ошибки Vulkan");
+    cleanupVulkan();
+    ncnn::destroy_gpu_instance();
+    return loadModelsForDelegate(modelsDir_, false);
 }
 
 void NcnnEngine::reportIntegrityFailure(
@@ -108,33 +124,45 @@ bool NcnnEngine::verifyChecksum(const std::string& filePath, const std::string& 
 }
 
 bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& modelsDir) {
+    (void)assetManager;
+    return loadModelsForDelegate(modelsDir, vulkanAvailable_.load());
+}
+
+bool NcnnEngine::loadModelsForDelegate(const std::string& modelsDir, bool useVulkan) {
+    zeroDceNet_.reset();
+    restormerNet_.reset();
     zeroDceNet_ = std::make_unique<ncnn::Net>();
     restormerNet_ = std::make_unique<ncnn::Net>();
-    
-    if (vulkanAvailable_) {
-        zeroDceNet_->opt.use_vulkan_compute = true;
-        restormerNet_->opt.use_vulkan_compute = true;
-        LOGI("Модели будут использовать Vulkan");
-    } else {
-        zeroDceNet_->opt.use_vulkan_compute = false;
-        restormerNet_->opt.use_vulkan_compute = false;
-    }
-    
+
+    vulkanAvailable_ = useVulkan;
+
+    zeroDceNet_->opt.use_vulkan_compute = useVulkan;
+    restormerNet_->opt.use_vulkan_compute = useVulkan;
+
     zeroDceNet_->opt.use_fp16_packed = true;
     zeroDceNet_->opt.use_fp16_storage = true;
     zeroDceNet_->opt.use_fp16_arithmetic = false;
-    zeroDceNet_->opt.num_threads = 4;
-    
+
     restormerNet_->opt.use_fp16_packed = true;
     restormerNet_->opt.use_fp16_storage = true;
     restormerNet_->opt.use_fp16_arithmetic = false;
-    restormerNet_->opt.num_threads = 8;
-    
+
+    if (useVulkan) {
+        zeroDceNet_->opt.num_threads = 4;
+        restormerNet_->opt.num_threads = 8;
+        LOGI("Модели будут использовать Vulkan");
+    } else {
+        int cpuThreads = std::max(1, std::min(4, ncnn::get_big_cpu_count()));
+        zeroDceNet_->opt.num_threads = cpuThreads;
+        restormerNet_->opt.num_threads = cpuThreads;
+        LOGI("Модели будут использовать CPU с %d потоками", cpuThreads);
+    }
+
     std::string zeroDceParam = modelsDir + "/zerodcepp_fp16.param";
     std::string zeroDceBin = modelsDir + "/zerodcepp_fp16.bin";
     std::string restormerParam = modelsDir + "/restormer_fp16.param";
     std::string restormerBin = modelsDir + "/restormer_fp16.bin";
-    
+
     if (!verifyChecksum(zeroDceParam, zeroDceChecksums_.param)) {
         LOGE("Контрольная сумма Zero-DCE++ param не совпадает");
         return false;
@@ -144,6 +172,12 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     int ret = zeroDceNet_->load_param(zeroDceParam.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить параметры Zero-DCE++: %d", ret);
+        if (useVulkan) {
+            LOGW("delegate=vulkan cause=load_failed stage=zerodce_param ret=%d", ret);
+            cleanupVulkan();
+            ncnn::destroy_gpu_instance();
+            return loadModelsForDelegate(modelsDir, false);
+        }
         return false;
     }
 
@@ -155,6 +189,12 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     ret = zeroDceNet_->load_model(zeroDceBin.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить модель Zero-DCE++: %d", ret);
+        if (useVulkan) {
+            LOGW("delegate=vulkan cause=load_failed stage=zerodce_model ret=%d", ret);
+            cleanupVulkan();
+            ncnn::destroy_gpu_instance();
+            return loadModelsForDelegate(modelsDir, false);
+        }
         return false;
     }
 
@@ -167,6 +207,12 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     ret = restormerNet_->load_param(restormerParam.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить параметры Restormer: %d", ret);
+        if (useVulkan) {
+            LOGW("delegate=vulkan cause=load_failed stage=restormer_param ret=%d", ret);
+            cleanupVulkan();
+            ncnn::destroy_gpu_instance();
+            return loadModelsForDelegate(modelsDir, false);
+        }
         return false;
     }
 
@@ -178,13 +224,18 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     ret = restormerNet_->load_model(restormerBin.c_str());
     if (ret != 0) {
         LOGE("Не удалось загрузить модель Restormer: %d", ret);
+        if (useVulkan) {
+            LOGW("delegate=vulkan cause=load_failed stage=restormer_model ret=%d", ret);
+            cleanupVulkan();
+            ncnn::destroy_gpu_instance();
+            return loadModelsForDelegate(modelsDir, false);
+        }
         return false;
     }
-    
+
     LOGI("Все модели загружены успешно");
     return true;
 }
-
 bool NcnnEngine::initialize(
     AAssetManager* assetManager,
     const std::string& modelsDir,
@@ -204,9 +255,11 @@ bool NcnnEngine::initialize(
     zeroDceChecksums_ = zeroDceChecksums;
     restormerChecksums_ = restormerChecksums;
     previewProfile_ = profile;
-    
+    assetManager_ = assetManager;
+    modelsDir_ = modelsDir;
+
     setupVulkan();
-    
+
     if (!loadModels(assetManager, modelsDir)) {
         LOGE("Не удалось загрузить модели");
         return false;
@@ -286,52 +339,102 @@ bool NcnnEngine::runPreview(
         LOGE("Движок не инициализирован");
         return false;
     }
-    
+
     cancelled_ = false;
-    
+
     ncnn::Mat inputMat;
     bitmapToMat(env, sourceBitmap, inputMat);
-    
+
     LOGI("Превью: размер входа %dx%d", inputMat.w, inputMat.h);
-    
+
+    telemetry.fallbackUsed = false;
+    telemetry.durationMsVulkan = 0;
+    telemetry.durationMsCpu = 0;
+    telemetry.fallbackCause = FallbackCause::NONE;
+    telemetry.delegate = vulkanAvailable_.load() ? DelegateType::VULKAN : DelegateType::CPU;
+
+    auto runPipeline = [&, strength](
+        ncnn::Mat& output,
+        bool* delegateFailed,
+        FallbackCause* fallbackCause
+    ) -> bool {
+        telemetry.tileTelemetry = TelemetryData::TileTelemetry{};
+        telemetry.timingMs = 0;
+        telemetry.seamMaxDelta = 0.0f;
+        telemetry.gpuAllocRetryCount = 0;
+
+        if (previewProfile_ == PreviewProfile::QUALITY) {
+            ncnn::Mat restOutput;
+            RestormerBackend restormer(restormerNet_.get(), cancelled_, vulkanAvailable_.load());
+            TelemetryData restormerTelemetry;
+
+            if (!restormer.process(inputMat, restOutput, restormerTelemetry, delegateFailed, fallbackCause)) {
+                return false;
+            }
+
+            telemetry.timingMs += restormerTelemetry.timingMs;
+
+            ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_, vulkanAvailable_.load());
+            TelemetryData zeroDceTelemetry;
+            ncnn::Mat finalMat;
+
+            if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, delegateFailed, fallbackCause)) {
+                return false;
+            }
+
+            telemetry.timingMs += zeroDceTelemetry.timingMs;
+            telemetry.tileTelemetry = zeroDceTelemetry.tileTelemetry;
+            telemetry.seamMaxDelta = zeroDceTelemetry.seamMaxDelta;
+            telemetry.gpuAllocRetryCount = zeroDceTelemetry.gpuAllocRetryCount;
+            output = finalMat;
+            return true;
+        }
+
+        ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_, vulkanAvailable_.load());
+        return zeroDce.process(inputMat, output, strength, telemetry, delegateFailed, fallbackCause);
+    };
+
+    bool delegateFailed = false;
+    FallbackCause failureCause = FallbackCause::NONE;
     ncnn::Mat outputMat;
-    
-    if (previewProfile_ == PreviewProfile::QUALITY) {
-        RestormerBackend restormer(restormerNet_.get(), cancelled_);
-        TelemetryData restormerTelemetry;
-        
-        if (!restormer.process(inputMat, outputMat, restormerTelemetry)) {
-            LOGE("Ошибка обработки Restormer в превью");
+    auto gpuStart = std::chrono::high_resolution_clock::now();
+    bool success = runPipeline(outputMat, &delegateFailed, &failureCause);
+
+    const bool initialVulkan = telemetry.delegate == DelegateType::VULKAN;
+
+    if (!success && delegateFailed && initialVulkan) {
+        auto failureTime = std::chrono::high_resolution_clock::now();
+        telemetry.durationMsVulkan = std::chrono::duration_cast<std::chrono::milliseconds>(failureTime - gpuStart).count();
+        telemetry.fallbackUsed = true;
+        telemetry.fallbackCause = failureCause;
+
+        if (!switchToCpuFallback()) {
+            LOGE("Не удалось выполнить fallback на CPU");
             return false;
         }
-        
-        telemetry.timingMs += restormerTelemetry.timingMs;
-        
-        ncnn::Mat finalMat;
-        ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
-        TelemetryData zeroDceTelemetry;
-        
-        if (!zeroDce.process(outputMat, finalMat, strength, zeroDceTelemetry)) {
-            LOGE("Ошибка обработки Zero-DCE++ в превью");
+
+        telemetry.delegate = DelegateType::CPU;
+        delegateFailed = false;
+        ncnn::Mat cpuOutput;
+        auto cpuStart = std::chrono::high_resolution_clock::now();
+
+        if (!runPipeline(cpuOutput, nullptr, nullptr)) {
             return false;
         }
-        
-        telemetry.timingMs += zeroDceTelemetry.timingMs;
-        outputMat = finalMat;
-    } else {
-        ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
-        
-        if (!zeroDce.process(inputMat, outputMat, strength, telemetry)) {
-            LOGE("Ошибка обработки Zero-DCE++ в превью");
-            return false;
-        }
+
+        telemetry.durationMsCpu = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - cpuStart
+        ).count();
+        outputMat = cpuOutput;
+    } else if (!success) {
+        return false;
     }
-    
+
     matToBitmap(env, outputMat, sourceBitmap);
-    
-    telemetry.usedVulkan = vulkanAvailable_.load();
+
+    telemetry.usedVulkan = !telemetry.fallbackUsed && telemetry.delegate == DelegateType::VULKAN;
     telemetry.cancelled = cancelled_.load();
-    
+
     return true;
 }
 
@@ -346,41 +449,93 @@ bool NcnnEngine::runFull(
         LOGE("Движок не инициализирован");
         return false;
     }
-    
+
     cancelled_ = false;
-    
+
     ncnn::Mat inputMat;
     bitmapToMat(env, sourceBitmap, inputMat);
-    
+
     LOGI("Полная обработка: размер входа %dx%d", inputMat.w, inputMat.h);
-    
-    ncnn::Mat outputMat;
-    RestormerBackend restormer(restormerNet_.get(), cancelled_);
-    TelemetryData restormerTelemetry;
-    
-    if (!restormer.process(inputMat, outputMat, restormerTelemetry)) {
-        LOGE("Ошибка обработки Restormer");
-        return false;
-    }
-    
-    telemetry.timingMs += restormerTelemetry.timingMs;
-    
+
+    telemetry.fallbackUsed = false;
+    telemetry.durationMsVulkan = 0;
+    telemetry.durationMsCpu = 0;
+    telemetry.fallbackCause = FallbackCause::NONE;
+    telemetry.delegate = vulkanAvailable_.load() ? DelegateType::VULKAN : DelegateType::CPU;
+
+    auto runPipeline = [&, strength](
+        ncnn::Mat& finalMat,
+        bool* delegateFailed,
+        FallbackCause* fallbackCause
+    ) -> bool {
+        telemetry.tileTelemetry = TelemetryData::TileTelemetry{};
+        telemetry.timingMs = 0;
+        telemetry.seamMaxDelta = 0.0f;
+        telemetry.gpuAllocRetryCount = 0;
+
+        RestormerBackend restormer(restormerNet_.get(), cancelled_, vulkanAvailable_.load());
+        TelemetryData restormerTelemetry;
+
+        ncnn::Mat restOutput;
+        if (!restormer.process(inputMat, restOutput, restormerTelemetry, delegateFailed, fallbackCause)) {
+            return false;
+        }
+
+        telemetry.timingMs += restormerTelemetry.timingMs;
+
+        ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_, vulkanAvailable_.load());
+        TelemetryData zeroDceTelemetry;
+
+        if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, delegateFailed, fallbackCause)) {
+            return false;
+        }
+
+        telemetry.timingMs += zeroDceTelemetry.timingMs;
+        telemetry.tileTelemetry = zeroDceTelemetry.tileTelemetry;
+        telemetry.seamMaxDelta = zeroDceTelemetry.seamMaxDelta;
+        telemetry.gpuAllocRetryCount = zeroDceTelemetry.gpuAllocRetryCount;
+        return true;
+    };
+
+    bool delegateFailed = false;
+    FallbackCause failureCause = FallbackCause::NONE;
     ncnn::Mat finalMat;
-    ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
-    TelemetryData zeroDceTelemetry;
-    
-    if (!zeroDce.process(outputMat, finalMat, strength, zeroDceTelemetry)) {
-        LOGE("Ошибка обработки Zero-DCE++");
+    auto gpuStart = std::chrono::high_resolution_clock::now();
+    bool success = runPipeline(finalMat, &delegateFailed, &failureCause);
+
+    const bool initialVulkan = telemetry.delegate == DelegateType::VULKAN;
+
+    if (!success && delegateFailed && initialVulkan) {
+        auto failureTime = std::chrono::high_resolution_clock::now();
+        telemetry.durationMsVulkan = std::chrono::duration_cast<std::chrono::milliseconds>(failureTime - gpuStart).count();
+        telemetry.fallbackUsed = true;
+        telemetry.fallbackCause = failureCause;
+
+        if (!switchToCpuFallback()) {
+            LOGE("Не удалось выполнить fallback на CPU");
+            return false;
+        }
+
+        telemetry.delegate = DelegateType::CPU;
+        delegateFailed = false;
+        auto cpuStart = std::chrono::high_resolution_clock::now();
+
+        if (!runPipeline(finalMat, nullptr, nullptr)) {
+            return false;
+        }
+
+        telemetry.durationMsCpu = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - cpuStart
+        ).count();
+    } else if (!success) {
         return false;
     }
-    
-    telemetry.timingMs += zeroDceTelemetry.timingMs;
-    
+
     matToBitmap(env, finalMat, outputBitmap);
-    
-    telemetry.usedVulkan = vulkanAvailable_.load();
+
+    telemetry.usedVulkan = !telemetry.fallbackUsed && telemetry.delegate == DelegateType::VULKAN;
     telemetry.cancelled = cancelled_.load();
-    
+
     return true;
 }
 
@@ -398,9 +553,12 @@ void NcnnEngine::release() {
     
     zeroDceNet_.reset();
     restormerNet_.reset();
-    
+
     cleanupVulkan();
-    
+
+    modelsDir_.clear();
+    assetManager_ = nullptr;
+
     initialized_ = false;
 }
 

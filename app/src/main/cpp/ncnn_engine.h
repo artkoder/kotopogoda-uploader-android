@@ -22,6 +22,17 @@ enum class PreviewProfile {
     QUALITY = 1
 };
 
+enum class DelegateType {
+    CPU = 0,
+    VULKAN = 1,
+};
+
+enum class FallbackCause {
+    NONE = 0,
+    LOAD_FAILED = 1,
+    EXTRACT_FAILED = 2,
+};
+
 struct TelemetryData {
     struct TileTelemetry {
         bool tileUsed = false;
@@ -37,6 +48,11 @@ struct TelemetryData {
     bool cancelled = false;
     float seamMaxDelta = 0.0f;
     int gpuAllocRetryCount = 0;
+    bool fallbackUsed = false;
+    long durationMsVulkan = 0;
+    long durationMsCpu = 0;
+    DelegateType delegate = DelegateType::CPU;
+    FallbackCause fallbackCause = FallbackCause::NONE;
 };
 
 class NcnnEngine {
@@ -89,6 +105,8 @@ public:
 
 private:
     bool loadModels(AAssetManager* assetManager, const std::string& modelsDir);
+    bool loadModelsForDelegate(const std::string& modelsDir, bool useVulkan);
+    bool switchToCpuFallback();
     bool verifyChecksum(const std::string& filePath, const std::string& expectedChecksum);
     static void reportIntegrityFailure(
         const std::string& filePath,
@@ -105,6 +123,8 @@ private:
     ModelChecksums zeroDceChecksums_;
     ModelChecksums restormerChecksums_;
     PreviewProfile previewProfile_;
+    std::string modelsDir_;
+    AAssetManager* assetManager_;
 
     std::atomic<bool> initialized_;
     std::atomic<bool> cancelled_;

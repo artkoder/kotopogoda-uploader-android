@@ -17,6 +17,10 @@ data class UploadEnhancementInfo(
     val usedVulkan: Boolean? = null,
     val peakMemoryMb: Float? = null,
     val cancelled: Boolean? = null,
+    val fallbackUsed: Boolean? = null,
+    val fallbackCause: String? = null,
+    val durationMsVulkan: Long? = null,
+    val durationMsCpu: Long? = null,
 )
 
 data class UploadEnqueueOptions(

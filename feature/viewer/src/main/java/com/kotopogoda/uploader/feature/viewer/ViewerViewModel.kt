@@ -2329,10 +2329,10 @@ class ViewerViewModel @Inject constructor(
                         tileUsed = false,
                         zeroDceIterations = 0,
                         zeroDceApplied = true,
-                        zeroDceDelegateFallback = false,
+                        zeroDceDelegateFallback = info.fallbackUsed == true,
                         restormerMix = predictedProfile.restormerMix,
                         restormerApplied = true,
-                        restormerDelegateFallback = false,
+                        restormerDelegateFallback = info.fallbackUsed == true,
                         hasSeamFix = false,
                     )
                     val timings = EnhanceEngine.Timings(

@@ -242,16 +242,28 @@ class NativeEnhanceAdapter @Inject constructor(
             ?: cachedFullBitmap?.let(::computeMetricsForBitmap)
             ?: computeMetricsFromFile(outputFile)
 
+        val usedVulkan = fullResult?.usedVulkan ?: previewResult?.usedVulkan
+        val fallbackUsed = fullResult?.fallbackUsed ?: previewResult?.fallbackUsed
+        val fallbackCause = (fullResult?.fallbackCause ?: previewResult?.fallbackCause)
+            ?.name
+            ?.lowercase()
+        val durationVulkan = fullResult?.durationMsVulkan ?: previewResult?.durationMsVulkan
+        val durationCpu = fullResult?.durationMsCpu ?: previewResult?.durationMsCpu
+
         return UploadEnhancementInfo(
             strength = strength,
-            delegate = if (fullResult?.usedVulkan == true) "vulkan" else "cpu",
+            delegate = if (usedVulkan == true) "vulkan" else "cpu",
             metrics = metrics,
             fileSize = outputFile.length(),
             previewTimingMs = previewResult?.timingMs,
             fullTimingMs = fullResult?.timingMs,
-            usedVulkan = fullResult?.usedVulkan,
+            usedVulkan = usedVulkan,
             peakMemoryMb = fullResult?.peakMemoryMb,
             cancelled = fullResult?.cancelled,
+            fallbackUsed = fallbackUsed,
+            fallbackCause = fallbackCause,
+            durationMsVulkan = durationVulkan,
+            durationMsCpu = durationCpu,
         )
     }
 
