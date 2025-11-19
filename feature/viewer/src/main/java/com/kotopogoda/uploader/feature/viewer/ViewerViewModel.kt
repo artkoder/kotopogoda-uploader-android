@@ -38,6 +38,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.contentSha256FromIdempotencyKey
 import com.kotopogoda.uploader.core.data.upload.idempotencyKeyFromContentSha256
+import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.core.data.util.Hashing
 import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
@@ -172,7 +173,7 @@ class ViewerViewModel @Inject constructor(
     val isEnhancementAvailable: StateFlow<Boolean> = _isEnhancementAvailable.asStateFlow()
     private var enhancementJob: Job? = null
     private var adapterInitializationJob: Job? = null
-    private var pendingAdapterPreviewQuality: Int? = null
+    private var pendingAdapterPreviewQuality: PreviewQuality? = null
     private var isEnhanceAdapterInitialized = false
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
@@ -263,7 +264,7 @@ class ViewerViewModel @Inject constructor(
 
     private fun scheduleEnhanceAdapterInitialization(
         adapter: NativeEnhanceAdapter,
-        previewQuality: Int,
+        previewQuality: PreviewQuality,
     ) {
         pendingAdapterPreviewQuality = previewQuality
         if (isEnhanceAdapterInitialized) {
@@ -277,9 +278,9 @@ class ViewerViewModel @Inject constructor(
             try {
                 delay(ENHANCE_ADAPTER_INIT_DELAY_MS)
                 val quality = pendingAdapterPreviewQuality ?: previewQuality
-                val initResult = runCatching { adapter.initialize(quality) }
                 pendingAdapterPreviewQuality = null
-                initResult.onSuccess {
+                try {
+                    adapter.initialize(quality)
                     withContext(Dispatchers.Main) {
                         isEnhanceAdapterInitialized = true
                         _isEnhancementAvailable.value = true
@@ -290,10 +291,10 @@ class ViewerViewModel @Inject constructor(
                         "delay_ms" to ENHANCE_ADAPTER_INIT_DELAY_MS,
                     )
                     Timber.tag(LOG_TAG).i(
-                        "NativeEnhanceAdapter initialized lazily (quality=%d)",
+                        "NativeEnhanceAdapter initialized lazily (quality=%s)",
                         quality,
                     )
-                }.onFailure { error ->
+                } catch (error: Throwable) {
                     withContext(Dispatchers.Main) {
                         isEnhanceAdapterInitialized = false
                         _isEnhancementAvailable.value = false
