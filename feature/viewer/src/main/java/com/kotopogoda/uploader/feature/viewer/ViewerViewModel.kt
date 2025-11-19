@@ -43,6 +43,7 @@ import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
 import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import com.kotopogoda.uploader.core.work.UploadErrorKind
+import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
@@ -172,7 +173,7 @@ class ViewerViewModel @Inject constructor(
     val isEnhancementAvailable: StateFlow<Boolean> = _isEnhancementAvailable.asStateFlow()
     private var enhancementJob: Job? = null
     private var adapterInitializationJob: Job? = null
-    private var pendingAdapterPreviewQuality: Int? = null
+    private var pendingAdapterPreviewQuality: PreviewQuality? = null
     private var isEnhanceAdapterInitialized = false
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
@@ -263,7 +264,7 @@ class ViewerViewModel @Inject constructor(
 
     private fun scheduleEnhanceAdapterInitialization(
         adapter: NativeEnhanceAdapter,
-        previewQuality: Int,
+        previewQuality: PreviewQuality,
     ) {
         pendingAdapterPreviewQuality = previewQuality
         if (isEnhanceAdapterInitialized) {
