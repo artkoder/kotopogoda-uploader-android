@@ -326,17 +326,23 @@ class NativeEnhanceController(
     }
 
     suspend fun release() = withContext(dispatcher) {
-        if (!initializationFlag.compareAndSet(INITIALIZED, RELEASED)) {
+        if (!initializationFlag.compareAndSet(INITIALIZED, RELEASING)) {
             return@withContext
         }
 
-        while (activeOperations.get() > 0) {
-            kotlinx.coroutines.delay(10)
-        }
+        val handle = nativeHandle
 
-        EnhanceLogging.logEvent("native_release", mapOf("handle" to nativeHandle))
-        nativeRelease(nativeHandle)
-        nativeHandle = 0L
+        try {
+            while (activeOperations.get() > 0) {
+                kotlinx.coroutines.delay(10)
+            }
+
+            EnhanceLogging.logEvent("native_release", mapOf("handle" to handle))
+            nativeRelease(handle)
+            nativeHandle = 0L
+        } finally {
+            initializationFlag.set(RELEASED)
+        }
     }
 
     fun isInitialized(): Boolean = initializationFlag.get() == INITIALIZED
@@ -387,6 +393,7 @@ class NativeEnhanceController(
         private const val INITIALIZED = 2
         private const val INITIALIZATION_FAILED = 3
         private const val RELEASED = 4
+        private const val RELEASING = 5
 
         @JvmStatic
         private external fun nativeConsumeIntegrityFailure(): Array<String>?
