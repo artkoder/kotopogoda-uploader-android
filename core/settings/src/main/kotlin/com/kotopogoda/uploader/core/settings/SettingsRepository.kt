@@ -10,4 +10,5 @@ interface SettingsRepository {
     suspend fun setPersistentQueueNotification(enabled: Boolean)
     suspend fun setPreviewQuality(quality: PreviewQuality)
     suspend fun setAutoDeleteAfterUpload(enabled: Boolean)
+    suspend fun setForceCpuForEnhancement(enabled: Boolean)
 }

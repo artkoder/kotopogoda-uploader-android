@@ -52,6 +52,7 @@ class SettingsRepositoryImpl @Inject constructor(
                 persistentQueueNotification = persistentValue,
                 previewQuality = previewQuality,
                 autoDeleteAfterUpload = preferences[AUTO_DELETE_AFTER_UPLOAD_KEY] ?: true,
+                forceCpuForEnhancement = preferences[FORCE_CPU_FOR_ENHANCEMENT_KEY] ?: false,
             )
         }
         .distinctUntilChanged()
@@ -109,6 +110,14 @@ class SettingsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun setForceCpuForEnhancement(enabled: Boolean) {
+        withContext(ioDispatcher) {
+            dataStore.edit { preferences ->
+                preferences[FORCE_CPU_FOR_ENHANCEMENT_KEY] = enabled
+            }
+        }
+    }
+
     private companion object {
         private val BASE_URL_KEY = stringPreferencesKey("base_url")
         private val APP_LOGGING_KEY = booleanPreferencesKey("app_logging")
@@ -116,5 +125,6 @@ class SettingsRepositoryImpl @Inject constructor(
         private val PERSISTENT_QUEUE_NOTIFICATION_KEY = booleanPreferencesKey("persistent_queue_notification")
         private val PREVIEW_QUALITY_KEY = stringPreferencesKey("preview_quality")
         private val AUTO_DELETE_AFTER_UPLOAD_KEY = booleanPreferencesKey("auto_delete_after_upload")
+        private val FORCE_CPU_FOR_ENHANCEMENT_KEY = booleanPreferencesKey("force_cpu_for_enhancement")
     }
 }

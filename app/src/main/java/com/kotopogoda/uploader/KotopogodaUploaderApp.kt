@@ -18,6 +18,7 @@ import com.kotopogoda.uploader.core.network.upload.UploadSummaryStarter
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.LoggingWorkerFactory
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceLogging
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceController
 import com.kotopogoda.uploader.feature.viewer.enhance.logging.EnhanceFileLogger
 import com.kotopogoda.uploader.ml.EnhancerModelProbe
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
@@ -118,10 +119,11 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
         }
         appLogger.setEnabled(initialSettings.appLogging)
         httpLoggingController.setEnabled(initialSettings.httpLogging)
+        NativeEnhanceController.setForceCpuOverride(initialSettings.forceCpuForEnhancement.takeIf { it })
         EnhanceLogging.setVerboseLoggingEnabled(BuildConfig.DEBUG)
         EnhanceLogging.setFileLogger(EnhanceFileLogger(this))
         runCatching {
-            com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceController.loadLibrary()
+            NativeEnhanceController.loadLibrary()
         }.onFailure { error ->
             Timber.tag("NativeEnhance").e(error, "Не удалось загрузить нативную библиотеку")
         }
@@ -174,16 +176,18 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
                 diagnosticContextProvider.updateSettings(settings)
                 appLogger.setEnabled(settings.appLogging)
                 httpLoggingController.setEnabled(settings.httpLogging)
+                NativeEnhanceController.setForceCpuOverride(settings.forceCpuForEnhancement.takeIf { it })
                 networkClientProvider.updateBaseUrl(settings.baseUrl)
                 Timber.tag("app").i(
                     UploadLog.message(
                         category = "CFG/STATE",
-                        action = "settings", 
+                        action = "settings",
                         details = arrayOf(
                             "base_url" to settings.baseUrl,
                             "app_logging" to settings.appLogging,
                             "http_logging" to settings.httpLogging,
                             "persistent_queue_notification" to settings.persistentQueueNotification,
+                            "force_cpu_override" to settings.forceCpuForEnhancement,
                         ),
                     )
                 )

@@ -74,9 +74,9 @@ class NativeEnhanceAdapter @Inject constructor(
         val crashLoopFlag = crashLoopDetector.isCrashLoopSuspected()
         val effectiveForceCpu = deviceIsExynos || envForceCpu || userForceCpu || crashLoopFlag
         val forceCpuReason = when {
+            userForceCpu -> "user_override"
             deviceIsExynos -> DeviceGpuPolicy.forceCpuReason
             crashLoopFlag -> "crash_loop"
-            userForceCpu -> "user_override"
             envForceCpu -> "env_override"
             else -> null
         }

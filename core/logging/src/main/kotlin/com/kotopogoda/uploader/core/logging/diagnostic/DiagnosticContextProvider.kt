@@ -41,6 +41,7 @@ class DiagnosticContextProvider @Inject constructor(
                 "app_logging" to settings.appLogging.toString(),
                 "http_logging" to settings.httpLogging.toString(),
                 "persistent_queue_notification" to settings.persistentQueueNotification.toString(),
+                "force_cpu_override" to settings.forceCpuForEnhancement.toString(),
             ).filterValues { it.isNotBlank() }
         )
     }

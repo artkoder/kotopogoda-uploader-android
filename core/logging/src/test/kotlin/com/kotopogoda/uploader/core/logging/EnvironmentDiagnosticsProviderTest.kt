@@ -28,6 +28,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.json.JSONObject
  
@@ -71,6 +72,7 @@ class EnvironmentDiagnosticsProviderTest {
         val settings = json.getJSONObject("settings")
         assertEquals("https://api.test", settings.getString("baseUrl"))
         assertTrue(settings.getBoolean("appLogging"))
+        assertFalse(settings.getBoolean("forceCpuForEnhancement"))
 
         val permissions = json.getJSONObject("permissions")
         assertTrue(permissions.getBoolean("notificationsGranted"))
@@ -124,6 +126,7 @@ class EnvironmentDiagnosticsProviderTest {
                 persistentQueueNotification = false,
                 previewQuality = PreviewQuality.BALANCED,
                 autoDeleteAfterUpload = true,
+                forceCpuForEnhancement = false,
             )
         )
 
@@ -133,6 +136,7 @@ class EnvironmentDiagnosticsProviderTest {
         override suspend fun setPersistentQueueNotification(enabled: Boolean) = error("Not needed in tests")
         override suspend fun setPreviewQuality(quality: PreviewQuality) = error("Not needed in tests")
         override suspend fun setAutoDeleteAfterUpload(enabled: Boolean) = error("Not needed in tests")
+        override suspend fun setForceCpuForEnhancement(enabled: Boolean) = error("Not needed in tests")
     }
 
     private class FakeNotificationPermissionProvider : NotificationPermissionProvider {

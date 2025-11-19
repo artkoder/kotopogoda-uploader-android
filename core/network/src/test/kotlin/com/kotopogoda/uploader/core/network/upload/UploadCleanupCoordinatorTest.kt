@@ -146,6 +146,7 @@ class UploadCleanupCoordinatorTest {
             persistentQueueNotification = false,
             previewQuality = PreviewQuality.BALANCED,
             autoDeleteAfterUpload = autoDeleteAfterUpload,
+            forceCpuForEnhancement = false,
         )
     }
 
