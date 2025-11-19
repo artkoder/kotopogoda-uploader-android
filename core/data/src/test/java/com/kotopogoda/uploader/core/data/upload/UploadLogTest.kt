@@ -49,6 +49,7 @@ class UploadLogTest {
                 persistentQueueNotification = true,
                 previewQuality = PreviewQuality.BALANCED,
                 autoDeleteAfterUpload = true,
+                forceCpuForEnhancement = false,
             )
         )
         provider.updateExtra(mapOf("device_id" to "device-123"))

@@ -13,6 +13,7 @@ import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.SettingsRepository
 import com.kotopogoda.uploader.di.AppSettingsModule
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceController
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -50,6 +51,7 @@ class SettingsViewModel @Inject constructor(
             logsDirectoryPath = logsExporter.publicDirectoryDisplayPath(),
             previewQuality = com.kotopogoda.uploader.core.settings.PreviewQuality.BALANCED,
             autoDeleteAfterUpload = true,
+            forceCpuForEnhancement = false,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -68,6 +70,7 @@ class SettingsViewModel @Inject constructor(
                         queueNotificationPersistent = settings.persistentQueueNotification,
                         previewQuality = settings.previewQuality,
                         autoDeleteAfterUpload = settings.autoDeleteAfterUpload,
+                        forceCpuForEnhancement = settings.forceCpuForEnhancement,
                         isBaseUrlValid = true,
                         isBaseUrlDirty = false,
                     )
@@ -278,6 +281,23 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
+    fun onForceCpuForEnhancementChanged(enabled: Boolean) {
+        val current = uiState.value.forceCpuForEnhancement
+        if (enabled == current) {
+            return
+        }
+        _uiState.update { it.copy(forceCpuForEnhancement = enabled) }
+        NativeEnhanceController.setForceCpuOverride(enabled.takeIf { it })
+        viewModelScope.launch {
+            runCatching { settingsRepository.setForceCpuForEnhancement(enabled) }
+                .onFailure {
+                    _uiState.update { it.copy(forceCpuForEnhancement = current) }
+                    NativeEnhanceController.setForceCpuOverride(current.takeIf { it })
+                    sendEvent(SettingsEvent.ShowMessageRes(R.string.settings_snackbar_action_failed))
+                }
+        }
+    }
+
     private fun isValidUrl(raw: String): Boolean {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) {
@@ -311,6 +331,7 @@ data class SettingsUiState(
     val logsDirectoryPath: String,
     val previewQuality: com.kotopogoda.uploader.core.settings.PreviewQuality,
     val autoDeleteAfterUpload: Boolean = true,
+    val forceCpuForEnhancement: Boolean = false,
 )
 
 sealed interface SettingsEvent {

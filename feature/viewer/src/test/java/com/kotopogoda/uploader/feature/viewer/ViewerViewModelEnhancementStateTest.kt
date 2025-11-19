@@ -114,6 +114,7 @@ class ViewerViewModelEnhancementStateTest {
             persistentQueueNotification = false,
             previewQuality = PreviewQuality.BALANCED,
             autoDeleteAfterUpload = false,
+            forceCpuForEnhancement = false,
         )
         every { settingsRepository.flow } returns kotlinx.coroutines.flow.flowOf(defaultSettings)
         every { deletionQueueRepository.observePending() } returns kotlinx.coroutines.flow.flowOf(emptyList())

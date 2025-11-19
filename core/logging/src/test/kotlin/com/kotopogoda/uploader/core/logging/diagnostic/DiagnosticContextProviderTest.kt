@@ -52,6 +52,7 @@ class DiagnosticContextProviderTest {
                 persistentQueueNotification = false,
                 previewQuality = PreviewQuality.BALANCED,
                 autoDeleteAfterUpload = true,
+                forceCpuForEnhancement = false,
             )
         )
 
@@ -61,6 +62,7 @@ class DiagnosticContextProviderTest {
         assertEquals("false", metadata["app_logging"])
         assertEquals("true", metadata["http_logging"])
         assertEquals("false", metadata["persistent_queue_notification"])
+        assertEquals("false", metadata["force_cpu_override"])
     }
 
     @Test

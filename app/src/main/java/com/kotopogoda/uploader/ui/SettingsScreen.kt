@@ -140,6 +140,7 @@ fun SettingsRoute(
         onQueueNotificationChanged = viewModel::onQueueNotificationChanged,
         onRequestQueueNotificationPermission = viewModel::onRequestQueueNotificationPermission,
         onPreviewQualityChanged = viewModel::onPreviewQualityChanged,
+        onForceCpuForEnhancementChanged = viewModel::onForceCpuForEnhancementChanged,
         onExportLogs = viewModel::onExportLogs,
         onClearQueue = viewModel::onClearQueue,
         onResetPairing = viewModel::onResetPairingConfirmed,
@@ -162,6 +163,7 @@ fun SettingsScreen(
     onQueueNotificationChanged: (Boolean) -> Unit,
     onRequestQueueNotificationPermission: () -> Unit,
     onPreviewQualityChanged: (com.kotopogoda.uploader.core.settings.PreviewQuality) -> Unit,
+    onForceCpuForEnhancementChanged: (Boolean) -> Unit,
     onExportLogs: () -> Unit,
     onClearQueue: () -> Unit,
     onResetPairing: () -> Unit,
@@ -270,6 +272,12 @@ fun SettingsScreen(
                             }
                             onPreviewQualityChanged(quality)
                         },
+                    )
+                    SettingsSwitchRow(
+                        title = stringResource(id = R.string.settings_force_cpu_enhancement),
+                        description = stringResource(id = R.string.settings_force_cpu_enhancement_desc),
+                        checked = uiState.forceCpuForEnhancement,
+                        onCheckedChange = onForceCpuForEnhancementChanged,
                     )
                 }
             }

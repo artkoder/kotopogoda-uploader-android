@@ -7,6 +7,7 @@ data class AppSettings(
     val persistentQueueNotification: Boolean,
     val previewQuality: PreviewQuality,
     val autoDeleteAfterUpload: Boolean,
+    val forceCpuForEnhancement: Boolean,
 )
 
 enum class PreviewQuality {

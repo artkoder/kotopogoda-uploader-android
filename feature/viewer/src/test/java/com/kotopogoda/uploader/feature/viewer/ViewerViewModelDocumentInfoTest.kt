@@ -650,6 +650,7 @@ class ViewerViewModelDocumentInfoTest {
                 persistentQueueNotification = false,
                 previewQuality = PreviewQuality.BALANCED,
                 autoDeleteAfterUpload = false,
+                forceCpuForEnhancement = false,
             )
         )
         every { nativeEnhanceAdapter.isReady() } returns false

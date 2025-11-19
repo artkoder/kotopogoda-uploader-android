@@ -63,6 +63,7 @@ class EnvironmentDiagnosticsProvider @Inject constructor(
                         put("appLogging", settings.appLogging)
                         put("httpLogging", settings.httpLogging)
                         put("persistentQueueNotification", settings.persistentQueueNotification)
+                        put("forceCpuForEnhancement", settings.forceCpuForEnhancement)
                     } else {
                         put("error", settingsResult.exceptionOrNull().toDiagnosticString())
                     }
