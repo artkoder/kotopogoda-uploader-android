@@ -38,6 +38,7 @@ class NativeEnhanceAdapter @Inject constructor(
     private var currentPhotoPath: String? = null
     private var currentStrength: Float = 0f
     private var previewResult: NativeEnhanceController.PreviewResult? = null
+    private val crashLoopDetector = NativeEnhanceCrashLoopDetector(context)
 
     fun isReady(): Boolean = isInitialized && controller.isInitialized()
 
@@ -67,17 +68,53 @@ class NativeEnhanceAdapter @Inject constructor(
             PreviewQuality.QUALITY -> NativeEnhanceController.PreviewProfile.QUALITY
         }
 
+        val deviceIsExynos = DeviceGpuPolicy.isExynosSmG99x
+        val envForceCpu = NativeEnhanceController.isForceCpuForcedByEnv()
+        val userForceCpu = NativeEnhanceController.isForceCpuForcedByUser()
+        val crashLoopFlag = crashLoopDetector.isCrashLoopSuspected()
+        val effectiveForceCpu = deviceIsExynos || envForceCpu || userForceCpu || crashLoopFlag
+        val forceCpuReason = when {
+            deviceIsExynos -> DeviceGpuPolicy.forceCpuReason
+            crashLoopFlag -> "crash_loop"
+            userForceCpu -> "user_override"
+            envForceCpu -> "env_override"
+            else -> null
+        }
+
+        Timber.tag(TAG).i(
+            "GPU policy: deviceIsExynos=%s envForce=%s userForce=%s crashLoop=%s -> forceCpu=%s reason=%s",
+            deviceIsExynos,
+            envForceCpu,
+            userForceCpu,
+            crashLoopFlag,
+            effectiveForceCpu,
+            forceCpuReason,
+        )
+
+        crashLoopDetector.markInitializationStarted()
+
         val params = NativeEnhanceController.InitParams(
             assetManager = context.assets,
             modelsDir = modelsDir,
             zeroDceChecksums = zeroDceChecksums,
             restormerChecksums = restormerChecksums,
             previewProfile = profile,
+            forceCpu = effectiveForceCpu,
+            forceCpuReason = forceCpuReason,
         )
 
-        controller.initialize(params)
-        isInitialized = true
-        Timber.tag(TAG).i("NativeEnhanceAdapter инициализирован с профилем %s", previewQuality)
+        try {
+            controller.initialize(params)
+            isInitialized = true
+            Timber.tag(TAG).i(
+                "NativeEnhanceAdapter инициализирован с профилем %s (forceCpu=%s reason=%s)",
+                previewQuality,
+                effectiveForceCpu,
+                forceCpuReason,
+            )
+        } finally {
+            crashLoopDetector.clearMarker()
+        }
     }
 
     suspend fun computePreview(
