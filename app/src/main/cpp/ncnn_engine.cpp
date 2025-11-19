@@ -36,17 +36,17 @@ NcnnEngine::NcnnEngine()
       assetManager_(nullptr),
       initialized_(false),
       cancelled_(false),
-      vulkanAvailable_(false) {
+      vulkanAvailable_(false),
+      gpuDelegateAvailable_(false) {
 }
 
 NcnnEngine::~NcnnEngine() {
     release();
 }
 
-void NcnnEngine::setupVulkan() {
-    int gpuCount = ncnn::get_gpu_count();
+void NcnnEngine::setupVulkan(int gpuCount) {
     LOGI("Количество доступных GPU: %d", gpuCount);
-    
+
     if (gpuCount > 0) {
         vulkanDevice_ = ncnn::get_gpu_device(0);
         vulkanAvailable_ = true;
@@ -247,7 +247,8 @@ bool NcnnEngine::initialize(
     const std::string& modelsDir,
     const ModelChecksums& zeroDceChecksums,
     const ModelChecksums& restormerChecksums,
-    PreviewProfile profile
+    PreviewProfile profile,
+    bool forceCpu
 ) {
     if (initialized_.load()) {
         LOGW("Движок уже инициализирован");
@@ -264,7 +265,20 @@ bool NcnnEngine::initialize(
     assetManager_ = assetManager;
     modelsDir_ = modelsDir;
 
-    setupVulkan();
+    int gpuCount = ncnn::get_gpu_count();
+    bool gpuAvailable = gpuCount > 0;
+    gpuDelegateAvailable_.store(gpuAvailable);
+
+    if (forceCpu) {
+        vulkanDevice_ = nullptr;
+        vulkanAvailable_ = false;
+        LOGW(
+            "Vulkan принудительно отключен: gpu_count=%d",
+            gpuCount
+        );
+    } else {
+        setupVulkan(gpuCount);
+    }
 
     if (!loadModels(assetManager, modelsDir)) {
         LOGE("Не удалось загрузить модели");

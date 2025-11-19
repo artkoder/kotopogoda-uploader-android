@@ -25,7 +25,8 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     jstring zeroDceBinChecksum,
     jstring restormerParamChecksum,
     jstring restormerBinChecksum,
-    jint previewProfile
+    jint previewProfile,
+    jboolean forceCpu
 ) {
     LOGI("nativeInit вызван");
     
@@ -48,7 +49,8 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
         std::string(modelsDirStr),
         { std::string(zeroDceParamChecksumStr), std::string(zeroDceBinChecksumStr) },
         { std::string(restormerParamChecksumStr), std::string(restormerBinChecksumStr) },
-        profile
+        profile,
+        forceCpu == JNI_TRUE
     );
 
     env->ReleaseStringUTFChars(modelsDir, modelsDirStr);
@@ -206,6 +208,24 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     delete engine;
     
     LOGI("Движок с handle=%lld освобожден", (long long)handle);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeIsGpuDelegateAvailable(
+    JNIEnv* env,
+    jobject thiz,
+    jlong handle
+) {
+    (void)env;
+    (void)thiz;
+
+    std::lock_guard<std::mutex> lock(g_enginesMutex);
+    auto it = g_engines.find(handle);
+    if (it == g_engines.end()) {
+        return JNI_FALSE;
+    }
+
+    return it->second->isGpuDelegateAvailable() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jobjectArray JNICALL
