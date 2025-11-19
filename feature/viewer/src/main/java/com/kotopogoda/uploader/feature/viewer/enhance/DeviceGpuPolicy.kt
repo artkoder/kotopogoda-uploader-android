@@ -16,31 +16,33 @@ object DeviceGpuPolicy {
     )
 
     private val fingerprint = DeviceFingerprint(
-        hardware = Build.HARDWARE.ifEmpty { "" },
-        board = Build.BOARD.ifEmpty { "" },
-        manufacturer = Build.MANUFACTURER.ifEmpty { "" },
-        model = Build.MODEL.ifEmpty { "" },
+        hardware = Build.HARDWARE.orEmpty(),
+        board = Build.BOARD.orEmpty(),
+        manufacturer = Build.MANUFACTURER.orEmpty(),
+        model = Build.MODEL.orEmpty(),
     )
 
-    private val normalizedModel = fingerprint.model.uppercase(Locale.US)
-    private val normalizedManufacturer = fingerprint.manufacturer.lowercase(Locale.US)
-    private val normalizedHardware = fingerprint.hardware.lowercase(Locale.US)
-    private val normalizedBoard = fingerprint.board.lowercase(Locale.US)
+    internal fun isExynosSmG99xFingerprint(fingerprint: DeviceFingerprint): Boolean {
+        val normalizedModel = fingerprint.model.uppercase(Locale.US)
+        val normalizedHardware = fingerprint.hardware.lowercase(Locale.US)
+        val normalizedBoard = fingerprint.board.lowercase(Locale.US)
 
-    private val samsungExynosBoard = normalizedHardware.contains("exynos") ||
-        normalizedBoard.contains("exynos") ||
-        normalizedHardware.contains("s5e") ||
-        normalizedBoard.contains("s5e")
-
-    val isExynosSmG99x: Boolean = normalizedManufacturer == "samsung" &&
-        normalizedModel.startsWith("SM-G99") &&
-        samsungExynosBoard
-
-    val forceCpuReason: String? = if (isExynosSmG99x) {
-        "device_blacklist"
-    } else {
-        null
+        return normalizedHardware.contains("exynos") ||
+            normalizedBoard.contains("exynos") ||
+            normalizedModel.startsWith("SM-G99")
     }
+
+    internal fun resolveForceCpuReason(fingerprint: DeviceFingerprint = this.fingerprint): String? {
+        return if (isExynosSmG99xFingerprint(fingerprint)) {
+            "device_blacklist"
+        } else {
+            null
+        }
+    }
+
+    val isExynosSmG99x: Boolean = isExynosSmG99xFingerprint(fingerprint)
+
+    val forceCpuReason: String? = resolveForceCpuReason(fingerprint)
 
     fun fingerprint(): DeviceFingerprint = fingerprint
 }
