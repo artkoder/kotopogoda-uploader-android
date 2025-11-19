@@ -393,6 +393,7 @@ bool NcnnEngine::runPreview(
         telemetry.tileTelemetry = TelemetryData::TileTelemetry{};
         telemetry.timingMs = 0;
         telemetry.seamMaxDelta = 0.0f;
+        telemetry.seamMeanDelta = 0.0f;
         telemetry.gpuAllocRetryCount = 0;
 
         if (previewProfile_ == PreviewProfile::QUALITY) {
@@ -419,6 +420,7 @@ bool NcnnEngine::runPreview(
             telemetry.timingMs += zeroDceTelemetry.timingMs;
             telemetry.tileTelemetry = zeroDceTelemetry.tileTelemetry;
             telemetry.seamMaxDelta = zeroDceTelemetry.seamMaxDelta;
+            telemetry.seamMeanDelta = zeroDceTelemetry.seamMeanDelta;
             telemetry.gpuAllocRetryCount = zeroDceTelemetry.gpuAllocRetryCount;
             output = finalMat;
             return true;
@@ -524,6 +526,7 @@ bool NcnnEngine::runFull(
         telemetry.tileTelemetry = TelemetryData::TileTelemetry{};
         telemetry.timingMs = 0;
         telemetry.seamMaxDelta = 0.0f;
+        telemetry.seamMeanDelta = 0.0f;
         telemetry.gpuAllocRetryCount = 0;
 
         RestormerBackend restormer(restormerNet_.get(), cancelled_, vulkanAvailable_.load());
@@ -548,6 +551,7 @@ bool NcnnEngine::runFull(
         telemetry.timingMs += zeroDceTelemetry.timingMs;
         telemetry.tileTelemetry = zeroDceTelemetry.tileTelemetry;
         telemetry.seamMaxDelta = zeroDceTelemetry.seamMaxDelta;
+        telemetry.seamMeanDelta = zeroDceTelemetry.seamMeanDelta;
         telemetry.gpuAllocRetryCount = zeroDceTelemetry.gpuAllocRetryCount;
         return true;
     };

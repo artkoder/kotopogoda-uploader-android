@@ -21,6 +21,16 @@ data class UploadEnhancementInfo(
     val fallbackCause: String? = null,
     val durationMsVulkan: Long? = null,
     val durationMsCpu: Long? = null,
+    val delegateUsed: String? = null,
+    val forceCpuReason: String? = null,
+    val tileUsed: Boolean? = null,
+    val tileSize: Int? = null,
+    val tileOverlap: Int? = null,
+    val tilesTotal: Int? = null,
+    val tilesCompleted: Int? = null,
+    val seamMaxDelta: Float? = null,
+    val seamMeanDelta: Float? = null,
+    val gpuAllocRetryCount: Int? = null,
 )
 
 data class UploadEnqueueOptions(

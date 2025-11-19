@@ -284,10 +284,22 @@ class NativeEnhanceAdapter @Inject constructor(
             ?.lowercase()
         val durationVulkan = fullResult?.durationMsVulkan ?: previewResult?.durationMsVulkan
         val durationCpu = fullResult?.durationMsCpu ?: previewResult?.durationMsCpu
+        val delegateUsed = fullResult?.delegateUsed ?: previewResult?.delegateUsed
+        val forceCpuReason = fullResult?.forceCpuReason ?: previewResult?.forceCpuReason
+        val tileUsed = fullResult?.tileUsed ?: previewResult?.tileUsed
+        val tileSize = fullResult?.tileSize ?: previewResult?.tileSize
+        val tileOverlap = fullResult?.tileOverlap ?: previewResult?.tileOverlap
+        val tilesTotal = fullResult?.tilesTotal ?: previewResult?.tilesTotal
+        val tilesCompleted = fullResult?.tilesCompleted ?: previewResult?.tilesCompleted
+        val seamMaxDelta = fullResult?.seamMaxDelta ?: previewResult?.seamMaxDelta
+        val seamMeanDelta = fullResult?.seamMeanDelta ?: previewResult?.seamMeanDelta
+        val gpuAllocRetryCount = fullResult?.gpuAllocRetryCount ?: previewResult?.gpuAllocRetryCount
+
+        val actualDelegate = delegateUsed ?: if (usedVulkan == true) "vulkan" else "cpu"
 
         return UploadEnhancementInfo(
             strength = strength,
-            delegate = if (usedVulkan == true) "vulkan" else "cpu",
+            delegate = actualDelegate,
             metrics = metrics,
             fileSize = outputFile.length(),
             previewTimingMs = previewResult?.timingMs,
@@ -299,6 +311,16 @@ class NativeEnhanceAdapter @Inject constructor(
             fallbackCause = fallbackCause,
             durationMsVulkan = durationVulkan,
             durationMsCpu = durationCpu,
+            delegateUsed = delegateUsed,
+            forceCpuReason = forceCpuReason,
+            tileUsed = tileUsed,
+            tileSize = tileSize,
+            tileOverlap = tileOverlap,
+            tilesTotal = tilesTotal,
+            tilesCompleted = tilesCompleted,
+            seamMaxDelta = seamMaxDelta,
+            seamMeanDelta = seamMeanDelta,
+            gpuAllocRetryCount = gpuAllocRetryCount,
         )
     }
 

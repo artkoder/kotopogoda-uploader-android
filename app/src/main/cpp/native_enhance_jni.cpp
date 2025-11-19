@@ -13,6 +13,68 @@ static std::map<jlong, kotopogoda::NcnnEngine*> g_engines;
 static std::mutex g_enginesMutex;
 static jlong g_nextHandle = 1;
 
+namespace {
+
+jobject buildTelemetryPayload(
+    JNIEnv* env,
+    const kotopogoda::TelemetryData& telemetry,
+    bool success
+) {
+    jclass telemetryClass = env->FindClass(
+        "com/kotopogoda/uploader/feature/viewer/enhance/NativeRunTelemetry"
+    );
+    if (telemetryClass == nullptr) {
+        return nullptr;
+    }
+    jmethodID ctor = env->GetMethodID(
+        telemetryClass,
+        "<init>",
+        "(ZJZJZZIJJZIIIIFFILjava/lang/String;)V"
+    );
+    if (ctor == nullptr) {
+        env->DeleteLocalRef(telemetryClass);
+        return nullptr;
+    }
+
+    const char* delegateName = telemetry.delegate == kotopogoda::DelegateType::VULKAN
+        ? "vulkan"
+        : "cpu";
+    jstring delegateUsed = env->NewStringUTF(delegateName);
+    if (delegateUsed == nullptr) {
+        env->DeleteLocalRef(telemetryClass);
+        return nullptr;
+    }
+
+    jobject payload = env->NewObject(
+        telemetryClass,
+        ctor,
+        success ? JNI_TRUE : JNI_FALSE,
+        static_cast<jlong>(telemetry.timingMs),
+        telemetry.usedVulkan ? JNI_TRUE : JNI_FALSE,
+        static_cast<jlong>(telemetry.peakMemoryKb),
+        telemetry.cancelled ? JNI_TRUE : JNI_FALSE,
+        telemetry.fallbackUsed ? JNI_TRUE : JNI_FALSE,
+        static_cast<jint>(telemetry.fallbackCause),
+        static_cast<jlong>(telemetry.durationMsVulkan),
+        static_cast<jlong>(telemetry.durationMsCpu),
+        telemetry.tileTelemetry.tileUsed ? JNI_TRUE : JNI_FALSE,
+        static_cast<jint>(telemetry.tileTelemetry.tileSize),
+        static_cast<jint>(telemetry.tileTelemetry.overlap),
+        static_cast<jint>(telemetry.tileTelemetry.totalTiles),
+        static_cast<jint>(telemetry.tileTelemetry.processedTiles),
+        telemetry.seamMaxDelta,
+        telemetry.seamMeanDelta,
+        static_cast<jint>(telemetry.gpuAllocRetryCount),
+        delegateUsed
+    );
+
+    env->DeleteLocalRef(delegateUsed);
+    env->DeleteLocalRef(telemetryClass);
+    return payload;
+}
+
+}
+
 extern "C" {
 
 JNIEXPORT jlong JNICALL
@@ -74,7 +136,7 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     return handle;
 }
 
-JNIEXPORT jlongArray JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeRunPreview(
     JNIEnv* env,
     jobject thiz,
@@ -98,26 +160,14 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     kotopogoda::TelemetryData telemetry;
     bool success = engine->runPreview(env, bitmap, strength, telemetry);
     
-    jlongArray result = env->NewLongArray(9);
-    jlong data[9];
-    data[0] = success ? 1 : 0;
-    data[1] = telemetry.timingMs;
-    data[2] = telemetry.usedVulkan ? 1 : 0;
-    data[3] = telemetry.peakMemoryKb;
-    data[4] = telemetry.cancelled ? 1 : 0;
-    data[5] = telemetry.fallbackUsed ? 1 : 0;
-    data[6] = static_cast<jlong>(telemetry.fallbackCause);
-    data[7] = telemetry.durationMsVulkan;
-    data[8] = telemetry.durationMsCpu;
+    jobject payload = buildTelemetryPayload(env, telemetry, success);
 
-    env->SetLongArrayRegion(result, 0, 9, data);
-    
     LOGI("nativeRunPreview завершен: success=%d, timing=%ldms", success, telemetry.timingMs);
-    
-    return result;
+
+    return payload;
 }
 
-JNIEXPORT jlongArray JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeRunFull(
     JNIEnv* env,
     jobject thiz,
@@ -142,24 +192,12 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     kotopogoda::TelemetryData telemetry;
     bool success = engine->runFull(env, sourceBitmap, strength, outputBitmap, telemetry);
     
-    jlongArray result = env->NewLongArray(9);
-    jlong data[9];
-    data[0] = success ? 1 : 0;
-    data[1] = telemetry.timingMs;
-    data[2] = telemetry.usedVulkan ? 1 : 0;
-    data[3] = telemetry.peakMemoryKb;
-    data[4] = telemetry.cancelled ? 1 : 0;
-    data[5] = telemetry.fallbackUsed ? 1 : 0;
-    data[6] = static_cast<jlong>(telemetry.fallbackCause);
-    data[7] = telemetry.durationMsVulkan;
-    data[8] = telemetry.durationMsCpu;
+    jobject payload = buildTelemetryPayload(env, telemetry, success);
 
-    env->SetLongArrayRegion(result, 0, 9, data);
-    
-    LOGI("nativeRunFull завершен: success=%d, timing=%ldms, cancelled=%d", 
+    LOGI("nativeRunFull завершен: success=%d, timing=%ldms, cancelled=%d",
          success, telemetry.timingMs, telemetry.cancelled);
-    
-    return result;
+
+    return payload;
 }
 
 JNIEXPORT void JNICALL

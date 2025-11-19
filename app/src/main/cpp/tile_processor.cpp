@@ -95,7 +95,9 @@ void TileProcessor::blendTile(
     ncnn::Mat& output,
     const ncnn::Mat& tileData,
     const TileInfo& tile,
-    float& seamMaxDelta
+    float& seamMaxDelta,
+    double& seamDeltaSum,
+    int& seamSampleCount
 ) {
     int channels = output.c;
     int overlap = config_.overlap;
@@ -137,7 +139,10 @@ void TileProcessor::blendTile(
                 dstChannel[dstY * output.w + dstX] = dstValue + srcValue * weight;
 
                 if (weight < 0.999f) {
-                    seamMaxDelta = std::max(seamMaxDelta, std::fabs(srcValue - dstValue));
+                    float delta = std::fabs(srcValue - dstValue);
+                    seamMaxDelta = std::max(seamMaxDelta, delta);
+                    seamDeltaSum += delta;
+                    seamSampleCount += 1;
                 }
             }
         }
@@ -188,6 +193,8 @@ bool TileProcessor::processTiled(
 
     int processed = 0;
     float seamMaxDelta = 0.0f;
+    double seamDeltaSum = 0.0;
+    int seamSampleCount = 0;
     for (const auto& tile : tiles) {
         if (cancelFlag_.load()) {
             LOGW("ENHANCE/ERROR: Обработка отменена на тайле %d из %zu", processed, tiles.size());
@@ -211,7 +218,7 @@ bool TileProcessor::processTiled(
             return false;
         }
 
-        blendTile(output, tileOutput, tile, seamMaxDelta);
+        blendTile(output, tileOutput, tile, seamMaxDelta, seamDeltaSum, seamSampleCount);
 
         processed++;
         if (progressCallback) {
@@ -224,6 +231,9 @@ bool TileProcessor::processTiled(
 
     if (stats) {
         stats->seamMaxDelta = seamMaxDelta;
+        stats->seamMeanDelta = seamSampleCount > 0
+            ? static_cast<float>(seamDeltaSum / seamSampleCount)
+            : 0.0f;
     }
 
     LOGI("Все %zu тайлов обработаны успешно", tiles.size());
