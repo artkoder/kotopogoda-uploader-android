@@ -91,8 +91,6 @@ class NativeEnhanceAdapter @Inject constructor(
             forceCpuReason,
         )
 
-        crashLoopDetector.markInitializationStarted()
-
         val params = NativeEnhanceController.InitParams(
             assetManager = context.assets,
             modelsDir = modelsDir,
@@ -103,18 +101,14 @@ class NativeEnhanceAdapter @Inject constructor(
             forceCpuReason = forceCpuReason,
         )
 
-        try {
-            controller.initialize(params)
-            isInitialized = true
-            Timber.tag(TAG).i(
-                "NativeEnhanceAdapter инициализирован с профилем %s (forceCpu=%s reason=%s)",
-                previewQuality,
-                effectiveForceCpu,
-                forceCpuReason,
-            )
-        } finally {
-            crashLoopDetector.clearMarker()
-        }
+        controller.initialize(params)
+        isInitialized = true
+        Timber.tag(TAG).i(
+            "NativeEnhanceAdapter инициализирован с профилем %s (forceCpu=%s reason=%s)",
+            previewQuality,
+            effectiveForceCpu,
+            forceCpuReason,
+        )
     }
 
     suspend fun computePreview(
@@ -145,6 +139,7 @@ class NativeEnhanceAdapter @Inject constructor(
         val sourceBitmap = BitmapFactory.decodeFile(sourceFile.absolutePath)
             ?: return@withContext false
 
+        crashLoopDetector.markEnhanceRunning()
         try {
             val result = controller.runPreview(
                 sourceBitmap = sourceBitmap,
@@ -171,6 +166,7 @@ class NativeEnhanceAdapter @Inject constructor(
             Timber.tag(TAG).e(error, "Ошибка вычисления превью")
             return@withContext false
         } finally {
+            crashLoopDetector.clearEnhanceRunningFlag()
             if (cachedPreviewBitmap != sourceBitmap) {
                 sourceBitmap.recycle()
             }
@@ -206,6 +202,7 @@ class NativeEnhanceAdapter @Inject constructor(
         val sourceBitmap = BitmapFactory.decodeFile(sourceFile.absolutePath)
             ?: return@withContext null
 
+        crashLoopDetector.markEnhanceRunning()
         try {
             val result = controller.runFull(
                 sourceBitmap = sourceBitmap,
@@ -240,6 +237,7 @@ class NativeEnhanceAdapter @Inject constructor(
             Timber.tag(TAG).e(error, "Ошибка полного вычисления")
             return@withContext null
         } finally {
+            crashLoopDetector.clearEnhanceRunningFlag()
             if (cachedFullBitmap != sourceBitmap) {
                 sourceBitmap.recycle()
             }
