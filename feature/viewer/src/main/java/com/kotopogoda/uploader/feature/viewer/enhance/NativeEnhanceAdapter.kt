@@ -101,14 +101,19 @@ class NativeEnhanceAdapter @Inject constructor(
             forceCpuReason = forceCpuReason,
         )
 
-        controller.initialize(params)
-        isInitialized = true
-        Timber.tag(TAG).i(
-            "NativeEnhanceAdapter инициализирован с профилем %s (forceCpu=%s reason=%s)",
-            previewQuality,
-            effectiveForceCpu,
-            forceCpuReason,
-        )
+        crashLoopDetector.markEnhanceRunning()
+        try {
+            controller.initialize(params)
+            isInitialized = true
+            Timber.tag(TAG).i(
+                "NativeEnhanceAdapter инициализирован с профилем %s (forceCpu=%s reason=%s)",
+                previewQuality,
+                effectiveForceCpu,
+                forceCpuReason,
+            )
+        } finally {
+            crashLoopDetector.clearEnhanceRunningFlag()
+        }
     }
 
     suspend fun computePreview(
