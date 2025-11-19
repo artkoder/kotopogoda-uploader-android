@@ -105,7 +105,9 @@ class NativeEnhanceController(
     )
 
     suspend fun initialize(params: InitParams) = withContext(dispatcher) {
-        if (!initializationFlag.compareAndSet(UNINITIALIZED, INITIALIZING)) {
+        val canInitialize = initializationFlag.compareAndSet(UNINITIALIZED, INITIALIZING) ||
+            initializationFlag.compareAndSet(RELEASED, INITIALIZING)
+        if (!canInitialize) {
             Timber.tag(LOG_TAG).w("Инициализация уже выполнена или в процессе")
             return@withContext
         }

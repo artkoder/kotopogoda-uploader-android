@@ -38,6 +38,8 @@ class NativeEnhanceAdapter @Inject constructor(
     private var currentPhotoPath: String? = null
     private var currentStrength: Float = 0f
     private var previewResult: NativeEnhanceController.PreviewResult? = null
+    private var initializedForceCpu: Boolean? = null
+    private var initializedForceCpuReason: String? = null
     private val crashLoopDetector = NativeEnhanceCrashLoopDetector(context)
 
     fun isReady(): Boolean = isInitialized && controller.isInitialized()
@@ -58,16 +60,6 @@ class NativeEnhanceAdapter @Inject constructor(
     )
 
     suspend fun initialize(previewQuality: PreviewQuality) = withContext(dispatcher) {
-        if (isInitialized) {
-            return@withContext
-        }
-
-        val modelsDir = modelsInstaller.ensureInstalled()
-        val profile = when (previewQuality) {
-            PreviewQuality.BALANCED -> NativeEnhanceController.PreviewProfile.BALANCED
-            PreviewQuality.QUALITY -> NativeEnhanceController.PreviewProfile.QUALITY
-        }
-
         val deviceIsExynos = DeviceGpuPolicy.isExynosSmG99x
         val envForceCpu = NativeEnhanceController.isForceCpuForcedByEnv()
         val userForceCpu = NativeEnhanceController.isForceCpuForcedByUser()
@@ -79,6 +71,29 @@ class NativeEnhanceAdapter @Inject constructor(
             crashLoopFlag -> "crash_loop"
             envForceCpu -> "env_override"
             else -> null
+        }
+
+        if (isInitialized) {
+            val forceCpuChanged = initializedForceCpu != effectiveForceCpu
+            if (!forceCpuChanged) {
+                return@withContext
+            }
+
+            Timber.tag(TAG).i(
+                "Обнаружено изменение политики forceCpu: %s -> %s (reason %s -> %s). Переинициализация нативного движка.",
+                initializedForceCpu,
+                effectiveForceCpu,
+                initializedForceCpuReason,
+                forceCpuReason,
+            )
+
+            resetEngine()
+        }
+
+        val modelsDir = modelsInstaller.ensureInstalled()
+        val profile = when (previewQuality) {
+            PreviewQuality.BALANCED -> NativeEnhanceController.PreviewProfile.BALANCED
+            PreviewQuality.QUALITY -> NativeEnhanceController.PreviewProfile.QUALITY
         }
 
         Timber.tag(TAG).i(
@@ -103,6 +118,8 @@ class NativeEnhanceAdapter @Inject constructor(
 
         controller.initialize(params)
         isInitialized = true
+        initializedForceCpu = effectiveForceCpu
+        initializedForceCpuReason = forceCpuReason
         Timber.tag(TAG).i(
             "NativeEnhanceAdapter инициализирован с профилем %s (forceCpu=%s reason=%s)",
             previewQuality,
@@ -249,9 +266,7 @@ class NativeEnhanceAdapter @Inject constructor(
     }
 
     suspend fun release() = withContext(dispatcher) {
-        clearCache()
-        controller.release()
-        isInitialized = false
+        resetEngine()
     }
 
     fun clearCache() {
@@ -266,6 +281,14 @@ class NativeEnhanceAdapter @Inject constructor(
     private fun clearFullCache() {
         cachedFullBitmap?.recycle()
         cachedFullBitmap = null
+    }
+
+    private suspend fun resetEngine() {
+        clearCache()
+        controller.release()
+        isInitialized = false
+        initializedForceCpu = null
+        initializedForceCpuReason = null
     }
 
     private fun buildEnhancementInfo(
