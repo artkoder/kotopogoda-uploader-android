@@ -47,6 +47,7 @@ import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceLogging
+import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -105,7 +106,7 @@ class ViewerViewModel @Inject constructor(
     private val deletionQueueRepository: DeletionQueueRepository,
     private val reviewProgressStore: ReviewProgressStore,
     @ApplicationContext private val context: Context,
-    private val nativeEnhanceAdapter: com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceAdapter?,
+    private val nativeEnhanceAdapter: NativeEnhanceAdapter?,
     private val settingsRepository: com.kotopogoda.uploader.core.settings.SettingsRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -170,6 +171,9 @@ class ViewerViewModel @Inject constructor(
     private val _isEnhancementAvailable = MutableStateFlow(false)
     val isEnhancementAvailable: StateFlow<Boolean> = _isEnhancementAvailable.asStateFlow()
     private var enhancementJob: Job? = null
+    private var adapterInitializationJob: Job? = null
+    private var pendingAdapterPreviewQuality: Int? = null
+    private var isEnhanceAdapterInitialized = false
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
     private var pendingBatchMove: PendingBatchMove? = null
@@ -257,6 +261,51 @@ class ViewerViewModel @Inject constructor(
         )
     }
 
+    private fun scheduleEnhanceAdapterInitialization(
+        adapter: NativeEnhanceAdapter,
+        previewQuality: Int,
+    ) {
+        pendingAdapterPreviewQuality = previewQuality
+        if (isEnhanceAdapterInitialized) {
+            return
+        }
+        _isEnhancementAvailable.value = false
+        if (adapterInitializationJob?.isActive == true) {
+            return
+        }
+        adapterInitializationJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                delay(ENHANCE_ADAPTER_INIT_DELAY_MS)
+                val quality = pendingAdapterPreviewQuality ?: previewQuality
+                val initResult = runCatching { adapter.initialize(quality) }
+                pendingAdapterPreviewQuality = null
+                initResult.onSuccess {
+                    withContext(Dispatchers.Main) {
+                        isEnhanceAdapterInitialized = true
+                        _isEnhancementAvailable.value = true
+                    }
+                    EnhanceLogging.logEvent(
+                        "enhancer_adapter_initialized",
+                        "quality" to quality,
+                        "delay_ms" to ENHANCE_ADAPTER_INIT_DELAY_MS,
+                    )
+                    Timber.tag(LOG_TAG).i(
+                        "NativeEnhanceAdapter initialized lazily (quality=%d)",
+                        quality,
+                    )
+                }.onFailure { error ->
+                    withContext(Dispatchers.Main) {
+                        isEnhanceAdapterInitialized = false
+                        _isEnhancementAvailable.value = false
+                    }
+                    Timber.tag(LOG_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
+                }
+            } finally {
+                adapterInitializationJob = null
+            }
+        }
+    }
+
     init {
         restoreUndoStack()
         savedStateHandle[currentIndexKey] = _currentIndex.value
@@ -266,15 +315,10 @@ class ViewerViewModel @Inject constructor(
                 autoDeleteEnabled = settings.autoDeleteAfterUpload
                 val adapter = nativeEnhanceAdapter
                 if (adapter != null) {
-                    runCatching {
-                        adapter.initialize(settings.previewQuality)
-                    }.onSuccess {
-                        _isEnhancementAvailable.value = true
-                    }.onFailure { error ->
-                        _isEnhancementAvailable.value = false
-                        Timber.tag(LOG_TAG).e(error, "Не удалось инициализировать NativeEnhanceAdapter")
-                    }
+                    scheduleEnhanceAdapterInitialization(adapter, settings.previewQuality)
                 } else {
+                    isEnhanceAdapterInitialized = false
+                    pendingAdapterPreviewQuality = null
                     _isEnhancementAvailable.value = false
                     Timber.tag(LOG_TAG).w("NativeEnhanceAdapter is null, enhancement disabled")
                 }
@@ -3304,6 +3348,7 @@ class ViewerViewModel @Inject constructor(
         private const val DEFAULT_ENHANCE_TILE_OVERLAP = 64
         private const val ENHANCE_METRICS_INTERVAL_MS = 1_000L
         private const val ENHANCE_METRICS_PROGRESS_DELTA = 0.01f
+        private const val ENHANCE_ADAPTER_INIT_DELAY_MS = 1_000L
         private const val BYTES_IN_MB = 1024.0 * 1024.0
         private val FALLBACK_PROFILE = EnhanceEngine.Profile(
             isLowLight = false,

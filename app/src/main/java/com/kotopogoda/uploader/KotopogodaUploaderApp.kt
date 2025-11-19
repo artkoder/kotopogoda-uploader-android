@@ -20,7 +20,6 @@ import com.kotopogoda.uploader.di.LoggingWorkerFactory
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceLogging
 import com.kotopogoda.uploader.feature.viewer.enhance.NativeEnhanceController
 import com.kotopogoda.uploader.feature.viewer.enhance.logging.EnhanceFileLogger
-import com.kotopogoda.uploader.ml.EnhancerModelProbe
 import com.kotopogoda.uploader.notifications.NotificationPermissionChecker
 import com.kotopogoda.uploader.notifications.UploadNotif
 import com.kotopogoda.uploader.upload.UploadStartupInitializer
@@ -126,12 +125,6 @@ class KotopogodaUploaderApp : Application(), Configuration.Provider {
             NativeEnhanceController.loadLibrary()
         }.onFailure { error ->
             Timber.tag("NativeEnhance").e(error, "Не удалось загрузить нативную библиотеку")
-        }
-        scope.launch(Dispatchers.IO) {
-            runCatching { EnhancerModelProbe.run(this@KotopogodaUploaderApp) }
-                .onFailure { error ->
-                    Timber.tag("Enhance/Probe").e(error, "EnhancerModelProbe завершился с ошибкой")
-                }
         }
         installCrashHandlers()
 
