@@ -242,6 +242,7 @@ bool ZeroDceBackend::process(
             &extractorErrorCode
         );
         telemetry.seamMaxDelta = stats.seamMaxDelta;
+        telemetry.seamMeanDelta = stats.seamMeanDelta;
         telemetry.tileTelemetry.totalTiles = stats.tileCount;
         telemetry.tileTelemetry.tileSize = stats.tileSize;
         telemetry.tileTelemetry.overlap = stats.overlap;
@@ -254,6 +255,7 @@ bool ZeroDceBackend::process(
         telemetry.tileTelemetry.processedTiles = 0;
         success = processDirectly(input, output, strength, delegateFailed, fallbackCause, &extractorErrorCode);
         telemetry.seamMaxDelta = 0.0f;
+        telemetry.seamMeanDelta = 0.0f;
     }
 
     auto endTime = std::chrono::high_resolution_clock::now();
@@ -261,11 +263,12 @@ bool ZeroDceBackend::process(
     telemetry.gpuAllocRetryCount = gpuAllocRetryCount;
 
     LOGI(
-        "duration_ms_zerodce=%ld tile_used=%d tiles=%d seam_max_delta=%.3f gpu_alloc_retry_count=%d",
+        "duration_ms_zerodce=%ld tile_used=%d tiles=%d seam_max_delta=%.3f seam_mean_delta=%.3f gpu_alloc_retry_count=%d",
         telemetry.timingMs,
         telemetry.tileTelemetry.tileUsed,
         telemetry.tileTelemetry.totalTiles,
         telemetry.seamMaxDelta,
+        telemetry.seamMeanDelta,
         telemetry.gpuAllocRetryCount
     );
 

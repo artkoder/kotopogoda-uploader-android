@@ -43,6 +43,7 @@ import com.kotopogoda.uploader.core.logging.structuredLog
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
 import com.kotopogoda.uploader.core.data.util.requireOriginalIfNeeded
 import com.kotopogoda.uploader.core.work.UploadErrorKind
+import com.kotopogoda.uploader.core.settings.PreviewQuality
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
 import com.kotopogoda.uploader.core.settings.reviewProgressFolderId
 import com.kotopogoda.uploader.feature.viewer.enhance.EnhanceEngine
@@ -172,7 +173,7 @@ class ViewerViewModel @Inject constructor(
     val isEnhancementAvailable: StateFlow<Boolean> = _isEnhancementAvailable.asStateFlow()
     private var enhancementJob: Job? = null
     private var adapterInitializationJob: Job? = null
-    private var pendingAdapterPreviewQuality: Int? = null
+    private var pendingAdapterPreviewQuality: PreviewQuality? = null
     private var isEnhanceAdapterInitialized = false
     private var pendingDelete: PendingDelete? = null
     private var pendingBatchDelete: PendingBatchDelete? = null
@@ -263,7 +264,7 @@ class ViewerViewModel @Inject constructor(
 
     private fun scheduleEnhanceAdapterInitialization(
         adapter: NativeEnhanceAdapter,
-        previewQuality: Int,
+        previewQuality: PreviewQuality,
     ) {
         pendingAdapterPreviewQuality = previewQuality
         if (isEnhanceAdapterInitialized) {
@@ -2354,30 +2355,46 @@ class ViewerViewModel @Inject constructor(
                     val previewMs = info.previewTimingMs ?: 0L
                     val fullMs = info.fullTimingMs ?: 0L
                     val totalTiming = previewMs + fullMs
-                    val actualTileSize = if (analysis.width > 0) analysis.width else tileSize
+                    val fallbackTileSize = if (analysis.width > 0) analysis.width else tileSize
                     val nativeTileCount = max(1, totalTiles)
+                    val nativeDelegate = info.delegateUsed ?: info.delegate
+                    val stageFull = if (nativeDelegate == "vulkan") {
+                        "native_full_vulkan"
+                    } else {
+                        "native_full"
+                    }
+                    val pipelineTileSize = info.tileSize ?: fallbackTileSize
+                    val pipelineOverlap = info.tileOverlap ?: tileOverlap
+                    val tilesTotal = info.tilesTotal ?: nativeTileCount
+                    val tilesCompleted = info.tilesCompleted ?: tilesTotal
+                    val pipelineTileUsed = info.tileUsed ?: (tilesTotal > 1)
+                    val seamMaxDelta = info.seamMaxDelta ?: 0f
+                    val seamMeanDelta = info.seamMeanDelta ?: 0f
+                    val hasSeamFix = pipelineTileUsed && pipelineOverlap > 0 && tilesTotal > 0
                     val pipeline = EnhanceEngine.Pipeline(
                         stages = listOf(
                             "native_preview",
-                            if (info.usedVulkan == true) "native_full_vulkan" else "native_full",
+                            stageFull,
                         ),
-                        tileSize = tileSize,
+                        tileSize = pipelineTileSize,
                         overlap = tileOverlap,
-                        tileSizeActual = actualTileSize,
-                        overlapActual = tileOverlap,
+                        tileSizeActual = pipelineTileSize,
+                        overlapActual = pipelineOverlap,
                         mixingWindow = 0,
                         mixingWindowActual = 0,
-                        tileCount = nativeTileCount,
-                        tilesCompleted = nativeTileCount,
+                        tileCount = tilesTotal,
+                        tilesCompleted = tilesCompleted,
                         tileProgress = 1f,
-                        tileUsed = false,
+                        tileUsed = pipelineTileUsed,
                         zeroDceIterations = 0,
                         zeroDceApplied = true,
                         zeroDceDelegateFallback = info.fallbackUsed == true,
                         restormerMix = predictedProfile.restormerMix,
                         restormerApplied = true,
                         restormerDelegateFallback = info.fallbackUsed == true,
-                        hasSeamFix = false,
+                        hasSeamFix = hasSeamFix,
+                        seamMaxDelta = seamMaxDelta,
+                        seamMeanDelta = seamMeanDelta,
                     )
                     val timings = EnhanceEngine.Timings(
                         decode = previewMs,
@@ -3016,6 +3033,7 @@ class ViewerViewModel @Inject constructor(
         val pipelineStages = result.pipeline.stages.joinToString(separator = "+").ifEmpty { "none" }
         val engineDelegateActual = result.engineDelegate?.name?.lowercase() ?: "none"
         val timings = result.timings
+        val nativeInfo = result.uploadInfo
         logEnhancement(
             action = "enhance_result",
             photo = photo,
@@ -3061,6 +3079,20 @@ class ViewerViewModel @Inject constructor(
             "zero_dce_delegate_fallback" to result.pipeline.zeroDceDelegateFallback,
             "restormer_delegate_fallback" to result.pipeline.restormerDelegateFallback,
             "has_seam_fix" to result.pipeline.hasSeamFix,
+            "native_delegate_used" to nativeInfo?.delegateUsed,
+            "native_force_cpu_reason" to nativeInfo?.forceCpuReason,
+            "native_tile_used" to nativeInfo?.tileUsed,
+            "native_tile_size" to nativeInfo?.tileSize,
+            "native_tile_overlap" to nativeInfo?.tileOverlap,
+            "native_tiles_total" to nativeInfo?.tilesTotal,
+            "native_tiles_completed" to nativeInfo?.tilesCompleted,
+            "native_seam_max_delta" to nativeInfo?.seamMaxDelta?.format3(),
+            "native_seam_mean_delta" to nativeInfo?.seamMeanDelta?.format3(),
+            "native_gpu_alloc_retry_count" to nativeInfo?.gpuAllocRetryCount,
+            "native_fallback_used" to nativeInfo?.fallbackUsed,
+            "native_fallback_cause" to nativeInfo?.fallbackCause,
+            "native_duration_ms_cpu" to nativeInfo?.durationMsCpu,
+            "native_duration_ms_vulkan" to nativeInfo?.durationMsVulkan,
         )
     }
 

@@ -53,6 +53,7 @@ struct TelemetryData {
     long peakMemoryKb = 0;
     bool cancelled = false;
     float seamMaxDelta = 0.0f;
+    float seamMeanDelta = 0.0f;
     int gpuAllocRetryCount = 0;
     bool fallbackUsed = false;
     long durationMsVulkan = 0;

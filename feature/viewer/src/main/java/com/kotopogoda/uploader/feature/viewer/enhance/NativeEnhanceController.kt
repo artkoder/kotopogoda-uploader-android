@@ -21,6 +21,8 @@ class NativeEnhanceController(
     private var nativeHandle: Long = 0L
     private val initializationFlag = AtomicInteger(UNINITIALIZED)
     private val activeOperations = AtomicInteger(0)
+    private var lastForceCpuReason: String? = null
+    private var lastForceCpuFlag: Boolean = false
 
     enum class PreviewProfile {
         BALANCED,
@@ -85,6 +87,16 @@ class NativeEnhanceController(
         val fallbackCause: FallbackCause?,
         val durationMsVulkan: Long?,
         val durationMsCpu: Long?,
+        val delegateUsed: String,
+        val forceCpuReason: String?,
+        val tileUsed: Boolean,
+        val tileSize: Int,
+        val tileOverlap: Int,
+        val tilesTotal: Int,
+        val tilesCompleted: Int,
+        val seamMaxDelta: Float,
+        val seamMeanDelta: Float,
+        val gpuAllocRetryCount: Int,
     )
 
     data class FullResult(
@@ -97,6 +109,16 @@ class NativeEnhanceController(
         val fallbackCause: FallbackCause?,
         val durationMsVulkan: Long?,
         val durationMsCpu: Long?,
+        val delegateUsed: String,
+        val forceCpuReason: String?,
+        val tileUsed: Boolean,
+        val tileSize: Int,
+        val tileOverlap: Int,
+        val tilesTotal: Int,
+        val tilesCompleted: Int,
+        val seamMaxDelta: Float,
+        val seamMeanDelta: Float,
+        val gpuAllocRetryCount: Int,
     )
 
     data class ProgressInfo(
@@ -134,6 +156,8 @@ class NativeEnhanceController(
 
             nativeHandle = handle
             initializationFlag.set(INITIALIZED)
+            lastForceCpuReason = params.forceCpuReason
+            lastForceCpuFlag = params.forceCpu
 
             Timber.tag(LOG_TAG).i(
                 "Нативный контроллер инициализирован: handle=%d profile=%s",
@@ -196,18 +220,17 @@ class NativeEnhanceController(
             )
 
             val startTime = System.currentTimeMillis()
-            val result = nativeRunPreview(nativeHandle, sourceBitmap, strength)
+            val telemetry = nativeRunPreview(nativeHandle, sourceBitmap, strength)
             val elapsed = System.currentTimeMillis() - startTime
 
-            val success = result[0] > 0
-            val timing = result[1]
-            val usedVulkan = result[2] > 0
-            val peakMemory = result[3].toFloat() / 1024f
-            val cancelled = result[4] > 0
-            val fallbackUsed = result[5] > 0
-            val fallbackCause = FallbackCause.fromCode(result[6])
-            val durationVulkan = result[7].takeIf { it > 0 }
-            val durationCpu = result[8].takeIf { it > 0 }
+            val success = telemetry.success
+            val timing = telemetry.timingMs
+            val usedVulkan = telemetry.usedVulkan
+            val peakMemory = telemetry.peakMemoryKb.toFloat() / 1024f
+            val fallbackUsed = telemetry.fallbackUsed
+            val fallbackCause = FallbackCause.fromCode(telemetry.fallbackCauseCode.toLong())
+            val durationVulkan = telemetry.durationMsVulkan.takeIf { it > 0 }
+            val durationCpu = telemetry.durationMsCpu.takeIf { it > 0 }
 
             EnhanceLogging.logEvent(
                 "native_preview_complete",
@@ -217,11 +240,22 @@ class NativeEnhanceController(
                     "elapsed_ms" to elapsed,
                     "used_vulkan" to usedVulkan,
                     "peak_memory_mb" to peakMemory,
-                    "cancelled" to cancelled,
+                    "cancelled" to telemetry.cancelled,
                     "fallback_used" to fallbackUsed,
                     "fallback_cause" to fallbackCause?.name?.lowercase(),
                     "duration_ms_vulkan" to durationVulkan,
                     "duration_ms_cpu" to durationCpu,
+                    "delegate_used" to telemetry.delegateUsed,
+                    "force_cpu" to lastForceCpuFlag,
+                    "force_cpu_reason" to lastForceCpuReason,
+                    "tile_used" to telemetry.tileUsed,
+                    "tile_size" to telemetry.tileSize,
+                    "tile_overlap" to telemetry.tileOverlap,
+                    "tiles_total" to telemetry.tilesTotal,
+                    "tiles_completed" to telemetry.tilesCompleted,
+                    "seam_max_delta" to telemetry.seamMaxDelta,
+                    "seam_mean_delta" to telemetry.seamMeanDelta,
+                    "gpu_alloc_retry_count" to telemetry.gpuAllocRetryCount,
                 ),
             )
 
@@ -234,6 +268,16 @@ class NativeEnhanceController(
                 fallbackCause = fallbackCause,
                 durationMsVulkan = durationVulkan,
                 durationMsCpu = durationCpu,
+                delegateUsed = telemetry.delegateUsed,
+                forceCpuReason = lastForceCpuReason,
+                tileUsed = telemetry.tileUsed,
+                tileSize = telemetry.tileSize,
+                tileOverlap = telemetry.tileOverlap,
+                tilesTotal = telemetry.tilesTotal,
+                tilesCompleted = telemetry.tilesCompleted,
+                seamMaxDelta = telemetry.seamMaxDelta,
+                seamMeanDelta = telemetry.seamMeanDelta,
+                gpuAllocRetryCount = telemetry.gpuAllocRetryCount,
             )
         } finally {
             activeOperations.decrementAndGet()
@@ -269,18 +313,18 @@ class NativeEnhanceController(
                 Bitmap.Config.ARGB_8888,
             )
 
-            val result = nativeRunFull(nativeHandle, sourceBitmap, strength, resultBitmap)
+            val telemetry = nativeRunFull(nativeHandle, sourceBitmap, strength, resultBitmap)
             val elapsed = System.currentTimeMillis() - startTime
 
-            val success = result[0] > 0
-            val timing = result[1]
-            val usedVulkan = result[2] > 0
-            val peakMemory = result[3].toFloat() / 1024f
-            val cancelled = result[4] > 0
-            val fallbackUsed = result[5] > 0
-            val fallbackCause = FallbackCause.fromCode(result[6])
-            val durationVulkan = result[7].takeIf { it > 0 }
-            val durationCpu = result[8].takeIf { it > 0 }
+            val success = telemetry.success
+            val timing = telemetry.timingMs
+            val usedVulkan = telemetry.usedVulkan
+            val peakMemory = telemetry.peakMemoryKb.toFloat() / 1024f
+            val cancelled = telemetry.cancelled
+            val fallbackUsed = telemetry.fallbackUsed
+            val fallbackCause = FallbackCause.fromCode(telemetry.fallbackCauseCode.toLong())
+            val durationVulkan = telemetry.durationMsVulkan.takeIf { it > 0 }
+            val durationCpu = telemetry.durationMsCpu.takeIf { it > 0 }
 
             EnhanceLogging.logEvent(
                 "native_full_complete",
@@ -295,6 +339,17 @@ class NativeEnhanceController(
                     "fallback_cause" to fallbackCause?.name?.lowercase(),
                     "duration_ms_vulkan" to durationVulkan,
                     "duration_ms_cpu" to durationCpu,
+                    "delegate_used" to telemetry.delegateUsed,
+                    "force_cpu" to lastForceCpuFlag,
+                    "force_cpu_reason" to lastForceCpuReason,
+                    "tile_used" to telemetry.tileUsed,
+                    "tile_size" to telemetry.tileSize,
+                    "tile_overlap" to telemetry.tileOverlap,
+                    "tiles_total" to telemetry.tilesTotal,
+                    "tiles_completed" to telemetry.tilesCompleted,
+                    "seam_max_delta" to telemetry.seamMaxDelta,
+                    "seam_mean_delta" to telemetry.seamMeanDelta,
+                    "gpu_alloc_retry_count" to telemetry.gpuAllocRetryCount,
                 ),
             )
 
@@ -308,6 +363,16 @@ class NativeEnhanceController(
                 fallbackCause = fallbackCause,
                 durationMsVulkan = durationVulkan,
                 durationMsCpu = durationCpu,
+                delegateUsed = telemetry.delegateUsed,
+                forceCpuReason = lastForceCpuReason,
+                tileUsed = telemetry.tileUsed,
+                tileSize = telemetry.tileSize,
+                tileOverlap = telemetry.tileOverlap,
+                tilesTotal = telemetry.tilesTotal,
+                tilesCompleted = telemetry.tilesCompleted,
+                seamMaxDelta = telemetry.seamMaxDelta,
+                seamMeanDelta = telemetry.seamMeanDelta,
+                gpuAllocRetryCount = telemetry.gpuAllocRetryCount,
             )
         } finally {
             activeOperations.decrementAndGet()
@@ -335,6 +400,8 @@ class NativeEnhanceController(
         EnhanceLogging.logEvent("native_release", mapOf("handle" to nativeHandle))
         nativeRelease(nativeHandle)
         nativeHandle = 0L
+        lastForceCpuReason = null
+        lastForceCpuFlag = false
     }
 
     fun isInitialized(): Boolean = initializationFlag.get() == INITIALIZED
@@ -361,14 +428,14 @@ class NativeEnhanceController(
         handle: Long,
         bitmap: Bitmap,
         strength: Float,
-    ): LongArray
+    ): NativeRunTelemetry
 
     private external fun nativeRunFull(
         handle: Long,
         sourceBitmap: Bitmap,
         strength: Float,
         outputBitmap: Bitmap,
-    ): LongArray
+    ): NativeRunTelemetry
 
     private external fun nativeCancel(handle: Long)
 

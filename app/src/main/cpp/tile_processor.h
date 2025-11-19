@@ -37,6 +37,7 @@ struct TileProcessStats {
     int tileSize = 0;
     int overlap = 0;
     float seamMaxDelta = 0.0f;
+    float seamMeanDelta = 0.0f;
 };
 
 class TileProcessor {
@@ -63,7 +64,9 @@ private:
         ncnn::Mat& output,
         const ncnn::Mat& tileData,
         const TileInfo& tile,
-        float& seamMaxDelta
+        float& seamMaxDelta,
+        double& seamDeltaSum,
+        int& seamSampleCount
     );
     void createHannWindow(int width, int height, int overlap);
     int reflectCoordinate(int coordinate, int limit) const;
