@@ -61,6 +61,7 @@ class NativeEnhanceController(
         val restormerChecksums: ModelChecksums,
         val previewProfile: PreviewProfile,
         val forceCpu: Boolean = isForceCpuForced(),
+        val forceCpuReason: String? = null,
     )
 
     data class IntegrityFailure(
@@ -140,28 +141,34 @@ class NativeEnhanceController(
                 params.previewProfile,
             )
 
+            val delegatePlan = if (params.forceCpu) "cpu" else "gpu"
+            val delegateAvailable = if (nativeIsGpuDelegateAvailable(handle)) "gpu" else "cpu"
+            val delegateUsed = if (params.forceCpu) "cpu" else delegateAvailable
+
+            val commonDelegatePayload = mapOf(
+                "handle" to handle,
+                "delegate_plan" to delegatePlan,
+                "delegate_available" to delegateAvailable,
+                "delegate_used" to delegateUsed,
+                "force_cpu" to params.forceCpu,
+                "forceCpu_reason" to params.forceCpuReason,
+            )
+
             EnhanceLogging.logEvent(
                 "native_controller_init",
                 mapOf(
-                    "handle" to handle,
                     "models_dir" to params.modelsDir.absolutePath,
                     "preview_profile" to params.previewProfile.name,
                     "zero_dce_param_checksum" to params.zeroDceChecksums.param.take(8),
                     "zero_dce_bin_checksum" to params.zeroDceChecksums.bin.take(8),
                     "restormer_param_checksum" to params.restormerChecksums.param.take(8),
                     "restormer_bin_checksum" to params.restormerChecksums.bin.take(8),
-                    "force_cpu" to params.forceCpu,
-                ),
+                ) + commonDelegatePayload,
             )
 
-            val delegateAvailable = if (nativeIsGpuDelegateAvailable(handle)) "gpu" else "cpu"
             EnhanceLogging.logEvent(
                 "native_delegate_status",
-                mapOf(
-                    "handle" to handle,
-                    "delegate_available" to delegateAvailable,
-                    "force_cpu" to params.forceCpu,
-                ),
+                commonDelegatePayload,
             )
         } catch (error: Exception) {
             initializationFlag.set(INITIALIZATION_FAILED)
@@ -405,6 +412,12 @@ class NativeEnhanceController(
             if (override != null) {
                 return override
             }
+            return isForceCpuForcedByEnv()
+        }
+
+        fun isForceCpuForcedByUser(): Boolean = forceCpuOverride == true
+
+        fun isForceCpuForcedByEnv(): Boolean {
             val envValue = System.getenv(ENV_FORCE_CPU)
             return envValue == "1"
         }

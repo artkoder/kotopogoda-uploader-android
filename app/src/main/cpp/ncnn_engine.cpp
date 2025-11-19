@@ -265,18 +265,15 @@ bool NcnnEngine::initialize(
     assetManager_ = assetManager;
     modelsDir_ = modelsDir;
 
-    int gpuCount = ncnn::get_gpu_count();
-    bool gpuAvailable = gpuCount > 0;
-    gpuDelegateAvailable_.store(gpuAvailable);
-
     if (forceCpu) {
+        gpuDelegateAvailable_.store(false);
         vulkanDevice_ = nullptr;
         vulkanAvailable_ = false;
-        LOGW(
-            "Vulkan принудительно отключен: gpu_count=%d",
-            gpuCount
-        );
+        LOGW("Vulkan принудительно отключен");
     } else {
+        int gpuCount = ncnn::get_gpu_count();
+        bool gpuAvailable = gpuCount > 0;
+        gpuDelegateAvailable_.store(gpuAvailable);
         setupVulkan(gpuCount);
     }
 
