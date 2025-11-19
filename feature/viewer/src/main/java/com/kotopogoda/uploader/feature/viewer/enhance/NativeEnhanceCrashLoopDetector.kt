@@ -1,39 +1,42 @@
 package com.kotopogoda.uploader.feature.viewer.enhance
 
 import android.content.Context
-import java.io.File
+import android.content.SharedPreferences
 import timber.log.Timber
 
 class NativeEnhanceCrashLoopDetector(
-    private val markerFile: File,
+    private val preferences: SharedPreferences,
 ) {
 
-    constructor(context: Context) : this(File(context.filesDir, MARKER_FILE_NAME))
+    constructor(context: Context) : this(
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+    )
 
-    fun isCrashLoopSuspected(): Boolean = markerFile.exists()
+    private val crashLoopDetectedOnStart: Boolean
 
-    fun markInitializationStarted() {
-        runCatching {
-            markerFile.parentFile?.mkdirs()
-            markerFile.writeText(System.currentTimeMillis().toString())
-        }.onFailure { error ->
-            Timber.tag(TAG).w(error, "Не удалось записать crash loop маркер")
+    init {
+        val wasRunning = preferences.getBoolean(KEY_ENHANCE_RUNNING, false)
+        crashLoopDetectedOnStart = wasRunning
+        if (wasRunning) {
+            Timber.tag(TAG).e("enhance_crash_loop_detected")
+            EnhanceLogging.logEvent("enhance_crash_loop_detected")
+            clearEnhanceRunningFlag()
         }
     }
 
-    fun clearMarker() {
-        if (!markerFile.exists()) {
-            return
-        }
-        runCatching {
-            markerFile.delete()
-        }.onFailure { error ->
-            Timber.tag(TAG).w(error, "Не удалось удалить crash loop маркер")
-        }
+    fun isCrashLoopSuspected(): Boolean = crashLoopDetectedOnStart
+
+    fun markEnhanceRunning() {
+        preferences.edit().putBoolean(KEY_ENHANCE_RUNNING, true).apply()
+    }
+
+    fun clearEnhanceRunningFlag() {
+        preferences.edit().putBoolean(KEY_ENHANCE_RUNNING, false).apply()
     }
 
     companion object {
         private const val TAG = "NativeEnhanceCrashLoop"
-        private const val MARKER_FILE_NAME = "native_enhance_crash.marker"
+        private const val PREFS_NAME = "enhance_prefs"
+        private const val KEY_ENHANCE_RUNNING = "enhance_running"
     }
 }
