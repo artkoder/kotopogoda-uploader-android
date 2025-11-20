@@ -96,7 +96,16 @@ def pip_install(requirement: str) -> bool:
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = ROOT_DIR / ".work" / "models"
 MODEL_SOURCES_FILE = ROOT_DIR / "scripts" / "model_sources.lock.json"
-DIST_DIR = ROOT_DIR / "dist"
+
+_DIST_ENV = os.environ.get("MODELS_DIST")
+if _DIST_ENV:
+    _dist_candidate = Path(_DIST_ENV).expanduser()
+    if not _dist_candidate.is_absolute():
+        _dist_candidate = ROOT_DIR / _dist_candidate
+else:
+    _dist_candidate = ROOT_DIR / "dist"
+DIST_DIR = _dist_candidate
+DIST_MODELS_DIR = DIST_DIR / "models"
 MODELS_LOCK_PATH = ROOT_DIR / "models.lock.json"
 
 # Окружение
@@ -120,6 +129,9 @@ def log(message: str) -> None:
 def ensure_dirs() -> None:
     for path in (WORK_DIR, WORK_DOWNLOADS, WORK_CONVERTED, WORK_STAGING, WORK_TMP, DIST_DIR):
         path.mkdir(parents=True, exist_ok=True)
+    if DIST_MODELS_DIR.exists():
+        shutil.rmtree(DIST_MODELS_DIR)
+    DIST_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_sources() -> Dict[str, dict]:
@@ -980,6 +992,20 @@ def process_model(key: str, cfg: dict) -> dict:
 
     artifact_sha = sha256_of(zip_path)
     artifact_size = format_mib(zip_path.stat().st_size)
+
+    dist_copied: List[str] = []
+    for relative_path in staged_paths:
+        destination = DIST_DIR / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(staging_dir / relative_path, destination)
+        dist_copied.append(destination.relative_to(DIST_DIR).as_posix())
+    if dist_copied:
+        log(
+            "Файлы моделей размещены в {base}: {items}".format(
+                base=DIST_MODELS_DIR,
+                items=", ".join(dist_copied),
+            )
+        )
 
     return {
         "key": key,
