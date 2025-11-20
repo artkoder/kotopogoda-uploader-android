@@ -747,16 +747,31 @@ def convert_restormer(
     log(f"NCNN модель создана: .param + .bin ({format_mib(bin_size)} MiB)")
     
     # Restormer — большая модель (~26.1M параметров), проверка минимального размера
-    MIN_EXPECTED_BIN_SIZE_MB = 30.0  # минимум 30 MB для Restormer NCNN
+    default_min_bin_size_mb = 30.0 if precision == "fp16" else 60.0
+    min_bin_size_raw = model_cfg.get("min_bin_size_mb")
+    if min_bin_size_raw is not None:
+        try:
+            min_bin_size = float(min_bin_size_raw)
+        except (TypeError, ValueError):
+            log(
+                "⚠️  Некорректное значение min_bin_size_mb в конфиге Restormer; "
+                f"используем порог по умолчанию {default_min_bin_size_mb} MB"
+            )
+            min_bin_size = default_min_bin_size_mb
+        else:
+            if min_bin_size <= 0:
+                min_bin_size = default_min_bin_size_mb
+    else:
+        min_bin_size = default_min_bin_size_mb
     
-    if bin_size_mb < MIN_EXPECTED_BIN_SIZE_MB:
+    if bin_size_mb < min_bin_size:
         raise RuntimeError(
             f"NCNN .bin файл слишком маленький ({bin_size_mb:.1f} MB), "
-            f"ожидается минимум {MIN_EXPECTED_BIN_SIZE_MB} MB. "
+            f"ожидается минимум {min_bin_size:.1f} MB. "
             "Возможно, конвертация провалена."
         )
     
-    log(f"✅ NCNN .bin размер валиден: {bin_size_mb:.1f} MB")
+    log(f"✅ NCNN .bin размер валиден: {bin_size_mb:.1f} MB (порог {min_bin_size:.1f} MB)")
 
     apply_fp16_optimize = precision == "fp16"
     if apply_fp16_optimize:
@@ -860,7 +875,7 @@ def process_model(key: str, cfg: dict) -> dict:
 
     if key == "zerodcepp_fp16":
         backend, files, metadata = convert_zero_dce(cfg, sources, convert_dir)
-    elif key == "restormer_fp16":
+    elif key.startswith("restormer_"):
         backend, files, metadata = convert_restormer(cfg, sources, convert_dir)
     else:
         raise RuntimeError(f"Неизвестная модель: {key}")
