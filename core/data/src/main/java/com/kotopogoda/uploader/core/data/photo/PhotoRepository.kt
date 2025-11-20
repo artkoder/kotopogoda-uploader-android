@@ -88,6 +88,15 @@ class PhotoRepository @Inject constructor(
             .takeIf { it.isNotEmpty() }
         val selectionArgs = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
 
+        val bundle = bundleOf().apply {
+            selection?.let {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
+            }
+            selectionArgs?.let {
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
+            }
+        }
+
         runCatching {
             resolver.queryWithFallback(
                 uris = spec.contentUris,
@@ -95,7 +104,7 @@ class PhotoRepository @Inject constructor(
                 selection = selection,
                 selectionArgs = selectionArgs,
                 sortOrder = null,
-                bundle = null
+                bundle = bundle
             ) { _, cursor ->
                 val dateTakenIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
                 val dateAddedIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
@@ -118,6 +127,17 @@ class PhotoRepository @Inject constructor(
                     }
                 }
             }
+        }.onFailure { error ->
+            Timber.tag(MEDIA_LOG_TAG).e(
+                error,
+                UploadLog.message(
+                    category = CATEGORY_MEDIA_ERROR,
+                    action = "get_available_dates",
+                    details = arrayOf(
+                        "uri_count" to spec.contentUris.size,
+                    ),
+                ),
+            )
         }
         dates
     }

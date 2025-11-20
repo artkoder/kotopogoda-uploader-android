@@ -116,6 +116,31 @@ class PhotoRepositoryTest {
         assertNull(index)
     }
 
+    @Test
+    fun `getAvailableDates uses Bundle on Android R+`() = runTest {
+        val environment = createRepositoryEnvironment(
+            listOf(
+                FakePhoto(
+                    dateTakenMillis = Instant.parse("2025-01-03T00:00:00Z").toEpochMilli(),
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = null
+                )
+            )
+        )
+
+        val dates = environment.repository.getAvailableDates()
+
+        assertEquals(1, dates.size)
+        verify {
+            environment.contentResolver.query(
+                any(),
+                any(),
+                any<Bundle>(),
+                any()
+            )
+        }
+    }
+
     private fun createRepositoryEnvironment(
         photos: List<FakePhoto>
     ): RepositoryEnvironment {
@@ -150,9 +175,14 @@ class PhotoRepositoryTest {
             selectionHistory += selection
             argsHistory += args
             val filtered = photos.filter { photo -> matchesSelection(photo, selection, args) }
-            return MatrixCursor(arrayOf(MediaStore.Images.Media._ID)).apply {
-                filtered.forEachIndexed { index, _ ->
-                    addRow(arrayOf(index.toLong()))
+            return MatrixCursor(arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_ADDED)).apply {
+                filtered.forEachIndexed { index, photo ->
+                    val row = arrayOf<Any?>(
+                        index.toLong(),
+                        photo.dateTakenMillis,
+                        photo.dateAddedSeconds
+                    )
+                    addRow(row)
                 }
             }
         }
@@ -173,7 +203,7 @@ class PhotoRepositoryTest {
             buildCursor(selection, args)
         }
 
-        return RepositoryEnvironment(repository, selectionHistory, argsHistory)
+        return RepositoryEnvironment(repository, contentResolver, selectionHistory, argsHistory)
     }
 
     private fun createQuerySpec(contentUris: List<Uri>): Any {
@@ -185,6 +215,7 @@ class PhotoRepositoryTest {
 
     private data class RepositoryEnvironment(
         val repository: PhotoRepository,
+        val contentResolver: ContentResolver,
         val selectionHistory: MutableList<String?>,
         val argsHistory: MutableList<Array<String>?>
     )
