@@ -13,7 +13,7 @@ namespace ncnn {
 namespace kotopogoda {
 
 struct TileConfig {
-    int tileSize = 512;
+    int tileSize = 384;
     int overlap = 16;
     int maxMemoryMb = 512;
     int threadCount = 4;

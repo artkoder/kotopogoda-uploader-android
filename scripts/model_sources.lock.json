@@ -5,6 +5,7 @@
     "version": "v1",
     "precision": "fp16",
     "enabled": true,
+    "tile_size": 384,
     "sources": [
       {
         "id": "weights",

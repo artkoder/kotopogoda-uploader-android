@@ -1151,7 +1151,7 @@ class EnhanceEngine(
 
     companion object {
         private const val LOG_TAG = "Enhance/Engine"
-        private const val DEFAULT_TILE_SIZE = 512
+        private const val DEFAULT_TILE_SIZE = 384
         private const val DEFAULT_TILE_OVERLAP = 64
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
         private const val OUTPUT_JPEG_QUALITY = 92

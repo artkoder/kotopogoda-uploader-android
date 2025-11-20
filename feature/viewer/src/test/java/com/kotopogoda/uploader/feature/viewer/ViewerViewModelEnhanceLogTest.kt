@@ -113,9 +113,9 @@ class ViewerViewModelEnhanceLogTest {
         val resultFile = File.createTempFile("result", ".jpg")
         val pipeline = EnhanceEngine.Pipeline(
             stages = listOf("restormer"),
-            tileSize = 512,
+            tileSize = 384,
             overlap = 64,
-            tileSizeActual = 480,
+            tileSizeActual = 360,
             overlapActual = 48,
             mixingWindow = 96,
             tileCount = 4,
@@ -186,7 +186,7 @@ class ViewerViewModelEnhanceLogTest {
         assertEquals("0.150", loggedDetails["seam_min_weight"])
         assertEquals("1.750", loggedDetails["seam_max_weight"])
         assertEquals("true", loggedDetails["tile_used"])
-        assertEquals("480", loggedDetails["tile_size_actual"])
+        assertEquals("360", loggedDetails["tile_size_actual"])
         assertEquals("48", loggedDetails["tile_overlap_actual"])
         assertEquals("96", loggedDetails["mixing_window"])
         assertEquals("96", loggedDetails["mixing_window_actual"])

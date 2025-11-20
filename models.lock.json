@@ -51,7 +51,8 @@
           "bin_size_bytes": 42300,
           "bin_size_mib": 0.0403,
           "sha256_param": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
-          "sha256_bin": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73"
+          "sha256_bin": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
+          "tile_size": 384
         },
         "onnx": {
           "path": "zerodcepp_simplified.onnx",
