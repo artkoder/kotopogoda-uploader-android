@@ -138,9 +138,7 @@ bool ZeroDceBackend::process(
         auto processFunc = [
             this,
             strength,
-            &gpuAllocRetryCount,
-            delegateFailed,
-            fallbackCause
+            &gpuAllocRetryCount
         ](
             const ncnn::Mat& tileIn,
             ncnn::Mat& tileOut,
@@ -160,15 +158,7 @@ bool ZeroDceBackend::process(
                     if (errorCode) {
                         *errorCode = ret;
                     }
-                    if (usingVulkan_ && delegateFailed) {
-                        *delegateFailed = true;
-                        if (fallbackCause) {
-                            *fallbackCause = FallbackCause::EXTRACT_FAILED;
-                        }
-                        LOGW("delegate=vulkan cause=extract_failed stage=zerodce_tile_input ret=%d", ret);
-                    } else {
-                        LOGW("ENHANCE/ERROR: Не удалось подать данные тайла в Zero-DCE++ (ret=%d)", ret);
-                    }
+                    LOGW("ENHANCE/ERROR: Не удалось подать данные тайла в Zero-DCE++ (ret=%d)", ret);
                     return false;
                 }
 
@@ -198,12 +188,6 @@ bool ZeroDceBackend::process(
                     attempt,
                     maxAttempts
                 );
-                if (usingVulkan_ && delegateFailed) {
-                    *delegateFailed = true;
-                    if (fallbackCause) {
-                        *fallbackCause = FallbackCause::EXTRACT_FAILED;
-                    }
-                }
             }
             return false;
         };
@@ -236,7 +220,7 @@ bool ZeroDceBackend::process(
         telemetry.tileTelemetry.tileUsed = false;
         telemetry.tileTelemetry.totalTiles = 0;
         telemetry.tileTelemetry.processedTiles = 0;
-        success = processDirectly(input, output, strength, delegateFailed, fallbackCause, &extractorErrorCode);
+        success = processDirectly(input, output, strength, &extractorErrorCode);
         telemetry.seamMaxDelta = 0.0f;
         telemetry.seamMeanDelta = 0.0f;
     }
@@ -266,7 +250,7 @@ bool ZeroDceBackend::process(
                 "ENHANCE/ERROR: Zero-DCE++ extractor_failed ret=%d duration_ms=%ld delegate=%s size=%dx%dx%d",
                 extractorErrorCode,
                 telemetry.extractorError.durationMs,
-                usingVulkan_ ? "vulkan" : "cpu",
+                "cpu",
                 input.w,
                 input.h,
                 input.c
@@ -278,5 +262,6 @@ bool ZeroDceBackend::process(
 
     return success && !cancelFlag_.load();
 }
+
 
 }

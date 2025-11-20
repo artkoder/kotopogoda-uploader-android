@@ -13,7 +13,6 @@ namespace kotopogoda {
 
 class TileProcessor;
 struct TelemetryData;
-enum class FallbackCause;
 
 class ZeroDceBackend {
 public:
