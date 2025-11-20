@@ -139,6 +139,7 @@ private:
     std::atomic<bool> cancelled_;
     std::atomic<bool> vulkanAvailable_;
     std::atomic<bool> gpuDelegateAvailable_;
+    std::atomic<bool> forceCpuMode_;
 
     static std::mutex integrityMutex_;
     static IntegrityFailure lastIntegrityFailure_;

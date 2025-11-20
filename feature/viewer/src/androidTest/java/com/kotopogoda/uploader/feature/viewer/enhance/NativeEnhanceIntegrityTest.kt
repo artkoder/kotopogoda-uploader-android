@@ -46,6 +46,8 @@ class NativeEnhanceIntegrityTest {
             modelsDir = modelsDir,
             zeroDceChecksums = lock.require("zerodcepp_fp16").toChecksums(),
             restormerChecksums = lock.require("restormer_fp16").toChecksums(),
+            zeroDceFiles = lock.require("zerodcepp_fp16").toModelFiles(),
+            restormerFiles = lock.require("restormer_fp16").toModelFiles(),
             previewProfile = NativeEnhanceController.PreviewProfile.BALANCED,
         )
 
@@ -72,4 +74,16 @@ private fun ModelDefinition.toChecksums(): NativeEnhanceController.ModelChecksum
     val bin = filesByExt["bin"]?.sha256
         ?: error("Модель ${name} не содержит bin файла")
     return NativeEnhanceController.ModelChecksums(param, bin)
+}
+
+private fun ModelDefinition.toModelFiles(): NativeEnhanceController.ModelFiles {
+    val filesByExt = filesByExtension()
+    val paramPath = filesByExt["param"]?.path
+        ?: error("Модель ${name} не содержит param файла")
+    val binPath = filesByExt["bin"]?.path
+        ?: error("Модель ${name} не содержит bin файла")
+    return NativeEnhanceController.ModelFiles(
+        paramFile = paramPath.substringAfterLast('/'),
+        binFile = binPath.substringAfterLast('/'),
+    )
 }

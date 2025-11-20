@@ -137,7 +137,8 @@ bool ZeroDceBackend::process(
     telemetry.tileTelemetry.overlap = tileProcessor_ ? tileProcessor_->config().overlap : 0;
 
     LOGI(
-        "Zero-DCE++ стратегия: tile_used=%d tile_size=%d overlap=%d pixels=%lld threshold_area=%lld threshold_mp=%lld",
+        "Zero-DCE++ стратегия: delegate=%s tile_used=%d tile_size=%d overlap=%d pixels=%lld threshold_area=%lld threshold_mp=%lld",
+        usingVulkan_ ? "vulkan" : "cpu",
         shouldTile,
         telemetry.tileTelemetry.tileSize,
         telemetry.tileTelemetry.overlap,

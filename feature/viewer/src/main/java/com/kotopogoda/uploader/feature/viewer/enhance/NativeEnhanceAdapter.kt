@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
+import com.kotopogoda.uploader.core.data.ml.ModelDefinition
+import com.kotopogoda.uploader.core.data.ml.ModelsLock
 import com.kotopogoda.uploader.core.data.upload.UploadEnhancementInfo
 import com.kotopogoda.uploader.core.data.upload.UploadEnhancementMetrics
 import com.kotopogoda.uploader.core.settings.PreviewQuality
@@ -27,6 +29,7 @@ class NativeEnhanceAdapter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val controller: NativeEnhanceController,
     private val modelsInstaller: EnhancerModelsInstaller,
+    private val modelsLock: ModelsLock,
     @Named("zeroDceChecksums") private val zeroDceChecksums: NativeEnhanceController.ModelChecksums,
     @Named("restormerChecksums") private val restormerChecksums: NativeEnhanceController.ModelChecksums,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -39,6 +42,8 @@ class NativeEnhanceAdapter @Inject constructor(
     private var currentStrength: Float = 0f
     private var previewResult: NativeEnhanceController.PreviewResult? = null
     private val crashLoopDetector = NativeEnhanceCrashLoopDetector(context)
+    private val zeroDceModelFiles = modelsLock.require(ZERO_DCE_MODEL_NAME).toModelFiles()
+    private val restormerModelFiles = modelsLock.require(RESTORMER_MODEL_NAME).toModelFiles()
 
     fun isReady(): Boolean = isInitialized && controller.isInitialized()
 
@@ -96,6 +101,8 @@ class NativeEnhanceAdapter @Inject constructor(
             modelsDir = modelsDir,
             zeroDceChecksums = zeroDceChecksums,
             restormerChecksums = restormerChecksums,
+            zeroDceFiles = zeroDceModelFiles,
+            restormerFiles = restormerModelFiles,
             previewProfile = profile,
             forceCpu = effectiveForceCpu,
             forceCpuReason = forceCpuReason,
@@ -388,5 +395,19 @@ class NativeEnhanceAdapter @Inject constructor(
 
     companion object {
         private const val TAG = "NativeEnhanceAdapter"
+        private const val ZERO_DCE_MODEL_NAME = "zerodcepp_fp16"
+        private const val RESTORMER_MODEL_NAME = "restormer_fp16"
     }
+}
+
+private fun ModelDefinition.toModelFiles(): NativeEnhanceController.ModelFiles {
+    val filesByExt = filesByExtension()
+    val paramPath = filesByExt["param"]?.path
+        ?: throw IllegalStateException("Модель $name не содержит param файла")
+    val binPath = filesByExt["bin"]?.path
+        ?: throw IllegalStateException("Модель $name не содержит bin файла")
+    return NativeEnhanceController.ModelFiles(
+        paramFile = paramPath.substringAfterLast('/'),
+        binFile = binPath.substringAfterLast('/'),
+    )
 }
