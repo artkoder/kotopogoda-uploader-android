@@ -8,7 +8,17 @@ import kotlin.test.assertTrue
 class DeviceGpuPolicyTest {
 
     @Test
-    fun `exynos hardware forces cpu mode`() {
+    fun `gpu delegate is always disabled`() {
+        assertFalse(DeviceGpuPolicy.shouldUseGpu())
+    }
+
+    @Test
+    fun `force cpu reason is constant`() {
+        assertEquals("cpu_only", DeviceGpuPolicy.forceCpuReason)
+    }
+
+    @Test
+    fun `exynos hardware is still flagged for telemetry`() {
         val fingerprint = DeviceGpuPolicy.DeviceFingerprint(
             hardware = "Exynos2100",
             board = "universal2100",
@@ -17,11 +27,10 @@ class DeviceGpuPolicyTest {
         )
 
         assertTrue(DeviceGpuPolicy.isExynosSmG99xFingerprint(fingerprint))
-        assertEquals("device_blacklist", DeviceGpuPolicy.resolveForceCpuReason(fingerprint))
     }
 
     @Test
-    fun `exynos board forces cpu mode`() {
+    fun `exynos board is still flagged for telemetry`() {
         val fingerprint = DeviceGpuPolicy.DeviceFingerprint(
             hardware = "universal",
             board = "exynos-sample-board",
@@ -30,11 +39,10 @@ class DeviceGpuPolicyTest {
         )
 
         assertTrue(DeviceGpuPolicy.isExynosSmG99xFingerprint(fingerprint))
-        assertEquals("device_blacklist", DeviceGpuPolicy.resolveForceCpuReason(fingerprint))
     }
 
     @Test
-    fun `sm g99 family forces cpu mode`() {
+    fun `sm g99 family is still flagged for telemetry`() {
         val fingerprint = DeviceGpuPolicy.DeviceFingerprint(
             hardware = "snapdragon",
             board = "qcom",
@@ -43,11 +51,10 @@ class DeviceGpuPolicyTest {
         )
 
         assertTrue(DeviceGpuPolicy.isExynosSmG99xFingerprint(fingerprint))
-        assertEquals("device_blacklist", DeviceGpuPolicy.resolveForceCpuReason(fingerprint))
     }
 
     @Test
-    fun `non exynos non sm g99 devices keep gpu`() {
+    fun `non exynos non sm g99 devices are not flagged`() {
         val fingerprint = DeviceGpuPolicy.DeviceFingerprint(
             hardware = "tensor",
             board = "gs101",
@@ -56,6 +63,5 @@ class DeviceGpuPolicyTest {
         )
 
         assertFalse(DeviceGpuPolicy.isExynosSmG99xFingerprint(fingerprint))
-        assertEquals(null, DeviceGpuPolicy.resolveForceCpuReason(fingerprint))
     }
 }

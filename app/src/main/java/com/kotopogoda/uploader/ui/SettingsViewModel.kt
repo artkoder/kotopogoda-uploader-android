@@ -287,6 +287,14 @@ class SettingsViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(forceCpuForEnhancement = enabled) }
+        Timber.tag(SETTINGS_TAG).i(
+            structuredLog(
+                "phase" to "settings",
+                "event" to "force_cpu_toggle",
+                "value" to enabled,
+                "effect" to "logging_only",
+            )
+        )
         NativeEnhanceController.setForceCpuOverride(enabled.takeIf { it })
         viewModelScope.launch {
             runCatching { settingsRepository.setForceCpuForEnhancement(enabled) }
@@ -342,4 +350,5 @@ sealed interface SettingsEvent {
     data object RequestNotificationPermission : SettingsEvent
 }
 
+private const val SETTINGS_TAG = "Settings"
 private const val DELETION_QUEUE_TAG = "DeletionQueue"

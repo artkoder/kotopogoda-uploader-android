@@ -23,7 +23,7 @@ class NativeEnhanceController(
     private val activeOperations = AtomicInteger(0)
     private var lastForceCpuReason: String? = null
     private var lastForceCpuFlag: Boolean = false
-    private var lastDelegatePlan: String = DELEGATE_CPU_ONLY
+    private var lastDelegatePlan: String = DELEGATE_PLAN_CPU
     private var lastDelegateAvailable: String = DELEGATE_CPU_ONLY
     private var lastDelegateUsed: String = DELEGATE_CPU
     private var lastVulkanAvailable: Boolean = false
@@ -73,8 +73,8 @@ class NativeEnhanceController(
         val zeroDceFiles: ModelFiles,
         val restormerFiles: ModelFiles,
         val previewProfile: PreviewProfile,
-        val forceCpu: Boolean = isForceCpuForced(),
-        val forceCpuReason: String? = null,
+        val forceCpu: Boolean = true,
+        val forceCpuReason: String = DeviceGpuPolicy.forceCpuReason,
     )
 
     data class IntegrityFailure(
@@ -177,18 +177,26 @@ class NativeEnhanceController(
             )
 
             val gpuDelegateAvailable = nativeIsGpuDelegateAvailable(handle)
-            val delegatePlan = if (params.forceCpu) DELEGATE_CPU_ONLY else DELEGATE_PLAN_GPU
-            val delegateAvailable = when {
-                params.forceCpu -> DELEGATE_CPU_ONLY
-                gpuDelegateAvailable -> "gpu"
-                else -> DELEGATE_CPU
+            val delegatePlan = if (params.forceCpu) DELEGATE_PLAN_CPU else DELEGATE_PLAN_GPU
+            val delegateAvailable = if (params.forceCpu) {
+                DELEGATE_CPU_ONLY
+            } else if (gpuDelegateAvailable) {
+                DELEGATE_GPU
+            } else {
+                DELEGATE_CPU
             }
-            val delegateUsed = if (params.forceCpu) DELEGATE_CPU else if (gpuDelegateAvailable) "gpu" else DELEGATE_CPU
+            val delegateUsed = if (params.forceCpu) {
+                DELEGATE_CPU
+            } else if (gpuDelegateAvailable) {
+                DELEGATE_GPU
+            } else {
+                DELEGATE_CPU
+            }
 
             lastDelegatePlan = delegatePlan
             lastDelegateAvailable = delegateAvailable
             lastDelegateUsed = delegateUsed
-            lastVulkanAvailable = !params.forceCpu && gpuDelegateAvailable
+            lastVulkanAvailable = gpuDelegateAvailable
 
             val delegateMetadata = delegateSnapshotPayload()
             val modelPayload = mapOf(
@@ -429,7 +437,7 @@ class NativeEnhanceController(
         nativeHandle = 0L
         lastForceCpuReason = null
         lastForceCpuFlag = false
-        lastDelegatePlan = DELEGATE_CPU_ONLY
+        lastDelegatePlan = DELEGATE_PLAN_CPU
         lastDelegateAvailable = DELEGATE_CPU_ONLY
         lastDelegateUsed = DELEGATE_CPU
         lastVulkanAvailable = false
@@ -489,7 +497,9 @@ class NativeEnhanceController(
         private const val NATIVE_TILE_SIZE = 384
         private const val NATIVE_TILE_OVERLAP = 64
         private const val DELEGATE_CPU = "cpu"
+        private const val DELEGATE_GPU = "gpu"
         private const val DELEGATE_CPU_ONLY = "cpu_only"
+        private const val DELEGATE_PLAN_CPU = "cpu"
         private const val DELEGATE_PLAN_GPU = "gpu_with_cpu_fallback"
 
         @JvmStatic

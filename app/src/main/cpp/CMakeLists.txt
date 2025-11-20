@@ -47,9 +47,22 @@ target_include_directories(kotopogoda_enhance PRIVATE
 target_compile_options(kotopogoda_enhance PRIVATE -fopenmp)
 target_link_options(kotopogoda_enhance PRIVATE -fopenmp -static-openmp)
 
+# NCNN поставляется с несколькими статическими зависимостями (glslang, SPIR-V и т.д.);
+# линкерам Android нужны явные ссылки на эти архивы, даже если GPU-путь не используется.
+set(NCNN_STATIC_DEPS
+    ${NCNN_LIB_DIR}/libglslang.a
+    ${NCNN_LIB_DIR}/libSPIRV.a
+    ${NCNN_LIB_DIR}/libOGLCompiler.a
+    ${NCNN_LIB_DIR}/libOSDependent.a
+    ${NCNN_LIB_DIR}/libglslang-default-resource-limits.a
+    ${NCNN_LIB_DIR}/libMachineIndependent.a
+    ${NCNN_LIB_DIR}/libGenericCodeGen.a
+)
+
 # Линкуем библиотеки
 target_link_libraries(kotopogoda_enhance
     ncnn
+    ${NCNN_STATIC_DEPS}
     ${log-lib}
     ${jnigraphics-lib}
     ${android-lib}

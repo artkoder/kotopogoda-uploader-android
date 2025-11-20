@@ -21,7 +21,7 @@
     <string name="settings_preview_quality">Preview quality</string>
     <string name="settings_preview_quality_desc">Enable Quality (Restormer→Zero-DCE++) instead of Balanced (Zero-DCE++ only). Affects preview speed.</string>
     <string name="settings_force_cpu_enhancement">Force CPU backend</string>
-    <string name="settings_force_cpu_enhancement_desc">Disables the GPU delegate and runs enhancement on CPU only. Use for diagnostics and QA.</string>
+    <string name="settings_force_cpu_enhancement_desc">CPU backend is always enforced; this toggle only tags logs and telemetry for diagnostics and QA.</string>
     <string name="settings_section_logging">Logging</string>
     <string name="settings_app_logging">App logging</string>
     <string name="settings_app_logging_desc">Logs are enabled by default and written to file (up to 5 files × 1 MB); can be disabled manually if needed.</string>
