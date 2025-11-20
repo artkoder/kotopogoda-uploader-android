@@ -537,14 +537,6 @@ class ViewerViewModel @Inject constructor(
         )
         pushAction(UserAction.Skip(fromIndex = fromIndex, toIndex = toIndex))
         setCurrentIndex(toIndex)
-        viewModelScope.launch {
-            _events.emit(
-                ViewerEvent.ShowSnackbar(
-                    messageRes = R.string.viewer_snackbar_skip_success,
-                    withUndo = true
-                )
-            )
-        }
     }
 
     fun onPhotoLongPress(photo: PhotoItem) {

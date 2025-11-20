@@ -540,7 +540,8 @@ internal fun ViewerScreen(
                     }
                     val result = snackbarHostState.showSnackbar(
                         message = message,
-                        actionLabel = actionLabel
+                        actionLabel = actionLabel,
+                        duration = androidx.compose.material3.SnackbarDuration.Short
                     )
                     if (result == SnackbarResult.ActionPerformed && event.withUndo) {
                         onUndo()
