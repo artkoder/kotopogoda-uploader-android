@@ -123,6 +123,10 @@ import com.kotopogoda.uploader.feature.viewer.R
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -723,6 +727,24 @@ internal fun ViewerScreen(
                                 EnhancementLoaderOverlay(
                                     modifier = Modifier.fillMaxSize(),
                                     progress = loaderProgress
+                                )
+                            }
+
+                            item.takenAt?.let { takenAt ->
+                                val formatter = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm") }
+                                val localDateTime = remember(takenAt) {
+                                    takenAt.atZone(ZoneId.systemDefault()).toLocalDateTime()
+                                }
+                                val dateString = remember(localDateTime) {
+                                    formatter.format(localDateTime)
+                                }
+
+                                OutlinedText(
+                                    text = dateString,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(16.dp),
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                                 )
                             }
                             
@@ -1675,3 +1697,29 @@ private fun EnhancementLoaderOverlay(
 }
 
 private const val CONFIRM_DELETION_TAG = "DeletionQueue"
+
+@Composable
+private fun OutlinedText(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+    textColor: Color = Color.White,
+    outlineColor: Color = Color.Black,
+    outlineWidth: Float = 4f
+) {
+    Box(modifier = modifier) {
+        Text(
+            text = text,
+            style = style.merge(
+                TextStyle(
+                    color = outlineColor,
+                    drawStyle = Stroke(width = outlineWidth)
+                )
+            )
+        )
+        Text(
+            text = text,
+            style = style.merge(TextStyle(color = textColor))
+        )
+    }
+}
