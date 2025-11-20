@@ -13,9 +13,8 @@
 
 namespace kotopogoda {
 
-RestormerBackend::RestormerBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag, bool usingVulkan)
-    : net_(net), cancelFlag_(cancelFlag), usingVulkan_(usingVulkan) {
-    
+RestormerBackend::RestormerBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag)
+    : net_(net), cancelFlag_(cancelFlag) {
     TileConfig config;
     config.tileSize = 384;
     config.overlap = 16;
@@ -31,8 +30,6 @@ RestormerBackend::~RestormerBackend() {
 bool RestormerBackend::processDirectly(
     const ncnn::Mat& input,
     ncnn::Mat& output,
-    bool* delegateFailed,
-    FallbackCause* fallbackCause,
     int* lastErrorCode
 ) {
     if (cancelFlag_.load()) {
@@ -43,7 +40,7 @@ bool RestormerBackend::processDirectly(
         *lastErrorCode = 0;
     }
 
-    const char* delegateName = usingVulkan_ ? "vulkan" : "cpu";
+    const char* delegateName = "cpu";
     ncnn::Extractor ex = net_->create_extractor();
     int ret = ex.input("input", input);
     if (ret != 0) {
@@ -58,12 +55,6 @@ bool RestormerBackend::processDirectly(
             input.c,
             ret
         );
-        if (usingVulkan_ && delegateFailed) {
-            *delegateFailed = true;
-            if (fallbackCause) {
-                *fallbackCause = FallbackCause::EXTRACT_FAILED;
-            }
-        }
         return false;
     }
 
@@ -80,12 +71,6 @@ bool RestormerBackend::processDirectly(
             input.c,
             ret
         );
-        if (usingVulkan_ && delegateFailed) {
-            *delegateFailed = true;
-            if (fallbackCause) {
-                *fallbackCause = FallbackCause::EXTRACT_FAILED;
-            }
-        }
         return false;
     }
 
@@ -95,9 +80,7 @@ bool RestormerBackend::processDirectly(
 bool RestormerBackend::process(
     const ncnn::Mat& input,
     ncnn::Mat& output,
-    TelemetryData& telemetry,
-    bool* delegateFailed,
-    FallbackCause* fallbackCause
+    TelemetryData& telemetry
 ) {
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -105,7 +88,7 @@ bool RestormerBackend::process(
 
     const auto& tileConfig = tileProcessor_->config();
     LOGI("Restormer tile_config: delegate=%s tile_size=%d overlap=%d",
-         usingVulkan_ ? "vulkan" : "cpu",
+         "cpu",
          tileConfig.tileSize,
          tileConfig.overlap);
 
@@ -122,14 +105,14 @@ bool RestormerBackend::process(
         telemetry.tileTelemetry.tileUsed = true;
         LOGI("Используется тайловая обработка");
 
-        auto processFunc = [this, delegateFailed, fallbackCause](
+        auto processFunc = [this](
             const ncnn::Mat& tileIn,
             ncnn::Mat& tileOut,
             ncnn::Net* net,
             int* errorCode
         ) -> bool {
             (void)net;
-            return this->processDirectly(tileIn, tileOut, delegateFailed, fallbackCause, errorCode);
+            return this->processDirectly(tileIn, tileOut, errorCode);
         };
 
         auto progressCallback = [&telemetry](int current, int total) {
@@ -168,7 +151,7 @@ bool RestormerBackend::process(
         );
     } else {
         LOGI("Обработка без тайлинга");
-        success = processDirectly(input, output, delegateFailed, fallbackCause, &extractorErrorCode);
+        success = processDirectly(input, output, &extractorErrorCode);
         telemetry.tileTelemetry.tileUsed = false;
         telemetry.tileTelemetry.totalTiles = 1;
         telemetry.tileTelemetry.processedTiles = success ? 1 : 0;
@@ -189,7 +172,7 @@ bool RestormerBackend::process(
             "ENHANCE/ERROR: Restormer extractor_failed ret=%d duration_ms=%ld delegate=%s size=%dx%dx%d",
             extractorErrorCode,
             telemetry.extractorError.durationMs,
-            usingVulkan_ ? "vulkan" : "cpu",
+            "cpu",
             input.w,
             input.h,
             input.c

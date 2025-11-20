@@ -13,20 +13,17 @@ namespace kotopogoda {
 
 class TileProcessor;
 struct TelemetryData;
-enum class FallbackCause;
 
 class ZeroDceBackend {
 public:
-    ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag, bool usingVulkan);
+    ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag);
     ~ZeroDceBackend();
 
     bool process(
         const ncnn::Mat& input,
         ncnn::Mat& output,
         float strength,
-        TelemetryData& telemetry,
-        bool* delegateFailed = nullptr,
-        FallbackCause* fallbackCause = nullptr
+        TelemetryData& telemetry
     );
 
 private:
@@ -34,15 +31,12 @@ private:
         const ncnn::Mat& input,
         ncnn::Mat& output,
         float strength,
-        bool* delegateFailed,
-        FallbackCause* fallbackCause,
         int* lastErrorCode = nullptr
     );
 
     ncnn::Net* net_;
     std::atomic<bool>& cancelFlag_;
     std::unique_ptr<TileProcessor> tileProcessor_;
-    bool usingVulkan_;
 };
 
 }
