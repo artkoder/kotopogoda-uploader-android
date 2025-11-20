@@ -22,6 +22,10 @@ object DeviceGpuPolicy {
         model = Build.MODEL.orEmpty(),
     )
 
+    const val forceCpuReason: String = "cpu_only"
+
+    fun shouldUseGpu(): Boolean = false
+
     internal fun isExynosSmG99xFingerprint(fingerprint: DeviceFingerprint): Boolean {
         val normalizedModel = fingerprint.model.uppercase(Locale.US)
         val normalizedHardware = fingerprint.hardware.lowercase(Locale.US)
@@ -32,17 +36,7 @@ object DeviceGpuPolicy {
             normalizedModel.startsWith("SM-G99")
     }
 
-    internal fun resolveForceCpuReason(fingerprint: DeviceFingerprint = this.fingerprint): String? {
-        return if (isExynosSmG99xFingerprint(fingerprint)) {
-            "device_blacklist"
-        } else {
-            null
-        }
-    }
-
     val isExynosSmG99x: Boolean = isExynosSmG99xFingerprint(fingerprint)
-
-    val forceCpuReason: String? = resolveForceCpuReason(fingerprint)
 
     fun fingerprint(): DeviceFingerprint = fingerprint
 }

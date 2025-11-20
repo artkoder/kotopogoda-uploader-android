@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -73,28 +74,8 @@ class NativeEnhanceAdapter @Inject constructor(
             PreviewQuality.QUALITY -> NativeEnhanceController.PreviewProfile.QUALITY
         }
 
-        val deviceIsExynos = DeviceGpuPolicy.isExynosSmG99x
-        val envForceCpu = NativeEnhanceController.isForceCpuForcedByEnv()
-        val userForceCpu = NativeEnhanceController.isForceCpuForcedByUser()
-        val crashLoopFlag = crashLoopDetector.isCrashLoopSuspected()
-        val effectiveForceCpu = deviceIsExynos || envForceCpu || userForceCpu || crashLoopFlag
-        val forceCpuReason = when {
-            userForceCpu -> "user_override"
-            deviceIsExynos -> DeviceGpuPolicy.forceCpuReason
-            crashLoopFlag -> "crash_loop"
-            envForceCpu -> "env_override"
-            else -> null
-        }
-
-        Timber.tag(TAG).i(
-            "GPU policy: deviceIsExynos=%s envForce=%s userForce=%s crashLoop=%s -> forceCpu=%s reason=%s",
-            deviceIsExynos,
-            envForceCpu,
-            userForceCpu,
-            crashLoopFlag,
-            effectiveForceCpu,
-            forceCpuReason,
-        )
+        val crashLoopSuspected = crashLoopDetector.isCrashLoopSuspected()
+        logCpuOnlyMode(crashLoopSuspected)
 
         val params = NativeEnhanceController.InitParams(
             assetManager = context.assets,
@@ -104,17 +85,18 @@ class NativeEnhanceAdapter @Inject constructor(
             zeroDceFiles = zeroDceModelFiles,
             restormerFiles = restormerModelFiles,
             previewProfile = profile,
-            forceCpu = effectiveForceCpu,
-            forceCpuReason = forceCpuReason,
+            forceCpu = true,
+            forceCpuReason = DeviceGpuPolicy.forceCpuReason,
         )
 
         controller.initialize(params)
         isInitialized = true
         Timber.tag(TAG).i(
-            "NativeEnhanceAdapter инициализирован с профилем %s (forceCpu=%s reason=%s)",
+            "NativeEnhanceAdapter инициализирован с профилем %s (cpu_only=%s reason=%s crashLoop=%s)",
             previewQuality,
-            effectiveForceCpu,
-            forceCpuReason,
+            true,
+            DeviceGpuPolicy.forceCpuReason,
+            crashLoopSuspected,
         )
     }
 
@@ -393,10 +375,29 @@ class NativeEnhanceAdapter @Inject constructor(
         }
     }
 
+    private fun logCpuOnlyMode(isCrashLoopSuspected: Boolean) {
+        if (!cpuOnlyLogGuard.compareAndSet(false, true)) {
+            return
+        }
+        val fingerprint = DeviceGpuPolicy.fingerprint()
+        Timber.tag(TAG).i(
+            "CPU-only режим активен (reason=%s crashLoop=%s shouldUseGpu=%s hardware=%s board=%s manufacturer=%s model=%s exynos=%s)",
+            DeviceGpuPolicy.forceCpuReason,
+            isCrashLoopSuspected,
+            DeviceGpuPolicy.shouldUseGpu(),
+            fingerprint.hardware,
+            fingerprint.board,
+            fingerprint.manufacturer,
+            fingerprint.model,
+            DeviceGpuPolicy.isExynosSmG99x,
+        )
+    }
+
     companion object {
         private const val TAG = "NativeEnhanceAdapter"
         private const val ZERO_DCE_MODEL_NAME = "zerodcepp_fp16"
         private const val RESTORMER_MODEL_NAME = "restormer_fp16"
+        private val cpuOnlyLogGuard = AtomicBoolean(false)
     }
 }
 
