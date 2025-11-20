@@ -55,6 +55,7 @@ import java.io.File
 import java.io.IOException
 import java.io.Serializable
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.util.ArrayList
 import java.util.Locale
@@ -171,6 +172,10 @@ class ViewerViewModel @Inject constructor(
 
     private val _isEnhancementAvailable = MutableStateFlow(false)
     val isEnhancementAvailable: StateFlow<Boolean> = _isEnhancementAvailable.asStateFlow()
+
+    private val _availableDates = MutableStateFlow<Set<LocalDate>?>(null)
+    val availableDates: StateFlow<Set<LocalDate>?> = _availableDates.asStateFlow()
+
     private var enhancementJob: Job? = null
     private var adapterInitializationJob: Job? = null
     private var pendingAdapterPreviewQuality: PreviewQuality? = null
@@ -430,6 +435,12 @@ class ViewerViewModel @Inject constructor(
             return
         }
         updateCurrentIndexInternal(normalized)
+    }
+
+    fun refreshAvailableDates() {
+        viewModelScope.launch {
+            _availableDates.value = photoRepository.getAvailableDates()
+        }
     }
 
     private fun updateCurrentIndexInternal(index: Int) {

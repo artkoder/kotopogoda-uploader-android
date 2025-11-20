@@ -19,6 +19,8 @@ import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
@@ -70,6 +72,54 @@ class PhotoRepository @Inject constructor(
         val folder = folderRepository.getFolder() ?: return@withContext 0
         val spec = buildQuerySpec(folder)
         queryCount(spec)
+    }
+
+    suspend fun getAvailableDates(): Set<LocalDate> = withContext(ioDispatcher) {
+        val folder = folderRepository.getFolder() ?: return@withContext emptySet()
+        val spec = buildQuerySpec(folder)
+        val projection = arrayOf(
+            MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.DATE_ADDED
+        )
+        val dates = HashSet<LocalDate>()
+        val zoneId = ZoneId.systemDefault()
+
+        val selection = spec.selectionParts.joinToString(separator = " AND ")
+            .takeIf { it.isNotEmpty() }
+        val selectionArgs = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
+
+        runCatching {
+            resolver.queryWithFallback(
+                uris = spec.contentUris,
+                projection = projection,
+                selection = selection,
+                selectionArgs = selectionArgs,
+                sortOrder = null,
+                bundle = null
+            ) { _, cursor ->
+                val dateTakenIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
+                val dateAddedIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+
+                while (cursor.moveToNext()) {
+                    val dateTaken = if (dateTakenIndex >= 0 && !cursor.isNull(dateTakenIndex)) {
+                        cursor.getLong(dateTakenIndex).takeIf { it > 0 }
+                    } else {
+                        null
+                    }
+                    val dateAdded = if (dateAddedIndex >= 0 && !cursor.isNull(dateAddedIndex)) {
+                        cursor.getLong(dateAddedIndex).takeIf { it > 0 }
+                    } else {
+                        null
+                    }
+                    val millis = dateTaken ?: dateAdded?.let { it * 1000 }
+                    if (millis != null) {
+                        val date = Instant.ofEpochMilli(millis).atZone(zoneId).toLocalDate()
+                        dates.add(date)
+                    }
+                }
+            }
+        }
+        dates
     }
 
     suspend fun findIndexAtOrAfter(date: Instant): Int = withContext(ioDispatcher) {

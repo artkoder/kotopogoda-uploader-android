@@ -61,6 +61,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -83,6 +84,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -123,6 +125,7 @@ import com.kotopogoda.uploader.feature.viewer.R
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
@@ -158,6 +161,7 @@ fun ViewerRoute(
     val currentFolderUri by viewModel.currentFolderTreeUri.collectAsState()
     val enhancementState by viewModel.enhancementState.collectAsState()
     val isEnhancementAvailable by viewModel.isEnhancementAvailable.collectAsState()
+    val availableDates by viewModel.availableDates.collectAsState()
     val deletionConfirmationViewModel = hiltViewModel<DeletionConfirmationViewModel>()
     val deletionConfirmationUiState by deletionConfirmationViewModel.uiState.collectAsStateWithLifecycle()
     val deletionConfirmationEvents = deletionConfirmationViewModel.events
@@ -342,6 +346,8 @@ fun ViewerRoute(
         onEnhancementStrengthChange = viewModel::onEnhancementStrengthChange,
         onEnhancementStrengthChangeFinished = viewModel::onEnhancementStrengthChangeFinished,
         isEnhancementAvailable = isEnhancementAvailable,
+        availableDates = availableDates,
+        onRequestAvailableDates = viewModel::refreshAvailableDates,
         onEnhancementUnavailable = viewModel::onEnhancementUnavailableInteraction
     )
 }
@@ -403,6 +409,8 @@ internal fun ViewerScreen(
     onEnhancementStrengthChange: (Float) -> Unit,
     onEnhancementStrengthChangeFinished: () -> Unit,
     isEnhancementAvailable: Boolean,
+    availableDates: Set<LocalDate>?,
+    onRequestAvailableDates: () -> Unit,
     onEnhancementUnavailable: () -> Unit,
 ) {
     BackHandler {
@@ -466,6 +474,13 @@ internal fun ViewerScreen(
     }
     val isCurrentDeletionQueued by deletionQueuedFlow.collectAsState(initial = false)
     val isBusy = actionInProgress != null
+
+    LaunchedEffect(showJumpSheet) {
+        if (showJumpSheet) {
+            onRequestAvailableDates()
+        }
+    }
+
     if (showJumpSheet) {
         ModalBottomSheet(
             onDismissRequest = { showJumpSheet = false },
@@ -473,6 +488,7 @@ internal fun ViewerScreen(
         ) {
             JumpToDateSheet(
                 initialDate = currentPhoto?.takenAt,
+                availableDates = availableDates,
                 onJump = { target ->
                     onJumpToDate(target)
                     coroutineScope.launch { jumpSheetState.hide() }
@@ -946,6 +962,7 @@ private fun ViewerTopBarActions(
 @Composable
 private fun JumpToDateSheet(
     initialDate: Instant?,
+    availableDates: Set<LocalDate>?,
     onJump: (Instant) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -953,10 +970,24 @@ private fun JumpToDateSheet(
     val initialLocalDate = remember(initialDate, zoneId) {
         initialDate?.atZone(zoneId)?.toLocalDate() ?: LocalDate.now(zoneId)
     }
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = initialLocalDate.startOfDayInstant(zoneId).toEpochMilli()
-    )
-    var jumpMode by rememberSaveable { mutableStateOf(JumpMode.DATE) }
+
+    val selectableDates = remember(availableDates) {
+        object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                val date = Instant.ofEpochMilli(utcTimeMillis).atZone(ZoneOffset.UTC).toLocalDate()
+                return availableDates?.contains(date) ?: true
+            }
+            override fun isSelectableYear(year: Int): Boolean = true
+        }
+    }
+
+    val datePickerState = key(availableDates) {
+        rememberDatePickerState(
+            initialSelectedDateMillis = initialLocalDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            selectableDates = selectableDates
+        )
+    }
+
     val presets = remember(zoneId) {
         val today = LocalDate.now(zoneId)
         listOf(
@@ -978,28 +1009,17 @@ private fun JumpToDateSheet(
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Start
         )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            FilterChip(
-                selected = jumpMode == JumpMode.DATE,
-                onClick = { jumpMode = JumpMode.DATE },
-                label = { Text(text = stringResource(id = R.string.viewer_jump_mode_date)) }
-            )
-            FilterChip(
-                selected = jumpMode == JumpMode.MONTH,
-                onClick = { jumpMode = JumpMode.MONTH },
-                label = { Text(text = stringResource(id = R.string.viewer_jump_mode_month)) }
-            )
-        }
-        DatePicker(state = datePickerState)
+        DatePicker(
+            state = datePickerState,
+            title = null
+        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             for ((labelRes, date) in presets) {
                 AssistChip(
                     onClick = {
-                        datePickerState.selectedDateMillis = date.startOfDayInstant(zoneId).toEpochMilli()
+                        datePickerState.selectedDateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
                     },
                     label = { Text(text = stringResource(id = labelRes)) }
                 )
@@ -1018,11 +1038,8 @@ private fun JumpToDateSheet(
             Button(
                 onClick = {
                     val selectedMillis = datePickerState.selectedDateMillis ?: return@Button
-                    val selectedDate = Instant.ofEpochMilli(selectedMillis).atZone(zoneId).toLocalDate()
-                    val targetInstant = when (jumpMode) {
-                        JumpMode.DATE -> selectedDate.startOfDayInstant(zoneId)
-                        JumpMode.MONTH -> selectedDate.withDayOfMonth(1).startOfDayInstant(zoneId)
-                    }
+                    val selectedDate = Instant.ofEpochMilli(selectedMillis).atZone(ZoneOffset.UTC).toLocalDate()
+                    val targetInstant = selectedDate.startOfDayInstant(zoneId)
                     onJump(targetInstant)
                 },
                 enabled = canConfirm,
@@ -1033,8 +1050,6 @@ private fun JumpToDateSheet(
         }
     }
 }
-
-private enum class JumpMode { DATE, MONTH }
 
 private fun LocalDate.startOfDayInstant(zoneId: ZoneId): Instant =
     atStartOfDay(zoneId).toInstant()
