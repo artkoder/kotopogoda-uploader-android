@@ -24,6 +24,9 @@ namespace {
 const char* delegateToString(DelegateType delegate) {
     return delegate == DelegateType::VULKAN ? "vulkan" : "cpu";
 }
+
+constexpr int kTileDefault = 384;
+constexpr int kTileOverlapDefault = 64;
 }
 
 std::mutex NcnnEngine::integrityMutex_;
@@ -37,7 +40,8 @@ NcnnEngine::NcnnEngine()
       initialized_(false),
       cancelled_(false),
       vulkanAvailable_(false),
-      gpuDelegateAvailable_(false) {
+      gpuDelegateAvailable_(false),
+      forceCpuMode_(false) {
 }
 
 NcnnEngine::~NcnnEngine() {
@@ -153,6 +157,8 @@ bool NcnnEngine::loadModelsForDelegate(const std::string& modelsDir, bool useVul
     restormerNet_->opt.use_fp16_storage = true;
     restormerNet_->opt.use_fp16_arithmetic = false;
 
+    const char* delegateName = useVulkan ? "vulkan" : "cpu";
+
     if (useVulkan) {
         zeroDceNet_->opt.num_threads = 4;
         restormerNet_->opt.num_threads = 8;
@@ -174,12 +180,12 @@ bool NcnnEngine::loadModelsForDelegate(const std::string& modelsDir, bool useVul
         return false;
     }
 
-    LOGI("Загрузка Zero-DCE++ из %s", zeroDceParam.c_str());
+    LOGI("NCNN load_param: model=zerodce delegate=%s path=%s", delegateName, zeroDceParam.c_str());
     int ret = zeroDceNet_->load_param(zeroDceParam.c_str());
     if (ret != 0) {
-        LOGE("Не удалось загрузить параметры Zero-DCE++: %d", ret);
+        LOGE("NCNN load_param_failed: model=zerodce delegate=%s path=%s ret=%d", delegateName, zeroDceParam.c_str(), ret);
         if (useVulkan) {
-            LOGW("delegate=vulkan cause=load_failed stage=zerodce_param ret=%d", ret);
+            LOGW("delegate=%s cause=load_failed stage=zerodce_param path=%s ret=%d", delegateName, zeroDceParam.c_str(), ret);
             cleanupVulkan();
             ncnn::destroy_gpu_instance();
             return loadModelsForDelegate(modelsDir, false);
@@ -192,11 +198,12 @@ bool NcnnEngine::loadModelsForDelegate(const std::string& modelsDir, bool useVul
         return false;
     }
 
+    LOGI("NCNN load_model: model=zerodce delegate=%s path=%s", delegateName, zeroDceBin.c_str());
     ret = zeroDceNet_->load_model(zeroDceBin.c_str());
     if (ret != 0) {
-        LOGE("Не удалось загрузить модель Zero-DCE++: %d", ret);
+        LOGE("NCNN load_model_failed: model=zerodce delegate=%s path=%s ret=%d", delegateName, zeroDceBin.c_str(), ret);
         if (useVulkan) {
-            LOGW("delegate=vulkan cause=load_failed stage=zerodce_model ret=%d", ret);
+            LOGW("delegate=%s cause=load_failed stage=zerodce_model path=%s ret=%d", delegateName, zeroDceBin.c_str(), ret);
             cleanupVulkan();
             ncnn::destroy_gpu_instance();
             return loadModelsForDelegate(modelsDir, false);
@@ -209,12 +216,12 @@ bool NcnnEngine::loadModelsForDelegate(const std::string& modelsDir, bool useVul
         return false;
     }
 
-    LOGI("Загрузка Restormer из %s", restormerParam.c_str());
+    LOGI("NCNN load_param: model=restormer delegate=%s path=%s", delegateName, restormerParam.c_str());
     ret = restormerNet_->load_param(restormerParam.c_str());
     if (ret != 0) {
-        LOGE("Не удалось загрузить параметры Restormer: %d", ret);
+        LOGE("NCNN load_param_failed: model=restormer delegate=%s path=%s ret=%d", delegateName, restormerParam.c_str(), ret);
         if (useVulkan) {
-            LOGW("delegate=vulkan cause=load_failed stage=restormer_param ret=%d", ret);
+            LOGW("delegate=%s cause=load_failed stage=restormer_param path=%s ret=%d", delegateName, restormerParam.c_str(), ret);
             cleanupVulkan();
             ncnn::destroy_gpu_instance();
             return loadModelsForDelegate(modelsDir, false);
@@ -227,11 +234,12 @@ bool NcnnEngine::loadModelsForDelegate(const std::string& modelsDir, bool useVul
         return false;
     }
 
+    LOGI("NCNN load_model: model=restormer delegate=%s path=%s", delegateName, restormerBin.c_str());
     ret = restormerNet_->load_model(restormerBin.c_str());
     if (ret != 0) {
-        LOGE("Не удалось загрузить модель Restormer: %d", ret);
+        LOGE("NCNN load_model_failed: model=restormer delegate=%s path=%s ret=%d", delegateName, restormerBin.c_str(), ret);
         if (useVulkan) {
-            LOGW("delegate=vulkan cause=load_failed stage=restormer_model ret=%d", ret);
+            LOGW("delegate=%s cause=load_failed stage=restormer_model path=%s ret=%d", delegateName, restormerBin.c_str(), ret);
             cleanupVulkan();
             ncnn::destroy_gpu_instance();
             return loadModelsForDelegate(modelsDir, false);
@@ -239,7 +247,7 @@ bool NcnnEngine::loadModelsForDelegate(const std::string& modelsDir, bool useVul
         return false;
     }
 
-    LOGI("Все модели загружены успешно");
+    LOGI("NCNN models ready: backend=ncnn delegate=%s precision=fp16 tile_default=%d", delegateName, kTileDefault);
     return true;
 }
 bool NcnnEngine::initialize(
@@ -264,6 +272,7 @@ bool NcnnEngine::initialize(
     previewProfile_ = profile;
     assetManager_ = assetManager;
     modelsDir_ = modelsDir;
+    forceCpuMode_.store(forceCpu);
 
     if (forceCpu) {
         gpuDelegateAvailable_.store(false);
@@ -371,6 +380,14 @@ bool NcnnEngine::runPreview(
     telemetry.delegate = vulkanAvailable_.load() ? DelegateType::VULKAN : DelegateType::CPU;
     telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
 
+    LOGI("ENHANCE/RUN_PREVIEW: delegate=%s force_cpu=%d width=%d height=%d tile_default=%d overlap_default=%d",
+         delegateToString(telemetry.delegate),
+         forceCpuMode_.load() ? 1 : 0,
+         inputMat.w,
+         inputMat.h,
+         kTileDefault,
+         kTileOverlapDefault);
+
     auto propagateExtractorError = [&](const TelemetryData& sourceTelemetry, const char* stage) {
         if (!sourceTelemetry.extractorError.hasError) {
             return;
@@ -474,6 +491,9 @@ bool NcnnEngine::runPreview(
 
     telemetry.usedVulkan = !telemetry.fallbackUsed && telemetry.delegate == DelegateType::VULKAN;
     telemetry.cancelled = cancelled_.load();
+    if (telemetry.delegate == DelegateType::CPU && telemetry.durationMsCpu == 0) {
+        telemetry.durationMsCpu = telemetry.timingMs;
+    }
 
     return true;
 }
@@ -503,6 +523,14 @@ bool NcnnEngine::runFull(
     telemetry.fallbackCause = FallbackCause::NONE;
     telemetry.delegate = vulkanAvailable_.load() ? DelegateType::VULKAN : DelegateType::CPU;
     telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
+
+    LOGI("ENHANCE/RUN_FULL: delegate=%s force_cpu=%d width=%d height=%d tile_default=%d overlap_default=%d",
+         delegateToString(telemetry.delegate),
+         forceCpuMode_.load() ? 1 : 0,
+         inputMat.w,
+         inputMat.h,
+         kTileDefault,
+         kTileOverlapDefault);
 
     auto propagateExtractorError = [&](const TelemetryData& sourceTelemetry, const char* stage) {
         if (!sourceTelemetry.extractorError.hasError) {
@@ -594,6 +622,9 @@ bool NcnnEngine::runFull(
 
     telemetry.usedVulkan = !telemetry.fallbackUsed && telemetry.delegate == DelegateType::VULKAN;
     telemetry.cancelled = cancelled_.load();
+    if (telemetry.delegate == DelegateType::CPU && telemetry.durationMsCpu == 0) {
+        telemetry.durationMsCpu = telemetry.timingMs;
+    }
 
     return true;
 }
@@ -619,6 +650,7 @@ void NcnnEngine::release() {
     assetManager_ = nullptr;
 
     initialized_ = false;
+    forceCpuMode_.store(false);
 }
 
 }

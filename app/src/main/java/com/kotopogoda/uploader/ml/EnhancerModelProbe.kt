@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.ml
 
 import android.content.Context
 import android.content.res.AssetManager
+import android.os.Build
 import android.os.SystemClock
 import com.kotopogoda.uploader.BuildConfig
 import com.kotopogoda.uploader.core.data.ml.ModelBackend
@@ -95,7 +96,7 @@ object EnhancerModelProbe {
                     "duration_ms" to duration,
                     "models_total" to summaries.size,
                     "status" to "success",
-                ),
+                ) + defaultProbeMetadata(),
             )
             lastProbeSignature.set(modelsSignature)
         }.onFailure { error ->
@@ -105,7 +106,7 @@ object EnhancerModelProbe {
                     "duration_ms" to duration,
                     "status" to "failure",
                     "error" to (error.message ?: error.javaClass.simpleName),
-                ),
+                ) + defaultProbeMetadata(),
             )
         }
     }
@@ -306,5 +307,14 @@ object EnhancerModelProbe {
         )
     }
 
+    private fun defaultProbeMetadata(): Map<String, Any?> = mapOf(
+        "backend" to "ncnn_cpu",
+        "vulkan_available" to false,
+        "tile_default" to TILE_DEFAULT,
+        "app_version" to BuildConfig.VERSION_NAME,
+        "android_sdk" to Build.VERSION.SDK_INT,
+    )
+
     private const val DEFAULT_BUFFER_SIZE = 8 * 1024
+    private const val TILE_DEFAULT = 384
 }

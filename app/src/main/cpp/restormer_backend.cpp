@@ -103,6 +103,12 @@ bool RestormerBackend::process(
 
     LOGI("Начало обработки Restormer: %dx%dx%d", input.w, input.h, input.c);
 
+    const auto& tileConfig = tileProcessor_->config();
+    LOGI("Restormer tile_config: delegate=%s tile_size=%d overlap=%d",
+         usingVulkan_ ? "vulkan" : "cpu",
+         tileConfig.tileSize,
+         tileConfig.overlap);
+
     bool needsTiling = input.w > 512 || input.h > 512;
     bool success = false;
     int extractorErrorCode = 0;

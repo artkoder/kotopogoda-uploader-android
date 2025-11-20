@@ -23,6 +23,10 @@ class NativeEnhanceController(
     private val activeOperations = AtomicInteger(0)
     private var lastForceCpuReason: String? = null
     private var lastForceCpuFlag: Boolean = false
+    private var lastDelegatePlan: String = DELEGATE_CPU_ONLY
+    private var lastDelegateAvailable: String = DELEGATE_CPU_ONLY
+    private var lastDelegateUsed: String = DELEGATE_CPU
+    private var lastVulkanAvailable: Boolean = false
 
     enum class PreviewProfile {
         BALANCED,
@@ -56,11 +60,18 @@ class NativeEnhanceController(
         val bin: String,
     )
 
+    data class ModelFiles(
+        val paramFile: String,
+        val binFile: String,
+    )
+
     data class InitParams(
         val assetManager: AssetManager,
         val modelsDir: File,
         val zeroDceChecksums: ModelChecksums,
         val restormerChecksums: ModelChecksums,
+        val zeroDceFiles: ModelFiles,
+        val restormerFiles: ModelFiles,
         val previewProfile: PreviewProfile,
         val forceCpu: Boolean = isForceCpuForced(),
         val forceCpuReason: String? = null,
@@ -165,17 +176,29 @@ class NativeEnhanceController(
                 params.previewProfile,
             )
 
-            val delegatePlan = if (params.forceCpu) "cpu" else "gpu"
-            val delegateAvailable = if (nativeIsGpuDelegateAvailable(handle)) "gpu" else "cpu"
-            val delegateUsed = if (params.forceCpu) "cpu" else delegateAvailable
+            val gpuDelegateAvailable = nativeIsGpuDelegateAvailable(handle)
+            val delegatePlan = if (params.forceCpu) DELEGATE_CPU_ONLY else DELEGATE_PLAN_GPU
+            val delegateAvailable = when {
+                params.forceCpu -> DELEGATE_CPU_ONLY
+                gpuDelegateAvailable -> "gpu"
+                else -> DELEGATE_CPU
+            }
+            val delegateUsed = if (params.forceCpu) DELEGATE_CPU else if (gpuDelegateAvailable) "gpu" else DELEGATE_CPU
 
-            val commonDelegatePayload = mapOf(
+            lastDelegatePlan = delegatePlan
+            lastDelegateAvailable = delegateAvailable
+            lastDelegateUsed = delegateUsed
+            lastVulkanAvailable = !params.forceCpu && gpuDelegateAvailable
+
+            val delegateMetadata = delegateSnapshotPayload()
+            val modelPayload = mapOf(
+                "zero_dce_param_file" to params.zeroDceFiles.paramFile,
+                "zero_dce_bin_file" to params.zeroDceFiles.binFile,
+                "restormer_param_file" to params.restormerFiles.paramFile,
+                "restormer_bin_file" to params.restormerFiles.binFile,
+            )
+            val commonDelegatePayload = delegateMetadata + mapOf(
                 "handle" to handle,
-                "delegate_plan" to delegatePlan,
-                "delegate_available" to delegateAvailable,
-                "delegate_used" to delegateUsed,
-                "force_cpu" to params.forceCpu,
-                "forceCpu_reason" to params.forceCpuReason,
             )
 
             EnhanceLogging.logEvent(
@@ -187,7 +210,7 @@ class NativeEnhanceController(
                     "zero_dce_bin_checksum" to params.zeroDceChecksums.bin.take(8),
                     "restormer_param_checksum" to params.restormerChecksums.param.take(8),
                     "restormer_bin_checksum" to params.restormerChecksums.bin.take(8),
-                ) + commonDelegatePayload,
+                ) + modelPayload + commonDelegatePayload,
             )
 
             EnhanceLogging.logEvent(
@@ -210,13 +233,14 @@ class NativeEnhanceController(
         activeOperations.incrementAndGet()
 
         try {
+            val previewStartMetadata = delegateSnapshotPayload()
             EnhanceLogging.logEvent(
                 "native_preview_start",
                 mapOf(
                     "strength" to strength,
                     "width" to sourceBitmap.width,
                     "height" to sourceBitmap.height,
-                ),
+                ) + previewStartMetadata,
             )
 
             val startTime = System.currentTimeMillis()
@@ -232,6 +256,8 @@ class NativeEnhanceController(
             val durationVulkan = telemetry.durationMsVulkan.takeIf { it > 0 }
             val durationCpu = telemetry.durationMsCpu.takeIf { it > 0 }
 
+            lastDelegateUsed = telemetry.delegateUsed
+            val previewCompleteMetadata = delegateSnapshotPayload()
             EnhanceLogging.logEvent(
                 "native_preview_complete",
                 mapOf(
@@ -245,9 +271,6 @@ class NativeEnhanceController(
                     "fallback_cause" to fallbackCause?.name?.lowercase(),
                     "duration_ms_vulkan" to durationVulkan,
                     "duration_ms_cpu" to durationCpu,
-                    "delegate_used" to telemetry.delegateUsed,
-                    "force_cpu" to lastForceCpuFlag,
-                    "force_cpu_reason" to lastForceCpuReason,
                     "tile_used" to telemetry.tileUsed,
                     "tile_size" to telemetry.tileSize,
                     "tile_overlap" to telemetry.tileOverlap,
@@ -256,7 +279,7 @@ class NativeEnhanceController(
                     "seam_max_delta" to telemetry.seamMaxDelta,
                     "seam_mean_delta" to telemetry.seamMeanDelta,
                     "gpu_alloc_retry_count" to telemetry.gpuAllocRetryCount,
-                ),
+                ) + previewCompleteMetadata,
             )
 
             PreviewResult(
@@ -295,6 +318,7 @@ class NativeEnhanceController(
         activeOperations.incrementAndGet()
 
         try {
+            val fullStartMetadata = delegateSnapshotPayload()
             EnhanceLogging.logEvent(
                 "native_full_start",
                 mapOf(
@@ -303,7 +327,7 @@ class NativeEnhanceController(
                     "height" to sourceBitmap.height,
                     "output_file" to outputFile.absolutePath,
                     "quality" to quality,
-                ),
+                ) + fullStartMetadata,
             )
 
             val startTime = System.currentTimeMillis()
@@ -326,6 +350,8 @@ class NativeEnhanceController(
             val durationVulkan = telemetry.durationMsVulkan.takeIf { it > 0 }
             val durationCpu = telemetry.durationMsCpu.takeIf { it > 0 }
 
+            lastDelegateUsed = telemetry.delegateUsed
+            val fullCompleteMetadata = delegateSnapshotPayload()
             EnhanceLogging.logEvent(
                 "native_full_complete",
                 mapOf(
@@ -339,9 +365,6 @@ class NativeEnhanceController(
                     "fallback_cause" to fallbackCause?.name?.lowercase(),
                     "duration_ms_vulkan" to durationVulkan,
                     "duration_ms_cpu" to durationCpu,
-                    "delegate_used" to telemetry.delegateUsed,
-                    "force_cpu" to lastForceCpuFlag,
-                    "force_cpu_reason" to lastForceCpuReason,
                     "tile_used" to telemetry.tileUsed,
                     "tile_size" to telemetry.tileSize,
                     "tile_overlap" to telemetry.tileOverlap,
@@ -350,7 +373,7 @@ class NativeEnhanceController(
                     "seam_max_delta" to telemetry.seamMaxDelta,
                     "seam_mean_delta" to telemetry.seamMeanDelta,
                     "gpu_alloc_retry_count" to telemetry.gpuAllocRetryCount,
-                ),
+                ) + fullCompleteMetadata,
             )
 
             FullResult(
@@ -402,6 +425,10 @@ class NativeEnhanceController(
         nativeHandle = 0L
         lastForceCpuReason = null
         lastForceCpuFlag = false
+        lastDelegatePlan = DELEGATE_CPU_ONLY
+        lastDelegateAvailable = DELEGATE_CPU_ONLY
+        lastDelegateUsed = DELEGATE_CPU
+        lastVulkanAvailable = false
     }
 
     fun isInitialized(): Boolean = initializationFlag.get() == INITIALIZED
@@ -453,6 +480,14 @@ class NativeEnhanceController(
         private const val INITIALIZATION_FAILED = 3
         private const val RELEASED = 4
 
+        private const val BACKEND_ID = "ncnn_cpu"
+        private const val BACKEND_PRECISION = "fp16"
+        private const val TILE_DEFAULT = 384
+        private const val TILE_OVERLAP_DEFAULT = 64
+        private const val DELEGATE_CPU = "cpu"
+        private const val DELEGATE_CPU_ONLY = "cpu_only"
+        private const val DELEGATE_PLAN_GPU = "gpu_with_cpu_fallback"
+
         @JvmStatic
         private external fun nativeConsumeIntegrityFailure(): Array<String>?
 
@@ -489,6 +524,19 @@ class NativeEnhanceController(
             return envValue == "1"
         }
     }
+
+    private fun delegateSnapshotPayload(): Map<String, Any?> = mapOf(
+        "backend" to BACKEND_ID,
+        "backend_precision" to BACKEND_PRECISION,
+        "tile_default" to TILE_DEFAULT,
+        "tile_overlap_default" to TILE_OVERLAP_DEFAULT,
+        "delegate_plan" to lastDelegatePlan,
+        "delegate_available" to lastDelegateAvailable,
+        "delegate_used" to lastDelegateUsed,
+        "force_cpu" to lastForceCpuFlag,
+        "force_cpu_reason" to lastForceCpuReason,
+        "vulkan_available" to lastVulkanAvailable,
+    )
 
     private fun consumeIntegrityFailure(): IntegrityFailure? {
         val payload = nativeConsumeIntegrityFailure() ?: return null

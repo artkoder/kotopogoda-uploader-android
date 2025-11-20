@@ -61,6 +61,7 @@ object ViewerEnhanceModule {
         @ApplicationContext context: Context,
         controller: NativeEnhanceController,
         modelsInstaller: EnhancerModelsInstaller,
+        modelsLock: ModelsLock,
         @Named("zeroDceChecksums") zeroDceChecksums: NativeEnhanceController.ModelChecksums,
         @Named("restormerChecksums") restormerChecksums: NativeEnhanceController.ModelChecksums,
     ): NativeEnhanceAdapter {
@@ -68,6 +69,7 @@ object ViewerEnhanceModule {
             context = context,
             controller = controller,
             modelsInstaller = modelsInstaller,
+            modelsLock = modelsLock,
             zeroDceChecksums = zeroDceChecksums,
             restormerChecksums = restormerChecksums,
         )

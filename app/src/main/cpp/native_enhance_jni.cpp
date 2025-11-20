@@ -36,9 +36,7 @@ jobject buildTelemetryPayload(
         return nullptr;
     }
 
-    const char* delegateName = telemetry.delegate == kotopogoda::DelegateType::VULKAN
-        ? "vulkan"
-        : "cpu";
+    const char* delegateName = "cpu";
     jstring delegateUsed = env->NewStringUTF(delegateName);
     if (delegateUsed == nullptr) {
         env->DeleteLocalRef(telemetryClass);
