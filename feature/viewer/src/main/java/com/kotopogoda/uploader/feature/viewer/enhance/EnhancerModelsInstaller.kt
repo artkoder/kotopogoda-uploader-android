@@ -38,6 +38,14 @@ class EnhancerModelsInstaller @Inject constructor(
                 installDir.mkdirs()
             }
             modelsLock.models.values.forEach { model ->
+                if (!model.enabled) {
+                    Timber.tag(TAG).i(
+                        "Модель %s отключена (precision=%s), пропускаем установку",
+                        model.name,
+                        model.precision ?: "—",
+                    )
+                    return@forEach
+                }
                 installModel(model)
             }
         }

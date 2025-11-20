@@ -99,6 +99,17 @@ abstract class FetchModelsTask : DefaultTask() {
         models.forEach { (nameAny, payloadAny) ->
             val name = nameAny?.toString() ?: error("Имя модели отсутствует")
             val payload = payloadAny as? Map<*, *> ?: error("Модель '$name' имеет некорректный формат")
+            val enabledRaw = payload["enabled"]
+            val enabled = when (enabledRaw) {
+                is Boolean -> enabledRaw
+                is Number -> enabledRaw.toInt() != 0
+                is String -> enabledRaw.equals("true", ignoreCase = true) || enabledRaw == "1"
+                else -> true
+            }
+            if (!enabled) {
+                logger.lifecycle("Модель '$name' отключена (enabled=false), пропускаем скачивание")
+                return@forEach
+            }
             val release = payload["release"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: error("Для модели '$name' не указан release")
             val assetName = payload["asset"]?.toString()?.takeIf { it.isNotBlank() }

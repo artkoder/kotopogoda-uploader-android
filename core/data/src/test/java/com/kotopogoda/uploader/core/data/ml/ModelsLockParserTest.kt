@@ -25,6 +25,8 @@ class ModelsLockParserTest {
                         "sha256": "abc123",
                         "backend": "TFLITE",
                         "min_mb": 1.5,
+                        "precision": "fp16",
+                        "enabled": true,
                         "files": [
                             {
                                 "path": "model.tflite",
@@ -50,6 +52,8 @@ class ModelsLockParserTest {
         assertEquals("test_model.zip", model.asset)
         assertEquals("abc123", model.sha256)
         assertEquals(ModelBackend.TFLITE, model.backend)
+        assertEquals("fp16", model.precision)
+        assertTrue(model.enabled)
         assertEquals(1, model.files.size)
         
         val file = model.files[0]
@@ -172,7 +176,36 @@ class ModelsLockParserTest {
         val model = result.models["test_model"]
         assertNotNull(model)
         assertEquals(null, model.sha256)
+        assertEquals(null, model.precision)
+        assertTrue(model.enabled)
         assertEquals(0L, model.minBytes)
+    }
+
+    @Test
+    fun `enabled=false помечает модель как отключённую`() {
+        val json = """
+            {
+                "models": {
+                    "disabled_model": {
+                        "release": "v1.0",
+                        "asset": "disabled.zip",
+                        "backend": "NCNN",
+                        "enabled": false,
+                        "files": [
+                            {
+                                "path": "model.bin",
+                                "sha256": "abc123"
+                            }
+                        ]
+                    }
+                }
+            }
+        """.trimIndent()
+
+        val result = ModelsLockParser.parse(json)
+        val model = result.models["disabled_model"]
+        assertNotNull(model)
+        assertFalse(model.enabled)
     }
 
     @Test

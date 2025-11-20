@@ -3,6 +3,8 @@
     "name": "Zero-DCE++",
     "artifact": "zerodcepp_fp16",
     "version": "v1",
+    "precision": "fp16",
+    "enabled": true,
     "sources": [
       {
         "id": "weights",
@@ -24,6 +26,33 @@
     "name": "Restormer",
     "artifact": "restormer_fp16",
     "version": "v1",
+    "precision": "fp16",
+    "enabled": true,
+    "tile_size": 384,
+    "sources": [
+      {
+        "id": "weights",
+        "type": "file",
+        "repo": "swz30/Restormer",
+        "commit": "v1.0",
+        "path": "releases/download/v1.0/real_denoising.pth",
+        "url": "https://github.com/swz30/Restormer/releases/download/v1.0/real_denoising.pth"
+      },
+      {
+        "id": "code",
+        "type": "archive",
+        "repo": "swz30/Restormer",
+        "commit": "68dc6ac472db26f16361150cb7a96a1bc87da93f"
+      }
+    ]
+  },
+  "restormer_fp32": {
+    "name": "Restormer (FP32)",
+    "artifact": "restormer_fp32",
+    "version": "v1",
+    "precision": "fp32",
+    "enabled": false,
+    "tile_size": 384,
     "sources": [
       {
         "id": "weights",
