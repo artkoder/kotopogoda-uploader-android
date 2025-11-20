@@ -291,7 +291,7 @@ class ViewerViewModel @Inject constructor(
                         "delay_ms" to ENHANCE_ADAPTER_INIT_DELAY_MS,
                     )
                     Timber.tag(LOG_TAG).i(
-                        "NativeEnhanceAdapter initialized lazily (quality=%d)",
+                        "NativeEnhanceAdapter initialized lazily (quality=%s)",
                         quality,
                     )
                 }.onFailure { error ->
