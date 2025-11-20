@@ -47,6 +47,13 @@ target_include_directories(kotopogoda_enhance PRIVATE
 target_compile_options(kotopogoda_enhance PRIVATE -fopenmp)
 target_link_options(kotopogoda_enhance PRIVATE -fopenmp -static-openmp)
 
+# Полностью отключаем Vulkan/GLSL путь в NCNN: энхансер теперь всегда
+# использует CPU backend, поэтому не нужно притягивать символы glslang.
+# Это избавляет от линковки с большим стеком GPU-зависимостей.
+target_compile_definitions(kotopogoda_enhance PRIVATE
+    NCNN_VULKAN=0
+)
+
 # Линкуем библиотеки
 target_link_libraries(kotopogoda_enhance
     ncnn
