@@ -39,6 +39,7 @@ val repository = overrideRepository.orNull?.takeIf { it.isNotBlank() }
 ```bash
 $ ./gradlew :fetchModels
 > Task :fetchModels
+Модель 'restormer_fp32' отключена (enabled=false), пропускаем скачивание
 Скачивание https://github.com/artkoder/kotopogoda-uploader-android/releases/download/models-v1/zerodcepp_fp16_v1.zip
 Скачивание https://github.com/artkoder/kotopogoda-uploader-android/releases/download/models-v1/restormer_fp16_v1.zip
 ok=true
@@ -61,6 +62,7 @@ total 52M
 - ✅ `models.lock.json` содержит `"repository": "artkoder/kotopogoda-uploader-android"`
 - ✅ `build.gradle.kts` имеет усиленный fallback с GITHUB_REPOSITORY
 - ✅ CI workflow build имеет env MODELS_REPOSITORY
+- ✅ `restormer_fp32` присутствует в models.lock.json с precision=fp32 и enabled=false, поэтому APK по-прежнему тянет только FP16 веса
 - ✅ Сборка APK проходит без FileNotFoundException
 
 ## Заключение

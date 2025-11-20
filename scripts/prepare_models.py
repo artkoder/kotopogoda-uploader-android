@@ -203,6 +203,38 @@ def format_mib(size_bytes: int) -> float:
     return round(size_bytes / (1024 ** 2), 4)
 
 
+
+
+def parse_bool(value: object, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return default
+
+
+def coerce_int(value: object, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return default
+        try:
+            return int(stripped)
+        except ValueError:
+            return default
+    return default
+
+
 def collect_onnx_operator_types(onnx_path: Path) -> List[str]:
     try:
         import onnx
@@ -531,7 +563,23 @@ def convert_restormer(
     import torch
     import onnx
     from onnxsim import simplify
-    
+
+    precision_raw = model_cfg.get("precision", "fp16")
+    precision = str(precision_raw).strip().lower() if precision_raw is not None else "fp16"
+    if not precision:
+        precision = "fp16"
+    if precision not in {"fp16", "fp32"}:
+        raise ValueError(f"Restormer поддерживает только fp16/fp32, получено: {precision}")
+    artifact_basename = str(model_cfg.get("artifact") or f"restormer_{precision}")
+    log(f"Готовим Restormer ({precision.upper()}) для артефакта {artifact_basename}")
+
+    tile_size_env = os.environ.get("RESTORMER_TILE_SIZE") or os.environ.get("TILE_SIZE")
+    tile_size = coerce_int(model_cfg.get("tile_size"), 0)
+    if tile_size <= 0:
+        tile_size = coerce_int(tile_size_env, 0)
+    if tile_size <= 0:
+        tile_size = 384
+
     # Логирование версий ключевых пакетов
     log(f"PyTorch: {torch.__version__}, ONNX: {onnx.__version__}")
 
@@ -625,7 +673,6 @@ def convert_restormer(
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     log(f"Веса загружены: {total_params:,} параметров (тренируемых: {trainable_params:,})")
 
-    tile_size = int(os.environ.get("TILE_SIZE", "512"))
     log(f"Экспорт с фиксированным размером тайла: {tile_size}×{tile_size}")
     
     dummy_input = torch.randn(1, 3, tile_size, tile_size)
@@ -682,8 +729,10 @@ def convert_restormer(
     if not onnx2ncnn:
         raise RuntimeError("Команда onnx2ncnn не найдена в PATH")
 
-    param_path = convert_dir / "restormer_fp16.param"
-    bin_path = convert_dir / "restormer_fp16.bin"
+    param_filename = f"{artifact_basename}.param"
+    bin_filename = f"{artifact_basename}.bin"
+    param_path = convert_dir / param_filename
+    bin_path = convert_dir / bin_filename
     
     subprocess.run(
         [onnx2ncnn, str(simp_path), str(param_path), str(bin_path)],
@@ -709,34 +758,36 @@ def convert_restormer(
     
     log(f"✅ NCNN .bin размер валиден: {bin_size_mb:.1f} MB")
 
-    # Применяем ncnnoptimize для оптимизации модели
-    log("Оптимизируем NCNN модель с помощью ncnnoptimize...")
-    ncnnoptimize = shutil.which("ncnnoptimize")
-    if not ncnnoptimize:
-        raise RuntimeError("Команда ncnnoptimize не найдена в PATH")
-    
-    optimized_param = convert_dir / "restormer_fp16_opt.param"
-    optimized_bin = convert_dir / "restormer_fp16_opt.bin"
-    
-    try:
-        subprocess.run(
-            [ncnnoptimize, str(param_path), str(bin_path), str(optimized_param), str(optimized_bin), "65536"],
-            check=True,
-        )
+    apply_fp16_optimize = precision == "fp16"
+    if apply_fp16_optimize:
+        log("Оптимизируем NCNN модель с помощью ncnnoptimize (fp16 flow)...")
+        ncnnoptimize = shutil.which("ncnnoptimize")
+        if not ncnnoptimize:
+            raise RuntimeError("Команда ncnnoptimize не найдена в PATH")
         
-        if optimized_param.exists() and optimized_bin.exists():
-            opt_bin_size = optimized_bin.stat().st_size
-            log(f"NCNN модель оптимизирована: {format_mib(opt_bin_size)} MiB")
-            # Заменяем оригинальные файлы оптимизированными
-            shutil.move(str(optimized_param), str(param_path))
-            shutil.move(str(optimized_bin), str(bin_path))
-            bin_size = opt_bin_size
-        else:
-            log("⚠️  ncnnoptimize не создал файлы, используем неоптимизированную версию")
-    except subprocess.CalledProcessError as exc:
-        log(f"⚠️  Ошибка при оптимизации NCNN: {exc}; используем неоптимизированную версию")
+        optimized_param = convert_dir / f"{artifact_basename}_opt.param"
+        optimized_bin = convert_dir / f"{artifact_basename}_opt.bin"
+        
+        try:
+            subprocess.run(
+                [ncnnoptimize, str(param_path), str(bin_path), str(optimized_param), str(optimized_bin), "65536"],
+                check=True,
+            )
+            
+            if optimized_param.exists() and optimized_bin.exists():
+                opt_bin_size = optimized_bin.stat().st_size
+                log(f"NCNN модель оптимизирована: {format_mib(opt_bin_size)} MiB")
+                shutil.move(str(optimized_param), str(param_path))
+                shutil.move(str(optimized_bin), str(bin_path))
+                bin_size = opt_bin_size
+            else:
+                log("⚠️  ncnnoptimize не создал файлы, используем неоптимизированную версию")
+        except subprocess.CalledProcessError as exc:
+            log(f"⚠️  Ошибка при оптимизации NCNN: {exc}; используем неоптимизированную версию")
+    else:
+        log("Пропускаем ncnnoptimize для FP32 варианта, оставляем onnx2ncnn результаты как есть")
 
-    log("✅ NCNN модель готова")
+    log(f"✅ NCNN модель готова ({precision.upper()})")
 
     metadata: Dict[str, object] = {
         "ncnn": {
@@ -746,6 +797,7 @@ def convert_restormer(
             "sha256_param": sha256_of(param_path),
             "sha256_bin": sha256_of(bin_path),
             "tile_size": tile_size,
+            "precision": precision,
         },
         "onnx": {
             "path": str(simp_path.name),
@@ -753,18 +805,19 @@ def convert_restormer(
             "size_mib": format_mib(simp_path.stat().st_size),
             "operators": collect_onnx_operator_types(simp_path),
         },
+        "precision": precision,
     }
 
     files = [
         {
             "path": param_path,
-            "relative": Path("models/restormer_fp16.param"),
+            "relative": Path("models") / param_filename,
             "include": True,
             "label": "param",
         },
         {
             "path": bin_path,
-            "relative": Path("models/restormer_fp16.bin"),
+            "relative": Path("models") / bin_filename,
             "include": True,
             "label": "bin",
         },
@@ -777,6 +830,7 @@ def convert_restormer(
     ]
 
     return "ncnn", files, metadata
+
 
 
 def process_model(key: str, cfg: dict) -> dict:
@@ -795,6 +849,14 @@ def process_model(key: str, cfg: dict) -> dict:
     if convert_dir.exists():
         shutil.rmtree(convert_dir)
     convert_dir.mkdir(parents=True, exist_ok=True)
+
+    precision_raw = cfg.get("precision")
+    precision = None
+    if precision_raw is not None:
+        precision_str = str(precision_raw).strip().lower()
+        if precision_str:
+            precision = precision_str
+    enabled = parse_bool(cfg.get("enabled", True))
 
     if key == "zerodcepp_fp16":
         backend, files, metadata = convert_zero_dce(cfg, sources, convert_dir)
@@ -916,6 +978,8 @@ def process_model(key: str, cfg: dict) -> dict:
         "files": file_entries,
         "hash_entries": hash_entries,
         "metadata": metadata,
+        "precision": precision,
+        "enabled": enabled,
     }
 
 
@@ -1030,7 +1094,7 @@ def write_models_lock(results: List[dict]) -> None:
 
     models_payload = {}
     for result in results:
-        models_payload[result["key"]] = {
+        entry = {
             "release": RELEASE_TAG,
             "asset": result["artifact_name"],
             "unzipped": result.get("unzipped_root", "."),
@@ -1041,6 +1105,11 @@ def write_models_lock(results: List[dict]) -> None:
             "hashes": result.get("hash_entries", []),
             "metadata": result.get("metadata", {}),
         }
+        precision = result.get("precision")
+        if precision:
+            entry["precision"] = precision
+        entry["enabled"] = bool(result.get("enabled", True))
+        models_payload[result["key"]] = entry
     payload = {
         "repository": repository,
         "models": models_payload,

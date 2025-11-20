@@ -18,6 +18,19 @@ object ModelChecksumVerifier {
         val assetManager = context.assets
         val modelsLock = ModelsLockParser.parse(BuildConfig.MODELS_LOCK_JSON)
         modelsLock.models.values.forEach { model ->
+            if (!model.enabled) {
+                Timber.tag("app").i(
+                    UploadLog.message(
+                        category = "ML/CHECKSUM",
+                        action = "skip_disabled",
+                        details = arrayOf(
+                            "model" to model.name,
+                            "precision" to (model.precision ?: "n/a"),
+                        ),
+                    ),
+                )
+                return@forEach
+            }
             model.files.forEach { file ->
                 val assetPath = file.assetPath()
                 val actual = calculateChecksum(assetManager, assetPath, file)

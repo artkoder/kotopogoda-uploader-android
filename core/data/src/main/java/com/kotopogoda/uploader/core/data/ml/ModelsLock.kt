@@ -25,6 +25,8 @@ data class ModelDefinition(
     val backend: ModelBackend,
     val minBytes: Long,
     val files: List<ModelFile>,
+    val precision: String?,
+    val enabled: Boolean,
 ) {
     fun filesByExtension(): Map<String, ModelFile> = files.associateBy { file ->
         file.path.substringAfterLast('.', missingDelimiterValue = file.path)
@@ -95,6 +97,8 @@ object ModelsLockParser {
             throw IllegalArgumentException("models.lock.json: модель '$name' не содержит описания файлов")
         }
         val files = parseFiles(filesArray, minBytes)
+        val precision = json.optString("precision").takeIf { it.isNotBlank() }?.lowercase(Locale.US)
+        val enabled = json.optBoolean("enabled", true)
         return ModelDefinition(
             name = name,
             release = release,
@@ -103,6 +107,8 @@ object ModelsLockParser {
             backend = backend,
             minBytes = minBytes,
             files = files,
+            precision = precision,
+            enabled = enabled,
         )
     }
 

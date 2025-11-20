@@ -123,6 +123,37 @@ if file_names != expected:
     )
 
 print(f"✅ Restormer: архив NCNN в норме (размер .bin: {bin_size_mib:.4f} MiB)")
+
+# Проверяем Restormer FP32 (артефакт отключён по умолчанию)
+restormer_fp32 = models.get("restormer_fp32")
+if restormer_fp32 is None:
+    raise SystemExit("В models.lock.json отсутствует запись restormer_fp32")
+precision_fp32 = (restormer_fp32.get("precision") or "").lower()
+if precision_fp32 and precision_fp32 != "fp32":
+    raise SystemExit(f"restormer_fp32 должен иметь precision=fp32, получено: {precision_fp32}")
+asset_name = restormer_fp32.get("asset")
+if not asset_name:
+    raise SystemExit("В записи restormer_fp32 отсутствует имя артефакта")
+zip_path = dist_dir / asset_name
+if not zip_path.exists():
+    raise SystemExit(f"Архив {zip_path} не найден")
+metadata = restormer_fp32.get("metadata") or {}
+ncnn_meta = metadata.get("ncnn") or {}
+bin_size_mib = ncnn_meta.get("bin_size_mib")
+MIN_RESTORMER_FP32_SIZE_MIB = 60.0
+if bin_size_mib is None or bin_size_mib < MIN_RESTORMER_FP32_SIZE_MIB:
+    raise SystemExit(
+        f"Restormer FP32 NCNN .bin имеет недопустимый размер: {bin_size_mib} MiB "
+        f"(ожидается ≥{MIN_RESTORMER_FP32_SIZE_MIB} MiB)"
+    )
+with zipfile.ZipFile(zip_path, "r") as archive:
+    file_names = sorted([info.filename for info in archive.infolist() if not info.is_dir()])
+expected = ["models/restormer_fp32.bin", "models/restormer_fp32.param"]
+if file_names != expected:
+    raise SystemExit(
+        f"Архив {asset_name} должен содержать {expected}, найдено: {file_names}"
+    )
+print(f"✅ Restormer FP32: архив NCNN готов (размер .bin: {bin_size_mib:.4f} MiB, enabled={restormer_fp32.get('enabled', False)})")
 PY
 
 log INFO "Используем тег релиза: $RELEASE_TAG"

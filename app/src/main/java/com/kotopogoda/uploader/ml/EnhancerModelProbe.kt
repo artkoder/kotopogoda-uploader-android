@@ -60,6 +60,14 @@ object EnhancerModelProbe {
             val assetManager = context.assets
             val results = mutableMapOf<String, EnhanceLogging.ModelSummary>()
             modelsLock.models.values.forEach { definition ->
+                if (!definition.enabled) {
+                    Timber.tag(TAG).i(
+                        "Модель %s отключена (precision=%s), пропускаем проверку",
+                        definition.name,
+                        definition.precision ?: "—",
+                    )
+                    return@forEach
+                }
                 val summary = probeModel(context, assetManager, definition)
                 if (summary != null) {
                     results[definition.name] = summary
