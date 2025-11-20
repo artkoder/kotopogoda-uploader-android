@@ -16,7 +16,7 @@ namespace kotopogoda {
 ZeroDceBackend::ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag, bool usingVulkan)
     : net_(net), cancelFlag_(cancelFlag), usingVulkan_(usingVulkan) {
     TileConfig config;
-    config.tileSize = 512;
+    config.tileSize = 384;
     config.overlap = 64;
     config.useReflectPadding = true;
     config.enableHannWindow = true;
@@ -264,9 +264,11 @@ bool ZeroDceBackend::process(
     telemetry.gpuAllocRetryCount = gpuAllocRetryCount;
 
     LOGI(
-        "duration_ms_zerodce=%ld tile_used=%d tiles=%d seam_max_delta=%.3f seam_mean_delta=%.3f gpu_alloc_retry_count=%d",
+        "duration_ms_zerodce=%ld tile_used=%d tile_size=%d overlap=%d tiles=%d seam_max_delta=%.3f seam_mean_delta=%.3f gpu_alloc_retry_count=%d",
         telemetry.timingMs,
         telemetry.tileTelemetry.tileUsed,
+        telemetry.tileTelemetry.tileSize,
+        telemetry.tileTelemetry.overlap,
         telemetry.tileTelemetry.totalTiles,
         telemetry.seamMaxDelta,
         telemetry.seamMeanDelta,

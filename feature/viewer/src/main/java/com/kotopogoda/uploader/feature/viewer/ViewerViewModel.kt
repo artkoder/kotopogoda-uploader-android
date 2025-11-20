@@ -3368,7 +3368,7 @@ class ViewerViewModel @Inject constructor(
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
         private const val ENHANCE_TAG = "Enhance"
         private const val ENHANCE_CATEGORY = "ENHANCE"
-        private const val DEFAULT_ENHANCE_TILE_SIZE = 512
+        private const val DEFAULT_ENHANCE_TILE_SIZE = 384
         private const val DEFAULT_ENHANCE_TILE_OVERLAP = 64
         private const val ENHANCE_METRICS_INTERVAL_MS = 1_000L
         private const val ENHANCE_METRICS_PROGRESS_DELTA = 0.01f

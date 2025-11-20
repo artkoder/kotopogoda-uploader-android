@@ -62,7 +62,13 @@ void TileProcessor::computeTileGrid(int width, int height, std::vector<TileInfo>
         }
     }
     
-    LOGI("Создана сетка из %zu тайлов для изображения %dx%d", tiles.size(), width, height);
+    LOGI("Создана сетка из %zu тайлов для изображения %dx%d (tile_size=%d overlap=%d step=%d)",
+         tiles.size(),
+         width,
+         height,
+         tileSize,
+         overlap,
+         step);
 }
 
 void TileProcessor::extractTile(const ncnn::Mat& input, const TileInfo& tile, ncnn::Mat& tileData) {

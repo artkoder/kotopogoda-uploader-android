@@ -240,6 +240,8 @@ class NativeEnhanceController(
                     "strength" to strength,
                     "width" to sourceBitmap.width,
                     "height" to sourceBitmap.height,
+                    "tile_size" to NATIVE_TILE_SIZE,
+                    "tile_overlap" to NATIVE_TILE_OVERLAP,
                 ) + previewStartMetadata,
             )
 
@@ -327,6 +329,8 @@ class NativeEnhanceController(
                     "height" to sourceBitmap.height,
                     "output_file" to outputFile.absolutePath,
                     "quality" to quality,
+                    "tile_size" to NATIVE_TILE_SIZE,
+                    "tile_overlap" to NATIVE_TILE_OVERLAP,
                 ) + fullStartMetadata,
             )
 
@@ -482,8 +486,8 @@ class NativeEnhanceController(
 
         private const val BACKEND_ID = "ncnn_cpu"
         private const val BACKEND_PRECISION = "fp16"
-        private const val TILE_DEFAULT = 384
-        private const val TILE_OVERLAP_DEFAULT = 64
+        private const val NATIVE_TILE_SIZE = 384
+        private const val NATIVE_TILE_OVERLAP = 64
         private const val DELEGATE_CPU = "cpu"
         private const val DELEGATE_CPU_ONLY = "cpu_only"
         private const val DELEGATE_PLAN_GPU = "gpu_with_cpu_fallback"
@@ -528,8 +532,8 @@ class NativeEnhanceController(
     private fun delegateSnapshotPayload(): Map<String, Any?> = mapOf(
         "backend" to BACKEND_ID,
         "backend_precision" to BACKEND_PRECISION,
-        "tile_default" to TILE_DEFAULT,
-        "tile_overlap_default" to TILE_OVERLAP_DEFAULT,
+        "tile_default" to NATIVE_TILE_SIZE,
+        "tile_overlap_default" to NATIVE_TILE_OVERLAP,
         "delegate_plan" to lastDelegatePlan,
         "delegate_available" to lastDelegateAvailable,
         "delegate_used" to lastDelegateUsed,

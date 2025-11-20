@@ -17,7 +17,7 @@ RestormerBackend::RestormerBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag
     : net_(net), cancelFlag_(cancelFlag), usingVulkan_(usingVulkan) {
     
     TileConfig config;
-    config.tileSize = 512;
+    config.tileSize = 384;
     config.overlap = 16;
     config.maxMemoryMb = 512;
     config.threadCount = 4;
@@ -109,12 +109,17 @@ bool RestormerBackend::process(
          tileConfig.tileSize,
          tileConfig.overlap);
 
-    bool needsTiling = input.w > 512 || input.h > 512;
+    telemetry.tileTelemetry = TelemetryData::TileTelemetry{};
+    telemetry.tileTelemetry.tileSize = tileConfig.tileSize;
+    telemetry.tileTelemetry.overlap = tileConfig.overlap;
+
+    bool needsTiling = input.w > tileConfig.tileSize || input.h > tileConfig.tileSize;
     bool success = false;
     int extractorErrorCode = 0;
     telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
 
     if (needsTiling) {
+        telemetry.tileTelemetry.tileUsed = true;
         LOGI("Используется тайловая обработка");
 
         auto processFunc = [this, delegateFailed, fallbackCause](
@@ -127,10 +132,48 @@ bool RestormerBackend::process(
             return this->processDirectly(tileIn, tileOut, delegateFailed, fallbackCause, errorCode);
         };
 
-        success = tileProcessor_->processTiled(input, output, net_, processFunc, nullptr, nullptr, &extractorErrorCode);
+        auto progressCallback = [&telemetry](int current, int total) {
+            telemetry.tileTelemetry.processedTiles = current;
+            telemetry.tileTelemetry.totalTiles = total;
+        };
+
+        TileProcessStats stats;
+        success = tileProcessor_->processTiled(
+            input,
+            output,
+            net_,
+            processFunc,
+            progressCallback,
+            &stats,
+            &extractorErrorCode
+        );
+
+        telemetry.tileTelemetry.totalTiles = stats.tileCount;
+        telemetry.tileTelemetry.tileSize = stats.tileSize;
+        telemetry.tileTelemetry.overlap = stats.overlap;
+        telemetry.seamMaxDelta = stats.seamMaxDelta;
+        telemetry.seamMeanDelta = stats.seamMeanDelta;
+        if (success) {
+            telemetry.tileTelemetry.processedTiles = stats.tileCount;
+        }
+
+        LOGI(
+            "Restormer tiles: tile_size=%d overlap=%d tiles_total=%d tiles_completed=%d seam_max_delta=%.3f seam_mean_delta=%.3f",
+            telemetry.tileTelemetry.tileSize,
+            telemetry.tileTelemetry.overlap,
+            telemetry.tileTelemetry.totalTiles,
+            telemetry.tileTelemetry.processedTiles,
+            telemetry.seamMaxDelta,
+            telemetry.seamMeanDelta
+        );
     } else {
         LOGI("Обработка без тайлинга");
         success = processDirectly(input, output, delegateFailed, fallbackCause, &extractorErrorCode);
+        telemetry.tileTelemetry.tileUsed = false;
+        telemetry.tileTelemetry.totalTiles = 1;
+        telemetry.tileTelemetry.processedTiles = success ? 1 : 0;
+        telemetry.seamMaxDelta = 0.0f;
+        telemetry.seamMeanDelta = 0.0f;
     }
 
     auto endTime = std::chrono::high_resolution_clock::now();

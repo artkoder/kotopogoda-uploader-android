@@ -9,7 +9,7 @@
 - Jetpack Compose UI for photo review, queue/status dashboards and shortcuts to diagnostics from the viewer.
 - **Native NCNN module** with Vulkan acceleration and CPU NEON fallback for image enhancement:
   - JNI integration with Zero-DCE++ and Restormer models
-  - Tiled inference (512×512 tiles, 16px overlap, Hann window blending) for large images
+  - Tiled inference (384×384 tiles, 16px overlap for Restormer / 64px for Zero-DCE++, Hann window blending) for large images
   - SHA256 model verification with one-time process logging
   - Telemetry reporting (timings, memory usage, Vulkan availability, cancellation status)
   - Configurable quality profiles (BALANCED/QUALITY) and thread count (4-8)
