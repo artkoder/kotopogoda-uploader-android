@@ -12,7 +12,6 @@
 namespace ncnn {
     class Net;
     class Mat;
-    class VulkanDevice;
 }
 
 namespace kotopogoda {
@@ -107,27 +106,21 @@ public:
     void release();
 
     bool isInitialized() const { return initialized_; }
-    bool hasVulkan() const { return vulkanAvailable_; }
     bool isGpuDelegateAvailable() const { return gpuDelegateAvailable_; }
 
     static IntegrityFailure consumeLastIntegrityFailure();
 
 private:
     bool loadModels(AAssetManager* assetManager, const std::string& modelsDir);
-    bool loadModelsForDelegate(const std::string& modelsDir, bool useVulkan);
-    bool switchToCpuFallback();
     bool verifyChecksum(const std::string& filePath, const std::string& expectedChecksum);
     static void reportIntegrityFailure(
         const std::string& filePath,
         const std::string& expectedChecksum,
         const std::string& actualChecksum
     );
-    void setupVulkan(int gpuCount);
-    void cleanupVulkan();
 
     std::unique_ptr<ncnn::Net> zeroDceNet_;
     std::unique_ptr<ncnn::Net> restormerNet_;
-    ncnn::VulkanDevice* vulkanDevice_;
 
     ModelChecksums zeroDceChecksums_;
     ModelChecksums restormerChecksums_;
@@ -140,6 +133,7 @@ private:
     std::atomic<bool> vulkanAvailable_;
     std::atomic<bool> gpuDelegateAvailable_;
     std::atomic<bool> forceCpuMode_;
+    std::atomic<DelegateType> currentDelegate_;
 
     static std::mutex integrityMutex_;
     static IntegrityFailure lastIntegrityFailure_;

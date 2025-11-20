@@ -13,34 +13,28 @@ namespace kotopogoda {
 
 class TileProcessor;
 struct TelemetryData;
-enum class FallbackCause;
 
 class RestormerBackend {
 public:
-    RestormerBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag, bool usingVulkan);
+    RestormerBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag);
     ~RestormerBackend();
 
     bool process(
         const ncnn::Mat& input,
         ncnn::Mat& output,
-        TelemetryData& telemetry,
-        bool* delegateFailed = nullptr,
-        FallbackCause* fallbackCause = nullptr
+        TelemetryData& telemetry
     );
 
 private:
     bool processDirectly(
         const ncnn::Mat& input,
         ncnn::Mat& output,
-        bool* delegateFailed,
-        FallbackCause* fallbackCause,
         int* lastErrorCode = nullptr
     );
 
     ncnn::Net* net_;
     std::atomic<bool>& cancelFlag_;
     std::unique_ptr<TileProcessor> tileProcessor_;
-    bool usingVulkan_;
 };
 
 }
