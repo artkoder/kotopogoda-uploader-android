@@ -17,21 +17,17 @@
     {
       "id": "zerodcepp_fp16",
       "backend": "ncnn",
-      "precision": "fp16",
-      "tile_size": 384,
       "files": [
-        {"path": "models/zerodcepp_fp16.param", "sha256": "...", "min_bytes": 10000},
-        {"path": "models/zerodcepp_fp16.bin",   "sha256": "...", "min_bytes": 43000}
+        {"path": "models/zerodcepp_fp16.param", "sha256": "..."},
+        {"path": "models/zerodcepp_fp16.bin", "sha256": "..."}
       ]
     },
     {
-      "id": "restormer_fp32",
+      "id": "restormer_fp16",
       "backend": "ncnn",
-      "precision": "fp32",
-      "tile_size": 384,
       "files": [
-        {"path": "models/restormer_fp32.param", "sha256": "...", "min_bytes": 4096},
-        {"path": "models/restormer_fp32.bin",   "sha256": "...", "min_bytes": 60000000}
+        {"path": "models/restormer_fp16.param", "sha256": "..."},
+        {"path": "models/restormer_fp16.bin", "sha256": "..."}
       ]
     },
     {
@@ -43,19 +39,12 @@
 }
 ```
 
-Поле `min_bytes` вычисляется из `min_mb` в корневом `models.lock.json` (либо может быть задано напрямую), а `tile_size` и `precision` подтягиваются из `metadata.ncnn`.
-
 ### Источник данных
 
-Скрипт читает основной `models.lock.json` из корня репозитория и автоматически берёт все модели с `backend=ncnn`, даже если они отключены в разделе `enabled` (например, `restormer_fp32`). Чтобы исключить модель из runtime-локфайла, добавьте в её описание блок
-
-```json
-"runtime": { "exclude": true }
-```
-
-или явно задайте `"include": true/false`, если требуется переопределить поведение.
-
-Благодаря этому добавление новых моделей не требует изменений в коде инструмента — достаточно обновить `models.lock.json` и запустить подготовку моделей.
+Скрипт читает основной `models.lock.json` из корня репозитория и автоматически
+берёт все модели с `enabled=true` и `backend=ncnn`. Благодаря этому добавление
+новых моделей не требует изменений в коде инструмента — достаточно обновить
+`models.lock.json` и запустить подготовку моделей.
 
 ### Использование
 
@@ -81,7 +70,7 @@ python tools/gen_models_lock.py
 
 Скрипт завершается с кодом 2, если:
 - Директория `dist/models` не существует
-- Какой-либо файл модели отсутствует или указан неверный путь
+- Какой-либо файл модели отсутствует
 
 ### Отличие от models.lock.json в корне репозитория
 
