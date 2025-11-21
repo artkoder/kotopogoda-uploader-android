@@ -208,6 +208,7 @@ class NativeEnhanceController(
             )
             val commonDelegatePayload = delegateMetadata + mapOf(
                 "handle" to handle,
+                "force_cpu" to params.forceCpu,
             )
 
             EnhanceLogging.logEvent(

@@ -154,7 +154,7 @@
         }
       },
       "precision": "fp16",
-      "enabled": true
+      "enabled": false
     },
     "restormer_fp32": {
       "release": "models-v1",
@@ -163,7 +163,7 @@
       "sha256": "2b9e7f1c2d3a4b5c6e7f8899aabbccddeeff00112233445566778899aabbccdd",
       "backend": "ncnn",
       "precision": "fp32",
-      "enabled": false,
+      "enabled": true,
       "min_mb": 69.29,
       "files": [
         {

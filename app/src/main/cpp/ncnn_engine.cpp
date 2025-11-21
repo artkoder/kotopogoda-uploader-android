@@ -135,24 +135,14 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
 
     LOGI("NCNN models configured for CPU: threads=%d", cpuThreads);
 
-    const DelegateType delegate = currentDelegate_.load();
+    const DelegateType delegate = DelegateType::CPU;
     const char* delegateName = delegateToString(delegate);
     std::string zeroDceParam = modelsDir + "/zerodcepp_fp16.param";
     std::string zeroDceBin = modelsDir + "/zerodcepp_fp16.bin";
-    std::string restormerParam;
-    std::string restormerBin;
-
-    if (delegate == DelegateType::CPU) {
-        restormerParam = modelsDir + "/restormer_fp32.param";
-        restormerBin = modelsDir + "/restormer_fp32.bin";
-        restPrecision_ = "fp32";
-        LOGI("NcnnEngine: using Restormer FP32 for CPU backend");
-    } else {
-        restormerParam = modelsDir + "/restormer_fp16.param";
-        restormerBin = modelsDir + "/restormer_fp16.bin";
-        restPrecision_ = "fp16";
-        LOGI("NcnnEngine: using Restormer FP16 for non-CPU backend");
-    }
+    std::string restormerParam = modelsDir + "/restormer_fp32.param";
+    std::string restormerBin = modelsDir + "/restormer_fp32.bin";
+    restPrecision_ = "fp32";
+    LOGI("NcnnEngine: using Restormer FP32 weights (cpu-only)");
 
     if (!verifyChecksum(zeroDceParam, zeroDceChecksums_.param)) {
         LOGE("Контрольная сумма Zero-DCE++ param не совпадает");
@@ -228,7 +218,11 @@ bool NcnnEngine::initialize(
     previewProfile_ = profile;
     assetManager_ = assetManager;
     modelsDir_ = modelsDir;
-    forceCpuMode_.store(forceCpu);
+
+    if (!forceCpu) {
+        LOGW("forceCpu argument is false, enforcing CPU-only mode");
+    }
+    forceCpuMode_.store(true);
 
     gpuDelegateAvailable_.store(false);
     vulkanAvailable_.store(false);
