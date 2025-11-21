@@ -2,6 +2,7 @@ package com.kotopogoda.uploader.feature.viewer.enhance
 
 import android.content.res.AssetManager
 import android.graphics.Bitmap
+import com.kotopogoda.uploader.core.data.upload.UploadLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -163,6 +164,7 @@ class NativeEnhanceController(
                     logIntegrityFailure(integrityFailure, params)
                     throw ModelIntegrityException(integrityFailure)
                 }
+                UploadLog.updateDiagnosticExtras(mapOf("load_error_param_fp16" to "true"))
                 throw IllegalStateException("Нативная инициализация вернула нулевой handle")
             }
 
