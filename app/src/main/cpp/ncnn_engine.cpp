@@ -4,14 +4,6 @@
 #include "zerodce_backend.h"
 #include <ncnn/net.h>
 #include <ncnn/cpu.h>
-
-#if defined(NCNN_VULKAN) && NCNN_VULKAN
-#include <ncnn/gpu.h>
-#else
-namespace ncnn {
-inline void destroy_gpu_instance() {}
-}
-#endif
 #include <android/log.h>
 #include <android/asset_manager.h>
 #include <android/bitmap.h>
@@ -45,11 +37,9 @@ NcnnEngine::NcnnEngine()
       assetManager_(nullptr),
       initialized_(false),
       cancelled_(false),
-      vulkanAvailable_(false),
-      gpuDelegateAvailable_(false),
       forceCpuMode_(false),
       currentDelegate_(DelegateType::CPU),
-      restPrecision_("fp16") {
+      restPrecision_("fp32") {
 }
 
 NcnnEngine::~NcnnEngine() {
@@ -118,8 +108,6 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     restormerNet_.reset();
     zeroDceNet_ = std::make_unique<ncnn::Net>();
     restormerNet_ = std::make_unique<ncnn::Net>();
-
-    vulkanAvailable_.store(false);
 
     const int cpuThreads = std::max(1, std::min(4, ncnn::get_big_cpu_count()));
     auto configureNet = [&](ncnn::Net& net) {
@@ -230,10 +218,7 @@ bool NcnnEngine::initialize(
     modelsDir_ = modelsDir;
     forceCpuMode_.store(forceCpu);
 
-    gpuDelegateAvailable_.store(false);
-    vulkanAvailable_.store(false);
     currentDelegate_.store(DelegateType::CPU);
-    ncnn::destroy_gpu_instance();
     LOGI("NcnnEngine: running in CPU-only mode (Vulkan disabled)");
 
     if (!loadModels(assetManager, modelsDir)) {
@@ -538,10 +523,7 @@ void NcnnEngine::release() {
     zeroDceNet_.reset();
     restormerNet_.reset();
 
-    vulkanAvailable_.store(false);
-    gpuDelegateAvailable_.store(false);
     currentDelegate_.store(DelegateType::CPU);
-    ncnn::destroy_gpu_instance();
 
     modelsDir_.clear();
     assetManager_ = nullptr;

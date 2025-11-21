@@ -44,7 +44,7 @@ class NativeEnhanceAdapter @Inject constructor(
     private var previewResult: NativeEnhanceController.PreviewResult? = null
     private val crashLoopDetector = NativeEnhanceCrashLoopDetector(context)
     private val zeroDceModelFiles = modelsLock.require(ZERO_DCE_MODEL_NAME).toModelFiles()
-    private val restormerModelFiles = modelsLock.require(RESTORMER_MODEL_NAME).toModelFiles()
+    private val restormerModelFiles = modelsLock.require(RESTORMER_MODEL_CPU).toModelFiles()
 
     fun isReady(): Boolean = isInitialized && controller.isInitialized()
 
@@ -396,7 +396,7 @@ class NativeEnhanceAdapter @Inject constructor(
     companion object {
         private const val TAG = "NativeEnhanceAdapter"
         private const val ZERO_DCE_MODEL_NAME = "zerodcepp_fp16"
-        private const val RESTORMER_MODEL_NAME = "restormer_fp16"
+        private const val RESTORMER_MODEL_CPU = "restormer_fp32"
         private val cpuOnlyLogGuard = AtomicBoolean(false)
     }
 }

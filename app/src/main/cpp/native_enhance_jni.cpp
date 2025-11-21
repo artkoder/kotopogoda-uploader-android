@@ -255,23 +255,6 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     LOGI("Движок с handle=%lld освобожден", (long long)handle);
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeIsGpuDelegateAvailable(
-    JNIEnv* env,
-    jobject thiz,
-    jlong handle
-) {
-    (void)env;
-    (void)thiz;
-
-    std::lock_guard<std::mutex> lock(g_enginesMutex);
-    auto it = g_engines.find(handle);
-    if (it == g_engines.end()) {
-        return JNI_FALSE;
-    }
-
-    return it->second->isGpuDelegateAvailable() ? JNI_TRUE : JNI_FALSE;
-}
 
 JNIEXPORT jobjectArray JNICALL
 Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeConsumeIntegrityFailure(
