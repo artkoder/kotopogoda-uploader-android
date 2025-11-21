@@ -305,15 +305,15 @@ class PhotoRepositoryTest {
              val timestamp = photo.effectiveTimestampMillis() ?: return false
              val thresholds = args?.mapNotNull { it.toLongOrNull() } ?: emptyList()
 
-             if (selection.contains("> ?")) {
+             if (selection.contains("> CAST(? AS INTEGER)")) {
                  val threshold = thresholds.getOrElse(0) { Long.MIN_VALUE }
                  return timestamp > threshold
              }
-             if (selection.contains(">= ?") && !selection.contains("< ?")) {
+             if (selection.contains(">= CAST(? AS INTEGER)") && !selection.contains("<")) {
                  val threshold = thresholds.getOrElse(0) { Long.MIN_VALUE }
                  return timestamp >= threshold
              }
-             if (selection.contains(">= ?") && selection.contains("< ?")) {
+             if (selection.contains(">= CAST(? AS INTEGER)") && selection.contains("< CAST(? AS INTEGER)")) {
                  val start = thresholds.getOrElse(0) { Long.MIN_VALUE }
                  val end = thresholds.getOrElse(1) { Long.MAX_VALUE }
                  return timestamp >= start && timestamp < end
