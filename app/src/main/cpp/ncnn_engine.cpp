@@ -7,10 +7,14 @@
 #include <android/log.h>
 #include <android/asset_manager.h>
 #include <android/bitmap.h>
-#include <fstream>
 #include <algorithm>
-#include <cctype>
 #include <chrono>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <sys/stat.h>
+#include <cerrno>
 
 #define LOG_TAG "NcnnEngine"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -26,6 +30,55 @@ const char* delegateToString(DelegateType delegate) {
 
 constexpr int kTileDefault = 384;
 constexpr int kTileOverlapDefault = 64;
+
+void logFileDiagnostics(const char* stage, const std::string& path) {
+    LOGI("NCNN file_check: stage=%s path=%s", stage, path.c_str());
+
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0) {
+        LOGI(
+            "NCNN file_check_stat: stage=%s path=%s size=%lld bytes",
+            stage,
+            path.c_str(),
+            static_cast<long long>(st.st_size)
+        );
+    } else {
+        const int statErr = errno;
+        LOGE(
+            "NCNN file_check_stat_failed: stage=%s path=%s errno=%d (%s)",
+            stage,
+            path.c_str(),
+            statErr,
+            strerror(statErr)
+        );
+    }
+
+    FILE* fp = fopen(path.c_str(), "rb");
+    if (fp != nullptr) {
+        LOGI("NCNN file_check_fopen: stage=%s path=%s success", stage, path.c_str());
+        fclose(fp);
+    } else {
+        const int fopenErr = errno;
+        LOGE(
+            "NCNN file_check_fopen_failed: stage=%s path=%s errno=%d (%s)",
+            stage,
+            path.c_str(),
+            fopenErr,
+            strerror(fopenErr)
+        );
+    }
+}
+
+void logNcnnFailureHint(const char* operation, const char* model, int ret) {
+    if (ret == -100) {
+        LOGW(
+            "NCNN %s hint: model=%s ret=%d возможно повреждённый файл или неподдерживаемая операция",
+            operation,
+            model,
+            ret
+        );
+    }
+}
 }
 
 std::mutex NcnnEngine::integrityMutex_;
@@ -142,10 +195,12 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
         return false;
     }
 
+    logFileDiagnostics("zerodce_param", zeroDceParam);
     LOGI("NCNN load_param: model=zerodce delegate=%s path=%s", delegateName, zeroDceParam.c_str());
     int ret = zeroDceNet_->load_param(zeroDceParam.c_str());
     if (ret != 0) {
         LOGE("NCNN load_param_failed: model=zerodce delegate=%s path=%s ret=%d", delegateName, zeroDceParam.c_str(), ret);
+        logNcnnFailureHint("load_param", "zerodce", ret);
         return false;
     }
 
@@ -154,10 +209,12 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
         return false;
     }
 
+    logFileDiagnostics("zerodce_bin", zeroDceBin);
     LOGI("NCNN load_model: model=zerodce delegate=%s path=%s", delegateName, zeroDceBin.c_str());
     ret = zeroDceNet_->load_model(zeroDceBin.c_str());
     if (ret != 0) {
         LOGE("NCNN load_model_failed: model=zerodce delegate=%s path=%s ret=%d", delegateName, zeroDceBin.c_str(), ret);
+        logNcnnFailureHint("load_model", "zerodce", ret);
         return false;
     }
 
@@ -166,10 +223,12 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
         return false;
     }
 
+    logFileDiagnostics("restormer_param", restormerParam);
     LOGI("NCNN load_param: model=restormer delegate=%s path=%s", delegateName, restormerParam.c_str());
     ret = restormerNet_->load_param(restormerParam.c_str());
     if (ret != 0) {
         LOGE("NCNN load_param_failed: model=restormer delegate=%s path=%s ret=%d", delegateName, restormerParam.c_str(), ret);
+        logNcnnFailureHint("load_param", "restormer", ret);
         return false;
     }
 
@@ -178,10 +237,12 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
         return false;
     }
 
+    logFileDiagnostics("restormer_bin", restormerBin);
     LOGI("NCNN load_model: model=restormer delegate=%s path=%s", delegateName, restormerBin.c_str());
     ret = restormerNet_->load_model(restormerBin.c_str());
     if (ret != 0) {
         LOGE("NCNN load_model_failed: model=restormer delegate=%s path=%s ret=%d", delegateName, restormerBin.c_str(), ret);
+        logNcnnFailureHint("load_model", "restormer", ret);
         return false;
     }
 

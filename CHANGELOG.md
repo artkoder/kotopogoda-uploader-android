@@ -14,6 +14,7 @@
   - Telemetry reporting (timings, memory usage, Vulkan availability, cancellation status)
   - Configurable quality profiles (BALANCED/QUALITY) and thread count (4-8)
   - Support for arm64-v8a and x86_64 architectures
+- Добавлено детализированное логирование перед загрузкой моделей NCNN (stat/fopen, пути, подсказки по ret=-100) и флаг load_error_param_fp16 в диагностике при сбое Restormer FP16.
 
 ### Changed
 - Enabled application logging by default with a one-time migration that turns it on for existing installs while keeping the settings toggle available for opt-out.
