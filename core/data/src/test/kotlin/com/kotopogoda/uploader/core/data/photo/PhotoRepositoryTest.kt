@@ -141,6 +141,56 @@ class PhotoRepositoryTest {
         }
     }
 
+    @Test
+    fun `findIndexAtOrAfter uses consistent sort key logic for future dates`() = runTest {
+        val targetDate = Instant.parse("2024-10-02T00:00:00Z")
+        val futureDate = Instant.parse("2025-06-07T19:31:00Z")
+
+        val environment = createRepositoryEnvironment(
+            listOf(
+                FakePhoto(
+                    dateTakenMillis = futureDate.toEpochMilli(),
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = null
+                ),
+                FakePhoto(
+                    dateTakenMillis = Instant.parse("2022-01-01T00:00:00Z").toEpochMilli(),
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = null
+                )
+            )
+        )
+
+        val index = environment.repository.findIndexAtOrAfter(targetDate)
+
+        assertEquals(1, index)
+    }
+
+    @Test
+    fun `findIndexAtOrAfter uses consistent sort key logic when falling back to date added`() = runTest {
+        val targetDate = Instant.parse("2024-10-02T00:00:00Z")
+        val futureAdded = Instant.parse("2025-06-07T19:31:00Z").epochSecond
+
+        val environment = createRepositoryEnvironment(
+            listOf(
+                FakePhoto(
+                    dateTakenMillis = null,
+                    dateAddedSeconds = futureAdded,
+                    dateModifiedSeconds = null
+                ),
+                FakePhoto(
+                    dateTakenMillis = null,
+                    dateAddedSeconds = Instant.parse("2022-01-01T00:00:00Z").epochSecond,
+                    dateModifiedSeconds = null
+                )
+            )
+        )
+
+        val index = environment.repository.findIndexAtOrAfter(targetDate)
+
+        assertEquals(1, index)
+    }
+
     private fun createRepositoryEnvironment(
         photos: List<FakePhoto>
     ): RepositoryEnvironment {
@@ -250,6 +300,26 @@ class PhotoRepositoryTest {
         if (selection.isNullOrBlank()) {
             return true
         }
+
+        if (selection.contains(PhotoRepository.SORT_KEY_EXPRESSION)) {
+             val timestamp = photo.effectiveTimestampMillis() ?: return false
+             val thresholds = args?.mapNotNull { it.toLongOrNull() } ?: emptyList()
+
+             if (selection.contains("> ?")) {
+                 val threshold = thresholds.getOrElse(0) { Long.MIN_VALUE }
+                 return timestamp > threshold
+             }
+             if (selection.contains(">= ?") && !selection.contains("< ?")) {
+                 val threshold = thresholds.getOrElse(0) { Long.MIN_VALUE }
+                 return timestamp >= threshold
+             }
+             if (selection.contains(">= ?") && selection.contains("< ?")) {
+                 val start = thresholds.getOrElse(0) { Long.MIN_VALUE }
+                 val end = thresholds.getOrElse(1) { Long.MAX_VALUE }
+                 return timestamp >= start && timestamp < end
+             }
+        }
+
         val thresholds = args?.mapNotNull { it.toLongOrNull() } ?: emptyList()
         val timestamp = photo.effectiveTimestampMillis() ?: return false
         return when {
@@ -266,7 +336,7 @@ class PhotoRepositoryTest {
                 val threshold = thresholds.getOrElse(0) { Long.MIN_VALUE }
                 timestamp > threshold
             }
-            else -> true
+            else -> false
         }
     }
 

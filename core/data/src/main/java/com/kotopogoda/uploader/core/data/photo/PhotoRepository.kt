@@ -271,27 +271,9 @@ class PhotoRepository @Inject constructor(
         inclusive: Boolean
     ): Pair<String, Array<String>> {
         val operator = if (inclusive) ">=" else ">"
-        val selection = buildString {
-            append("(")
-            append("(")
-            append(DATE_TAKEN_POSITIVE_CONDITION)
-            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} $operator ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_POSITIVE_CONDITION)
-            append(" AND $DATE_ADDED_MILLIS_EXPRESSION $operator ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_MODIFIED_POSITIVE_CONDITION)
-            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION $operator ?)")
-            append(")")
-        }
+        val selection = "($SORT_KEY_EXPRESSION) $operator ?"
         val arg = thresholdMillis.toString()
-        val args = arrayOf(arg, arg, arg)
+        val args = arrayOf(arg)
         return selection to args
     }
 
@@ -299,31 +281,10 @@ class PhotoRepository @Inject constructor(
         startMillisInclusive: Long,
         endMillisExclusive: Long
     ): Pair<String, Array<String>> {
-        val selection = buildString {
-            append("(")
-            append("(")
-            append(DATE_TAKEN_POSITIVE_CONDITION)
-            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} >= ?")
-            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} < ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_POSITIVE_CONDITION)
-            append(" AND $DATE_ADDED_MILLIS_EXPRESSION >= ?")
-            append(" AND $DATE_ADDED_MILLIS_EXPRESSION < ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_MODIFIED_POSITIVE_CONDITION)
-            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION >= ?")
-            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION < ?)")
-            append(")")
-        }
+        val selection = "($SORT_KEY_EXPRESSION) >= ? AND ($SORT_KEY_EXPRESSION) < ?"
         val start = startMillisInclusive.toString()
         val end = endMillisExclusive.toString()
-        val args = arrayOf(start, end, start, end, start, end)
+        val args = arrayOf(start, end)
         return selection to args
     }
 
@@ -558,7 +519,7 @@ class PhotoRepository @Inject constructor(
     companion object {
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
-        private const val SORT_KEY_EXPRESSION =
+        internal const val SORT_KEY_EXPRESSION =
             "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
                 "WHEN ${MediaStore.Images.Media.DATE_ADDED} > 0 " +
