@@ -48,10 +48,10 @@ __pycache__/
 
 .android-sdk/
 
-# Модели энхансера (NCNN артефакты),
-# скачиваются через :app:fetchModels и не должны храниться в репо
-app/src/main/assets/models/
-app/src/main/assets/models/**/*
+# Model artifacts
+app/src/main/assets/models/*.tflite
+app/src/main/assets/models/*.tflite.sha256
+app/src/main/assets/models/*.zip
 .work/
 dist/
 
