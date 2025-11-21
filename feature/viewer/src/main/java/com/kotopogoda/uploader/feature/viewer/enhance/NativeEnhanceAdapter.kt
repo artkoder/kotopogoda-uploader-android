@@ -396,7 +396,7 @@ class NativeEnhanceAdapter @Inject constructor(
     companion object {
         private const val TAG = "NativeEnhanceAdapter"
         private const val ZERO_DCE_MODEL_NAME = "zerodcepp_fp16"
-        private const val RESTORMER_MODEL_CPU = "restormer_fp32"
+        private const val RESTORMER_MODEL_CPU = "restormer_fp16"
         private val cpuOnlyLogGuard = AtomicBoolean(false)
     }
 }
