@@ -29,7 +29,7 @@ jobject buildTelemetryPayload(
     jmethodID ctor = env->GetMethodID(
         telemetryClass,
         "<init>",
-        "(ZJZJZZIJJZIIIIFFILjava/lang/String;)V"
+        "(ZJZJZZIJJZIIIIFFILjava/lang/String;Ljava/lang/String;)V"
     );
     if (ctor == nullptr) {
         env->DeleteLocalRef(telemetryClass);
@@ -39,6 +39,13 @@ jobject buildTelemetryPayload(
     const char* delegateName = "cpu";
     jstring delegateUsed = env->NewStringUTF(delegateName);
     if (delegateUsed == nullptr) {
+        env->DeleteLocalRef(telemetryClass);
+        return nullptr;
+    }
+
+    jstring restPrecision = env->NewStringUTF(telemetry.restPrecision.c_str());
+    if (restPrecision == nullptr) {
+        env->DeleteLocalRef(delegateUsed);
         env->DeleteLocalRef(telemetryClass);
         return nullptr;
     }
@@ -63,10 +70,12 @@ jobject buildTelemetryPayload(
         telemetry.seamMaxDelta,
         telemetry.seamMeanDelta,
         static_cast<jint>(telemetry.gpuAllocRetryCount),
-        delegateUsed
+        delegateUsed,
+        restPrecision
     );
 
     env->DeleteLocalRef(delegateUsed);
+    env->DeleteLocalRef(restPrecision);
     env->DeleteLocalRef(telemetryClass);
     return payload;
 }
@@ -246,23 +255,6 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     LOGI("Движок с handle=%lld освобожден", (long long)handle);
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeIsGpuDelegateAvailable(
-    JNIEnv* env,
-    jobject thiz,
-    jlong handle
-) {
-    (void)env;
-    (void)thiz;
-
-    std::lock_guard<std::mutex> lock(g_enginesMutex);
-    auto it = g_engines.find(handle);
-    if (it == g_engines.end()) {
-        return JNI_FALSE;
-    }
-
-    return it->second->isGpuDelegateAvailable() ? JNI_TRUE : JNI_FALSE;
-}
 
 JNIEXPORT jobjectArray JNICALL
 Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nativeConsumeIntegrityFailure(

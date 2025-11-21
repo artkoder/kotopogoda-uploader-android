@@ -2774,14 +2774,7 @@ class ViewerViewModel @Inject constructor(
         )
     }
 
-    private fun selectEngineDelegate(): EnhanceEngine.Delegate {
-        val sdk = buildVersionOverride ?: Build.VERSION.SDK_INT
-        return if (sdk >= Build.VERSION_CODES.O) {
-            EnhanceEngine.Delegate.GPU
-        } else {
-            EnhanceEngine.Delegate.CPU
-        }
-    }
+    private fun selectEngineDelegate(): EnhanceEngine.Delegate = EnhanceEngine.Delegate.CPU
 
     private suspend fun runFallbackEnhancement(
         workspace: EnhancementWorkspace,
