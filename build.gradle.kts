@@ -246,33 +246,42 @@ abstract class FetchModelsTask : DefaultTask() {
         if (trimmed.isEmpty() || trimmed == ".") {
             return null
         }
-        var path = Paths.get(trimmed).normalize()
+        val path = Paths.get(trimmed).normalize()
         require(!path.isAbsolute) { "Поле 'unzipped' для модели должно быть относительным путём" }
         for (name in path) {
             require(name.toString() != "..") { "Поле 'unzipped' не должно содержать '..'" }
         }
-        if (path.nameCount > 0 && path.getName(0).toString() == targetDir.name) {
-            path = if (path.nameCount == 1) Paths.get("") else path.subpath(1, path.nameCount)
+        if (path.nameCount == 0) {
+            return null
         }
-        return if (path.nameCount == 0) null else path
+        if (path.getName(0).toString() == targetDir.name) {
+            return if (path.nameCount == 1) null else path.subpath(1, path.nameCount)
+        }
+        return path
     }
 
     private fun normaliseArchivePrefix(value: String?, targetDir: java.io.File): String? {
         val raw = value?.trim()?.takeIf { it.isNotEmpty() && it != "." } ?: return null
         val path = Paths.get(raw).normalize()
-        val iterator = path.iterator()
-        return if (iterator.hasNext() && iterator.next().toString() == targetDir.name) {
-            targetDir.name
-        } else {
-            null
+        if (path.nameCount == 0) {
+            return null
         }
+        val firstSegment = path.getName(0).toString()
+        return firstSegment.takeIf { it == targetDir.name }
     }
 
-
-
     private fun stripArchivePrefix(entryName: String, prefix: String?): String? {
-        val normalizedName = entryName.replace('\', '/').trimStart('/')
+        var normalizedName = entryName
+            .replace('\', '/')
+            .removePrefix("./")
+            .trimStart('/')
+        if (normalizedName.isEmpty()) {
+            return null
+        }
         val effectivePrefix = prefix?.replace('\', '/')?.trim('/') ?: return normalizedName
+        if (effectivePrefix.isEmpty()) {
+            return normalizedName
+        }
         if (normalizedName == effectivePrefix) {
             return null
         }
@@ -284,7 +293,6 @@ abstract class FetchModelsTask : DefaultTask() {
         }
         return stripped.ifEmpty { null }
     }
-
 
     private fun resolveRootDir(baseDir: java.io.File, root: Path?): java.io.File {
         val basePath = baseDir.toPath()
