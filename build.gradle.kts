@@ -272,13 +272,16 @@ abstract class FetchModelsTask : DefaultTask() {
 
     private fun stripArchivePrefix(entryName: String, prefix: String?): String? {
         var normalizedName = entryName
-            .replace('\', '/')
+            .replace('\\', '/')
             .removePrefix("./")
             .trimStart('/')
         if (normalizedName.isEmpty()) {
             return null
         }
-        val effectivePrefix = prefix?.replace('\', '/')?.trim('/') ?: return normalizedName
+        val effectivePrefix = prefix
+            ?.replace('\\', '/')
+            ?.trim('/')
+            ?: return normalizedName
         if (effectivePrefix.isEmpty()) {
             return normalizedName
         }
@@ -293,6 +296,7 @@ abstract class FetchModelsTask : DefaultTask() {
         }
         return stripped.ifEmpty { null }
     }
+
 
     private fun resolveRootDir(baseDir: java.io.File, root: Path?): java.io.File {
         val basePath = baseDir.toPath()
