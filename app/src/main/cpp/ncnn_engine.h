@@ -58,7 +58,7 @@ struct TelemetryData {
     long durationMsVulkan = 0;
     long durationMsCpu = 0;
     DelegateType delegate = DelegateType::CPU;
-    std::string restPrecision = "fp32";
+    std::string restPrecision = "fp16";
     FallbackCause fallbackCause = FallbackCause::NONE;
 };
 

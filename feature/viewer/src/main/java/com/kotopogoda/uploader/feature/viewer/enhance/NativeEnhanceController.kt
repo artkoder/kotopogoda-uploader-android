@@ -483,7 +483,7 @@ class NativeEnhanceController(
         private const val RELEASED = 4
 
         private const val BACKEND_ID = "ncnn_cpu"
-        private const val BACKEND_PRECISION = "fp32"
+        private const val BACKEND_PRECISION = "fp16"
         private const val NATIVE_TILE_SIZE = 384
         private const val NATIVE_TILE_OVERLAP = 64
         private const val DELEGATE_CPU = "cpu"

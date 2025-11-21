@@ -45,9 +45,9 @@ class NativeEnhanceIntegrityTest {
             assetManager = context.assets,
             modelsDir = modelsDir,
             zeroDceChecksums = lock.require("zerodcepp_fp16").toChecksums(),
-            restormerChecksums = lock.require("restormer_fp32").toChecksums(),
+            restormerChecksums = lock.require("restormer_fp16").toChecksums(),
             zeroDceFiles = lock.require("zerodcepp_fp16").toModelFiles(),
-            restormerFiles = lock.require("restormer_fp32").toModelFiles(),
+            restormerFiles = lock.require("restormer_fp16").toModelFiles(),
             previewProfile = NativeEnhanceController.PreviewProfile.BALANCED,
         )
 

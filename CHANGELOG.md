@@ -18,6 +18,7 @@
 ### Changed
 - Enabled application logging by default with a one-time migration that turns it on for existing installs while keeping the settings toggle available for opt-out.
 - Removed the Wi-Fi only upload switch — the app now uses any available network when scheduling uploads.
+- Switched the CPU backend to the FP16 Restormer model so the FP32 variant is no longer loaded or required.
 
 ### Testing
 - Unit tests validating health status mapping from the API.

@@ -48,7 +48,7 @@ object ViewerEnhanceModule {
     @Named("restormerChecksums")
     fun provideRestormerChecksums(lock: ModelsLock): NativeEnhanceController.ModelChecksums {
         return try {
-            requireModelChecksums(lock.require("restormer_fp32"))
+            requireModelChecksums(lock.require("restormer_fp16"))
         } catch (e: Exception) {
             Timber.e(e, "Failed to get restormer checksums from models.lock.json")
             throw e
