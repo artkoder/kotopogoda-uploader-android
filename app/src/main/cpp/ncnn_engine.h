@@ -58,6 +58,7 @@ struct TelemetryData {
     long durationMsVulkan = 0;
     long durationMsCpu = 0;
     DelegateType delegate = DelegateType::CPU;
+    std::string restPrecision = "fp16";
     FallbackCause fallbackCause = FallbackCause::NONE;
 };
 
@@ -134,6 +135,7 @@ private:
     std::atomic<bool> gpuDelegateAvailable_;
     std::atomic<bool> forceCpuMode_;
     std::atomic<DelegateType> currentDelegate_;
+    std::string restPrecision_;
 
     static std::mutex integrityMutex_;
     static IntegrityFailure lastIntegrityFailure_;

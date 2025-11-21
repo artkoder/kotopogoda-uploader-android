@@ -22,4 +22,5 @@ data class NativeRunTelemetry(
     val seamMeanDelta: Float,
     val gpuAllocRetryCount: Int,
     val delegateUsed: String,
+    val restPrecision: String,
 )

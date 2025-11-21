@@ -48,7 +48,8 @@ NcnnEngine::NcnnEngine()
       vulkanAvailable_(false),
       gpuDelegateAvailable_(false),
       forceCpuMode_(false),
-      currentDelegate_(DelegateType::CPU) {
+      currentDelegate_(DelegateType::CPU),
+      restPrecision_("fp16") {
 }
 
 NcnnEngine::~NcnnEngine() {
@@ -134,11 +135,24 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
 
     LOGI("NCNN models configured for CPU: threads=%d", cpuThreads);
 
-    const char* delegateName = "cpu";
+    const DelegateType delegate = currentDelegate_.load();
+    const char* delegateName = delegateToString(delegate);
     std::string zeroDceParam = modelsDir + "/zerodcepp_fp16.param";
     std::string zeroDceBin = modelsDir + "/zerodcepp_fp16.bin";
-    std::string restormerParam = modelsDir + "/restormer_fp16.param";
-    std::string restormerBin = modelsDir + "/restormer_fp16.bin";
+    std::string restormerParam;
+    std::string restormerBin;
+
+    if (delegate == DelegateType::CPU) {
+        restormerParam = modelsDir + "/restormer_fp32.param";
+        restormerBin = modelsDir + "/restormer_fp32.bin";
+        restPrecision_ = "fp32";
+        LOGI("NcnnEngine: using Restormer FP32 for CPU backend");
+    } else {
+        restormerParam = modelsDir + "/restormer_fp16.param";
+        restormerBin = modelsDir + "/restormer_fp16.bin";
+        restPrecision_ = "fp16";
+        LOGI("NcnnEngine: using Restormer FP16 for non-CPU backend");
+    }
 
     if (!verifyChecksum(zeroDceParam, zeroDceChecksums_.param)) {
         LOGE("Контрольная сумма Zero-DCE++ param не совпадает");
@@ -188,7 +202,7 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
         return false;
     }
 
-    LOGI("NCNN models ready: backend=ncnn delegate=%s precision=fp16 tile_default=%d", delegateName, kTileDefault);
+    LOGI("NCNN models ready: backend=ncnn delegate=%s precision=%s tile_default=%d", delegateName, restPrecision_.c_str(), kTileDefault);
     return true;
 }
 
@@ -314,6 +328,7 @@ bool NcnnEngine::runPreview(
     telemetry.durationMsCpu = 0;
     telemetry.fallbackCause = FallbackCause::NONE;
     telemetry.delegate = DelegateType::CPU;
+    telemetry.restPrecision = restPrecision_;
     telemetry.usedVulkan = false;
     telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
 
@@ -428,6 +443,7 @@ bool NcnnEngine::runFull(
     telemetry.durationMsCpu = 0;
     telemetry.fallbackCause = FallbackCause::NONE;
     telemetry.delegate = DelegateType::CPU;
+    telemetry.restPrecision = restPrecision_;
     telemetry.usedVulkan = false;
     telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
 
