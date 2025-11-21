@@ -12,6 +12,82 @@ from typing import Dict, List
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 
+def _as_float(value: object | None) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return float(stripped)
+        except ValueError:
+            return None
+    return None
+
+
+def _to_positive_int(value: object | None) -> int | None:
+    number = _as_float(value)
+    if number is None:
+        return None
+    candidate = int(number)
+    if candidate <= 0:
+        return None
+    return candidate
+
+
+def _megabytes_to_bytes(value: object | None) -> int:
+    number = _as_float(value)
+    if number is None or number <= 0:
+        return 0
+    return int(number * 1024 * 1024)
+
+
+def _normalize_precision(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    return text or None
+
+
+def _backend_metadata(model_cfg: Dict[str, object], backend: str) -> Dict[str, object]:
+    metadata = model_cfg.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    candidates = (backend, backend.lower(), backend.upper())
+    for key in candidates:
+        payload = metadata.get(key)
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _resolve_min_bytes(file_cfg: dict, fallback_bytes: int) -> int:
+    override_bytes = _to_positive_int(file_cfg.get("min_bytes"))
+    if override_bytes is not None:
+        return override_bytes
+    descriptor_bytes = _megabytes_to_bytes(file_cfg.get("min_mb"))
+    if descriptor_bytes > 0:
+        return descriptor_bytes
+    return fallback_bytes
+
+
+def _should_include_in_runtime(model_cfg: Dict[str, object]) -> bool:
+    runtime_cfg = model_cfg.get("runtime")
+    if isinstance(runtime_cfg, bool):
+        return runtime_cfg
+    if isinstance(runtime_cfg, dict):
+        include_value = runtime_cfg.get("include")
+        exclude_value = runtime_cfg.get("exclude")
+        if isinstance(exclude_value, bool) and exclude_value:
+            return False
+        if isinstance(include_value, bool):
+            return include_value
+    return True
+
+
 def _resolve_path(raw: str | None, default: pathlib.Path) -> pathlib.Path:
     if not raw:
         return default
@@ -50,7 +126,7 @@ def load_runtime_entries() -> List[Dict[str, object]]:
 
     for model_id in sorted(models.keys()):
         cfg = models[model_id]
-        if not cfg.get("enabled", True):
+        if not _should_include_in_runtime(cfg):
             continue
 
         backend_value = cfg.get("backend", "ncnn")
@@ -58,12 +134,14 @@ def load_runtime_entries() -> List[Dict[str, object]]:
         if normalized_backend != "ncnn":
             continue
 
+        backend_meta = _backend_metadata(cfg, normalized_backend)
         unzipped_root = pathlib.Path(cfg.get("unzipped") or "models")
+        common_min_bytes = _megabytes_to_bytes(cfg.get("min_mb"))
         files_cfg = cfg.get("files") or []
         if not files_cfg:
             continue
 
-        files: List[Dict[str, str]] = []
+        files: List[Dict[str, object]] = []
         for descriptor in files_cfg:
             rel_name = descriptor.get("path")
             if not rel_name:
@@ -85,19 +163,37 @@ def load_runtime_entries() -> List[Dict[str, object]]:
             if not disk_path.exists():
                 print(f"[ERROR] missing model file: {disk_path}", file=sys.stderr)
                 sys.exit(2)
-            files.append(
-                {
-                    "path": rel_path.as_posix(),
-                    "sha256": sha256(disk_path),
-                }
-            )
+            min_bytes = _resolve_min_bytes(descriptor, common_min_bytes)
+            file_entry: Dict[str, object] = {
+                "path": rel_path.as_posix(),
+                "sha256": sha256(disk_path),
+            }
+            if min_bytes > 0:
+                file_entry["min_bytes"] = min_bytes
+            files.append(file_entry)
 
-        if files:
-            entries.append({
-                "id": model_id,
-                "backend": normalized_backend,
-                "files": files,
-            })
+        if not files:
+            continue
+
+        entry: Dict[str, object] = {
+            "id": model_id,
+            "backend": normalized_backend,
+            "files": files,
+        }
+
+        precision = _normalize_precision(
+            cfg.get("precision") or backend_meta.get("precision")
+        )
+        if precision:
+            entry["precision"] = precision
+
+        tile_size = _to_positive_int(backend_meta.get("tile_size"))
+        if tile_size is None:
+            tile_size = _to_positive_int(cfg.get("tile_size"))
+        if tile_size is not None:
+            entry["tile_size"] = tile_size
+
+        entries.append(entry)
 
     return entries
 
