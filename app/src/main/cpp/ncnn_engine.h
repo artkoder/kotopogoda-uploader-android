@@ -58,7 +58,7 @@ struct TelemetryData {
     long durationMsVulkan = 0;
     long durationMsCpu = 0;
     DelegateType delegate = DelegateType::CPU;
-    std::string restPrecision = "fp16";
+    std::string restPrecision = "fp32";
     FallbackCause fallbackCause = FallbackCause::NONE;
 };
 
@@ -107,7 +107,6 @@ public:
     void release();
 
     bool isInitialized() const { return initialized_; }
-    bool isGpuDelegateAvailable() const { return gpuDelegateAvailable_; }
 
     static IntegrityFailure consumeLastIntegrityFailure();
 
@@ -131,8 +130,6 @@ private:
 
     std::atomic<bool> initialized_;
     std::atomic<bool> cancelled_;
-    std::atomic<bool> vulkanAvailable_;
-    std::atomic<bool> gpuDelegateAvailable_;
     std::atomic<bool> forceCpuMode_;
     std::atomic<DelegateType> currentDelegate_;
     std::string restPrecision_;

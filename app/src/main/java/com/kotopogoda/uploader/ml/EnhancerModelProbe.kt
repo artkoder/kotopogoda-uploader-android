@@ -309,6 +309,8 @@ object EnhancerModelProbe {
 
     private fun defaultProbeMetadata(): Map<String, Any?> = mapOf(
         "backend" to "ncnn_cpu",
+        "delegate_plan" to "cpu_only",
+        "delegate_available" to "cpu_only",
         "vulkan_available" to false,
         "tile_default" to TILE_DEFAULT,
         "app_version" to BuildConfig.VERSION_NAME,

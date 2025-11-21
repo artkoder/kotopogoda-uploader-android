@@ -206,7 +206,7 @@ End-to-end тесты на реальном устройстве/эмулято�
 
 ## QA: принудительный CPU backend
 
-Энхансер теперь всегда стартует в CPU-only режиме. В телеметрии (`native_controller_init`, `native_delegate_status`, preview/full events) по умолчанию будут `delegate_plan=cpu`, `delegate_available=cpu_only`, `delegate_used=cpu`, `force_cpu=true`, `force_cpu_reason="cpu_only"` независимо от устройства.
+Энхансер теперь всегда стартует в CPU-only режиме. В телеметрии (`native_controller_init`, `native_delegate_status`, preview/full events) по умолчанию будут `delegate_plan=cpu_only`, `delegate_available=cpu_only`, `delegate_used=cpu`, `force_cpu=true`, `force_cpu_reason="cpu_only"`, `restormer_precision="fp32"` независимо от устройства.
 
 Переключатель **«Принудительно CPU backend»** в dev-настройках остаётся доступным, но влияет только на логи/телеметрию (через `NativeEnhanceController.setForceCpuOverride` и DiagnosticContextProvider). Используйте его, чтобы пометить конкретные QA-сессии или автотесты, не ожидая изменения фактического бэкенда.
 
