@@ -52,7 +52,7 @@
     "artifact": "restormer_fp32",
     "version": "v1",
     "precision": "fp32",
-    "enabled": false,
+    "enabled": true,
     "tile_size": 384,
     "sources": [
       {
