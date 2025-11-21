@@ -67,7 +67,7 @@ abstract class FetchModelsTask : DefaultTask() {
         group = "models"
         description = "Скачивает и распаковывает ML-модели согласно models.lock.json"
         lockFile.convention(project.layout.projectDirectory.file("models.lock.json"))
-        targetDir.convention(project.layout.projectDirectory.dir("app/src/main/assets"))
+        targetDir.convention(project.layout.projectDirectory.dir("app/src/main/assets/models"))
         buildDir.convention(project.layout.buildDirectory.dir("models"))
     }
 
@@ -96,6 +96,8 @@ abstract class FetchModelsTask : DefaultTask() {
             assetsDir.mkdirs()
         }
 
+        val summaries = mutableListOf<ModelSummary>()
+
         models.forEach { (nameAny, payloadAny) ->
             val name = nameAny?.toString() ?: error("Имя модели отсутствует")
             val payload = payloadAny as? Map<*, *> ?: error("Модель '$name' имеет некорректный формат")
@@ -106,12 +108,16 @@ abstract class FetchModelsTask : DefaultTask() {
                 is String -> enabledRaw.equals("true", ignoreCase = true) || enabledRaw == "1"
                 else -> true
             }
-            if (!enabled) {
-                logger.lifecycle("Модель '$name' отключена (enabled=false), пропускаем скачивание")
-                return@forEach
-            }
             val release = payload["release"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: error("Для модели '$name' не указан release")
+            val precision = payload["precision"]?.toString()
+            val displayName = payload["title"]?.toString()?.takeIf { it.isNotBlank() }
+                ?: formatModelName(name)
+            if (!enabled) {
+                logger.lifecycle("Модель '$name' отключена (enabled=false), пропускаем скачивание")
+                summaries += ModelSummary(name, displayName, release, precision, ModelStatus.DISABLED)
+                return@forEach
+            }
             val assetName = payload["asset"]?.toString()?.takeIf { it.isNotBlank() }
             val modelRepository = payload["repository"]?.toString()?.takeIf { it.isNotBlank() } ?: repository
             val assetSha = payload["sha256"]?.toString()?.lowercase(Locale.US)
@@ -119,7 +125,8 @@ abstract class FetchModelsTask : DefaultTask() {
             val payloadUrl = payload["url"]?.toString()?.takeIf { it.isNotBlank() }
             val unzipped = payload["unzipped"]?.toString()
                 ?: error("Для модели '$name' не указан unzipped")
-            val unzippedPath = normaliseUnzipped(unzipped)
+            val archivePrefix = normaliseArchivePrefix(unzipped, assetsDir)
+            val unzippedPath = normaliseUnzipped(unzipped, assetsDir)
             val files = readFileEntries(name, payload)
             val packagingRaw = payload["packaging"]?.toString()?.lowercase(Locale.US)
             val packaging = packagingRaw
@@ -141,6 +148,7 @@ abstract class FetchModelsTask : DefaultTask() {
             }
             if (ready) {
                 logger.lifecycle("Модель '$name' уже загружена, проверка пройдена")
+                summaries += ModelSummary(name, displayName, release, precision, ModelStatus.ALREADY_PRESENT)
                 return@forEach
             }
 
@@ -167,6 +175,7 @@ abstract class FetchModelsTask : DefaultTask() {
                         }
                     }
                 }
+                summaries += ModelSummary(name, displayName, release, precision, ModelStatus.DOWNLOADED)
                 return@forEach
             }
 
@@ -188,7 +197,7 @@ abstract class FetchModelsTask : DefaultTask() {
 
             cleanupTarget(assetsDir, unzippedPath, files)
 
-            unzip(archiveFile, assetsDir)
+            unzip(archiveFile, assetsDir, archivePrefix)
 
             files.forEach { entry ->
                 val modelFile = resolveFile(assetsDir, unzippedPath, entry.path)
@@ -199,7 +208,10 @@ abstract class FetchModelsTask : DefaultTask() {
                     throw IllegalStateException("Файл ${entry.path} не прошёл проверку SHA-256")
                 }
             }
+            summaries += ModelSummary(name, displayName, release, precision, ModelStatus.DOWNLOADED)
         }
+
+        logSummary(summaries, assetsDir)
 
         println("ok=true")
     }
@@ -229,7 +241,7 @@ abstract class FetchModelsTask : DefaultTask() {
         }
     }
 
-    private fun normaliseUnzipped(value: String): Path? {
+    private fun normaliseUnzipped(value: String, targetDir: java.io.File): Path? {
         val trimmed = value.trim()
         if (trimmed.isEmpty() || trimmed == ".") {
             return null
@@ -239,8 +251,52 @@ abstract class FetchModelsTask : DefaultTask() {
         for (name in path) {
             require(name.toString() != "..") { "Поле 'unzipped' не должно содержать '..'" }
         }
-        return if (path.nameCount == 0) null else path
+        if (path.nameCount == 0) {
+            return null
+        }
+        if (path.getName(0).toString() == targetDir.name) {
+            return if (path.nameCount == 1) null else path.subpath(1, path.nameCount)
+        }
+        return path
     }
+
+    private fun normaliseArchivePrefix(value: String?, targetDir: java.io.File): String? {
+        val raw = value?.trim()?.takeIf { it.isNotEmpty() && it != "." } ?: return null
+        val path = Paths.get(raw).normalize()
+        if (path.nameCount == 0) {
+            return null
+        }
+        val firstSegment = path.getName(0).toString()
+        return firstSegment.takeIf { it == targetDir.name }
+    }
+
+    private fun stripArchivePrefix(entryName: String, prefix: String?): String? {
+        var normalizedName = entryName
+            .replace('\\', '/')
+            .removePrefix("./")
+            .trimStart('/')
+        if (normalizedName.isEmpty()) {
+            return null
+        }
+        val effectivePrefix = prefix
+            ?.replace('\\', '/')
+            ?.trim('/')
+            ?: return normalizedName
+        if (effectivePrefix.isEmpty()) {
+            return normalizedName
+        }
+        if (normalizedName == effectivePrefix) {
+            return null
+        }
+        val prefixed = "$effectivePrefix/"
+        val stripped = if (normalizedName.startsWith(prefixed)) {
+            normalizedName.removePrefix(prefixed)
+        } else {
+            normalizedName
+        }
+        return stripped.ifEmpty { null }
+    }
+
 
     private fun resolveRootDir(baseDir: java.io.File, root: Path?): java.io.File {
         val basePath = baseDir.toPath()
@@ -269,12 +325,17 @@ abstract class FetchModelsTask : DefaultTask() {
         if (root != null) {
             val rootDir = resolveRootDir(baseDir, root)
             if (rootDir.exists()) {
-                rootDir.deleteRecursively()
+                rootDir.listFiles()?.forEach { entry ->
+                    if (entry.name == ".gitignore") {
+                        return@forEach
+                    }
+                    entry.deleteRecursively()
+                }
             }
         } else {
             files.forEach { entry ->
                 val existing = resolveFile(baseDir, null, entry.path)
-                if (existing.exists()) {
+                if (existing.exists() && existing.name != ".gitignore") {
                     existing.delete()
                 }
             }
@@ -306,11 +367,16 @@ abstract class FetchModelsTask : DefaultTask() {
         }
     }
 
-    private fun unzip(archive: java.io.File, target: java.io.File) {
+    private fun unzip(archive: java.io.File, target: java.io.File, stripPrefix: String?) {
         ZipInputStream(archive.inputStream().buffered()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
-                val outFile = target.resolve(entry.name)
+                val relativeName = stripArchivePrefix(entry.name, stripPrefix)
+                if (relativeName.isNullOrEmpty()) {
+                    entry = zip.nextEntry
+                    continue
+                }
+                val outFile = target.resolve(relativeName)
                 if (entry.isDirectory) {
                     outFile.mkdirs()
                 } else {
@@ -337,6 +403,65 @@ abstract class FetchModelsTask : DefaultTask() {
         return digest.digest().joinToString(separator = "") { byte ->
             "%02x".format(byte)
         }
+    }
+
+    private fun logSummary(summaries: List<ModelSummary>, targetDir: java.io.File) {
+        val targetLabel = relativePath(targetDir)
+        if (summaries.isEmpty()) {
+            logger.lifecycle("fetchModels summary: нет моделей для обработки (target=$targetLabel)")
+            return
+        }
+        logger.lifecycle("fetchModels summary (target=$targetLabel):")
+        summaries.forEach { summary ->
+            val precisionLabel = summary.precision?.takeIf { it.isNotBlank() }?.uppercase(Locale.US)
+            val details = listOfNotNull(summary.release, precisionLabel)
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString(prefix = " [", postfix = "]", separator = ", ")
+                ?: ""
+            val statusText = when (summary.status) {
+                ModelStatus.DISABLED -> "отключена"
+                ModelStatus.ALREADY_PRESENT -> "уже актуальна"
+                ModelStatus.DOWNLOADED -> "скачана"
+            }
+            logger.lifecycle(" • ${summary.displayName}$details — $statusText")
+        }
+    }
+
+    private fun relativePath(targetDir: java.io.File): String {
+        return try {
+            project.rootDir.toPath().relativize(targetDir.toPath()).toString()
+        } catch (_: IllegalArgumentException) {
+            targetDir.absolutePath
+        }
+    }
+
+    private fun formatModelName(name: String): String {
+        val parts = name.split('_')
+            .filter { it.isNotBlank() }
+            .map { part ->
+                if (part.startsWith("fp", ignoreCase = true) && part.drop(2).all { it.isDigit() }) {
+                    "FP${part.drop(2)}"
+                } else {
+                    part.replaceFirstChar { char ->
+                        if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
+                    }
+                }
+            }
+        return parts.joinToString(" ").ifBlank { name }
+    }
+
+    private data class ModelSummary(
+        val name: String,
+        val displayName: String,
+        val release: String,
+        val precision: String?,
+        val status: ModelStatus,
+    )
+
+    private enum class ModelStatus {
+        DISABLED,
+        ALREADY_PRESENT,
+        DOWNLOADED,
     }
 
     private data class FileEntry(
