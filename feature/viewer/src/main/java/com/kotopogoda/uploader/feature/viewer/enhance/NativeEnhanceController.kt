@@ -27,6 +27,7 @@ class NativeEnhanceController(
     private var lastDelegateAvailable: String = DELEGATE_CPU_ONLY
     private var lastDelegateUsed: String = DELEGATE_CPU
     private var lastVulkanAvailable: Boolean = false
+    private var lastRestPrecision: String = BACKEND_PRECISION
 
     enum class PreviewProfile {
         BALANCED,
@@ -257,6 +258,7 @@ class NativeEnhanceController(
             val telemetry = nativeRunPreview(nativeHandle, sourceBitmap, strength)
             val elapsed = System.currentTimeMillis() - startTime
 
+            lastRestPrecision = telemetry.restPrecision
             val success = telemetry.success
             val timing = telemetry.timingMs
             val usedVulkan = telemetry.usedVulkan
@@ -289,6 +291,7 @@ class NativeEnhanceController(
                     "seam_max_delta" to telemetry.seamMaxDelta,
                     "seam_mean_delta" to telemetry.seamMeanDelta,
                     "gpu_alloc_retry_count" to telemetry.gpuAllocRetryCount,
+                    "rest_precision" to telemetry.restPrecision,
                 ) + previewCompleteMetadata,
             )
 
@@ -352,6 +355,7 @@ class NativeEnhanceController(
             val telemetry = nativeRunFull(nativeHandle, sourceBitmap, strength, resultBitmap)
             val elapsed = System.currentTimeMillis() - startTime
 
+            lastRestPrecision = telemetry.restPrecision
             val success = telemetry.success
             val timing = telemetry.timingMs
             val usedVulkan = telemetry.usedVulkan
@@ -385,6 +389,7 @@ class NativeEnhanceController(
                     "seam_max_delta" to telemetry.seamMaxDelta,
                     "seam_mean_delta" to telemetry.seamMeanDelta,
                     "gpu_alloc_retry_count" to telemetry.gpuAllocRetryCount,
+                    "rest_precision" to telemetry.restPrecision,
                 ) + fullCompleteMetadata,
             )
 
@@ -441,6 +446,7 @@ class NativeEnhanceController(
         lastDelegateAvailable = DELEGATE_CPU_ONLY
         lastDelegateUsed = DELEGATE_CPU
         lastVulkanAvailable = false
+        lastRestPrecision = BACKEND_PRECISION
     }
 
     fun isInitialized(): Boolean = initializationFlag.get() == INITIALIZED
@@ -493,7 +499,7 @@ class NativeEnhanceController(
         private const val RELEASED = 4
 
         private const val BACKEND_ID = "ncnn_cpu"
-        private const val BACKEND_PRECISION = "fp16"
+        private const val BACKEND_PRECISION = "fp32"
         private const val NATIVE_TILE_SIZE = 384
         private const val NATIVE_TILE_OVERLAP = 64
         private const val DELEGATE_CPU = "cpu"
@@ -541,7 +547,7 @@ class NativeEnhanceController(
 
     private fun delegateSnapshotPayload(): Map<String, Any?> = mapOf(
         "backend" to BACKEND_ID,
-        "backend_precision" to BACKEND_PRECISION,
+        "backend_precision" to lastRestPrecision,
         "tile_default" to NATIVE_TILE_SIZE,
         "tile_overlap_default" to NATIVE_TILE_OVERLAP,
         "delegate_plan" to lastDelegatePlan,

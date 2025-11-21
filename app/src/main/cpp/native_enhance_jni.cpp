@@ -29,7 +29,7 @@ jobject buildTelemetryPayload(
     jmethodID ctor = env->GetMethodID(
         telemetryClass,
         "<init>",
-        "(ZJZJZZIJJZIIIIFFILjava/lang/String;)V"
+        "(ZJZJZZIJJZIIIIFFILjava/lang/String;Ljava/lang/String;)V"
     );
     if (ctor == nullptr) {
         env->DeleteLocalRef(telemetryClass);
@@ -39,6 +39,13 @@ jobject buildTelemetryPayload(
     const char* delegateName = "cpu";
     jstring delegateUsed = env->NewStringUTF(delegateName);
     if (delegateUsed == nullptr) {
+        env->DeleteLocalRef(telemetryClass);
+        return nullptr;
+    }
+
+    jstring restPrecision = env->NewStringUTF(telemetry.restPrecision.c_str());
+    if (restPrecision == nullptr) {
+        env->DeleteLocalRef(delegateUsed);
         env->DeleteLocalRef(telemetryClass);
         return nullptr;
     }
@@ -63,10 +70,12 @@ jobject buildTelemetryPayload(
         telemetry.seamMaxDelta,
         telemetry.seamMeanDelta,
         static_cast<jint>(telemetry.gpuAllocRetryCount),
-        delegateUsed
+        delegateUsed,
+        restPrecision
     );
 
     env->DeleteLocalRef(delegateUsed);
+    env->DeleteLocalRef(restPrecision);
     env->DeleteLocalRef(telemetryClass);
     return payload;
 }
