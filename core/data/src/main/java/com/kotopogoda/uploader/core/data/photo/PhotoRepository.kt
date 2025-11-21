@@ -271,7 +271,7 @@ class PhotoRepository @Inject constructor(
         inclusive: Boolean
     ): Pair<String, Array<String>> {
         val operator = if (inclusive) ">=" else ">"
-        val selection = "($SORT_KEY_EXPRESSION) $operator ?"
+        val selection = "($SORT_KEY_EXPRESSION) $operator CAST(? AS INTEGER)"
         val arg = thresholdMillis.toString()
         val args = arrayOf(arg)
         return selection to args
@@ -281,7 +281,7 @@ class PhotoRepository @Inject constructor(
         startMillisInclusive: Long,
         endMillisExclusive: Long
     ): Pair<String, Array<String>> {
-        val selection = "($SORT_KEY_EXPRESSION) >= ? AND ($SORT_KEY_EXPRESSION) < ?"
+        val selection = "($SORT_KEY_EXPRESSION) >= CAST(? AS INTEGER) AND ($SORT_KEY_EXPRESSION) < CAST(? AS INTEGER)"
         val start = startMillisInclusive.toString()
         val end = endMillisExclusive.toString()
         val args = arrayOf(start, end)
