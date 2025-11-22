@@ -21,6 +21,7 @@ data class UploadStatusDto(
     @Json(name = "status") val status: String? = null,
     @Json(name = "processed") val processed: Boolean? = null,
     @Json(name = "error") val error: String? = null,
+    @Json(name = "ocr_remaining_percent") val ocrRemainingPercent: Int? = null,
 )
 
 @JsonClass(generateAdapter = true)

@@ -59,4 +59,5 @@
     <string name="viewer_health_degraded">Проблемы</string>
     <string name="viewer_health_offline">Оффлайн</string>
     <string name="viewer_health_unknown">—</string>
+    <string name="viewer_ocr_remaining">Остаток OCR: %1$d%%</string>
 </resources>
