@@ -576,19 +576,6 @@ class PhotoRepository @Inject constructor(
             return closestPage.prevKey?.let { it + state.config.pageSize }
                 ?: closestPage.nextKey?.let { max(0, it - state.config.pageSize) }
         }
-
-        companion object {
-            private val PROJECTION = arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DATE_TAKEN,
-                MediaStore.Images.Media.DATE_ADDED,
-                MediaStore.Images.Media.DATE_MODIFIED,
-                MediaStore.Images.Media.RELATIVE_PATH,
-                MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-                MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.MIME_TYPE
-            )
-        }
     }
 
     private fun logPhotosInRange(
@@ -609,7 +596,7 @@ class PhotoRepository @Inject constructor(
         }
         val selectionString = selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
         val selectionArgsArray = args.takeIf { it.isNotEmpty() }?.toTypedArray()
-        val sortOrder = buildSortOrder(limit = 5)
+        val sortOrder = buildSortOrder(limit = 5, offset = null)
         
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
