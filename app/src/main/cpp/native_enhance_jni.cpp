@@ -150,7 +150,7 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     jlong handle,
     jobject bitmap,
     jfloat strength,
-    jobject progressCallback
+    jobject progressCallbackObj
 ) {
     LOGI("nativeRunPreview вызван: handle=%lld, strength=%.2f", (long long)handle, strength);
     
@@ -165,12 +165,12 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
         engine = it->second;
     }
 
-    kotopogoda::NcnnEngine::TileProgressCallback tileProgressCallback;
+    kotopogoda::TileProgressCallback tileProgressCallback;
     jobject progressGlobal = nullptr;
     jmethodID onTileProgressMethod = nullptr;
 
-    if (progressCallback != nullptr) {
-        jclass callbackClass = env->GetObjectClass(progressCallback);
+    if (progressCallbackObj != nullptr) {
+        jclass callbackClass = env->GetObjectClass(progressCallbackObj);
         if (callbackClass != nullptr) {
             onTileProgressMethod = env->GetMethodID(
                 callbackClass,
@@ -180,7 +180,7 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
             env->DeleteLocalRef(callbackClass);
         }
         if (onTileProgressMethod != nullptr) {
-            progressGlobal = env->NewGlobalRef(progressCallback);
+            progressGlobal = env->NewGlobalRef(progressCallbackObj);
             JNIEnv* threadEnv = env;
             tileProgressCallback = [threadEnv, progressGlobal, onTileProgressMethod](const char* stage, int completed, int total) {
                 if (progressGlobal == nullptr) {
@@ -215,7 +215,7 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     jobject sourceBitmap,
     jfloat strength,
     jobject outputBitmap,
-    jobject progressCallback
+    jobject progressCallbackObj
 ) {
     LOGI("nativeRunFull вызван: handle=%lld, strength=%.2f", (long long)handle, strength);
     
@@ -230,12 +230,12 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
         engine = it->second;
     }
 
-    kotopogoda::NcnnEngine::TileProgressCallback tileProgressCallback;
+    kotopogoda::TileProgressCallback tileProgressCallback;
     jobject progressGlobal = nullptr;
     jmethodID onTileProgressMethod = nullptr;
 
-    if (progressCallback != nullptr) {
-        jclass callbackClass = env->GetObjectClass(progressCallback);
+    if (progressCallbackObj != nullptr) {
+        jclass callbackClass = env->GetObjectClass(progressCallbackObj);
         if (callbackClass != nullptr) {
             onTileProgressMethod = env->GetMethodID(
                 callbackClass,
@@ -245,7 +245,7 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
             env->DeleteLocalRef(callbackClass);
         }
         if (onTileProgressMethod != nullptr) {
-            progressGlobal = env->NewGlobalRef(progressCallback);
+            progressGlobal = env->NewGlobalRef(progressCallbackObj);
             JNIEnv* threadEnv = env;
             tileProgressCallback = [threadEnv, progressGlobal, onTileProgressMethod](const char* stage, int completed, int total) {
                 if (progressGlobal == nullptr) {

@@ -412,7 +412,7 @@ bool NcnnEngine::runPreview(
         );
     };
 
-    auto runPipeline = [&, strength, &progressCallback](ncnn::Mat& output) -> bool {
+    auto runPipeline = [&, strength](ncnn::Mat& output) -> bool {
         telemetry.tileTelemetry = TelemetryData::TileTelemetry{};
         telemetry.timingMs = 0;
         telemetry.seamMaxDelta = 0.0f;
@@ -531,7 +531,7 @@ bool NcnnEngine::runFull(
         );
     };
 
-    auto runPipeline = [&, strength, &progressCallback](ncnn::Mat& finalMat) -> bool {
+    auto runPipeline = [&, strength](ncnn::Mat& finalMat) -> bool {
         telemetry.tileTelemetry = TelemetryData::TileTelemetry{};
         telemetry.timingMs = 0;
         telemetry.seamMaxDelta = 0.0f;

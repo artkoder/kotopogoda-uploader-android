@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
+import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -516,7 +517,7 @@ class NativeEnhanceController(
     private fun fullStagePlan(): List<String> = listOf(STAGE_RESTORMER_FULL, STAGE_ZERODCE_FULL)
 
     private class NativeProgressAggregator(stageOrder: List<String>) {
-        private val order = stageOrder.toMutableList().ifEmpty { mutableListOf(Companion.STAGE_GENERIC) }
+        private val order = stageOrder.toMutableList().ifEmpty { mutableListOf(STAGE_GENERIC) }
         private val progressByStage = LinkedHashMap<String, Float>().apply {
             order.forEach { put(it, 0f) }
         }
