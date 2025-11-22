@@ -162,6 +162,7 @@ fun ViewerRoute(
     val enhancementState by viewModel.enhancementState.collectAsState()
     val isEnhancementAvailable by viewModel.isEnhancementAvailable.collectAsState()
     val availableDates by viewModel.availableDates.collectAsState()
+    val ocrRemainingPercent by viewModel.ocrRemainingPercent.collectAsState()
     val deletionConfirmationViewModel = hiltViewModel<DeletionConfirmationViewModel>()
     val deletionConfirmationUiState by deletionConfirmationViewModel.uiState.collectAsStateWithLifecycle()
     val deletionConfirmationEvents = deletionConfirmationViewModel.events
@@ -348,7 +349,8 @@ fun ViewerRoute(
         isEnhancementAvailable = isEnhancementAvailable,
         availableDates = availableDates,
         onRequestAvailableDates = viewModel::refreshAvailableDates,
-        onEnhancementUnavailable = viewModel::onEnhancementUnavailableInteraction
+        onEnhancementUnavailable = viewModel::onEnhancementUnavailableInteraction,
+        ocrRemainingPercent = ocrRemainingPercent
     )
 }
 
@@ -412,6 +414,7 @@ internal fun ViewerScreen(
     availableDates: Set<LocalDate>?,
     onRequestAvailableDates: () -> Unit,
     onEnhancementUnavailable: () -> Unit,
+    ocrRemainingPercent: Int? = null,
 ) {
     BackHandler {
         if (isSelectionMode) {
@@ -747,22 +750,43 @@ internal fun ViewerScreen(
                                 )
                             }
 
-                            item.takenAt?.let { takenAt ->
-                                val formatter = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm") }
-                                val localDateTime = remember(takenAt) {
-                                    takenAt.atZone(ZoneId.systemDefault()).toLocalDateTime()
-                                }
-                                val dateString = remember(localDateTime) {
-                                    formatter.format(localDateTime)
-                                }
+                            // Блок с датой/временем и OCR-квотой
+                            val formatter = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm") }
+                            val localDateTime = remember(item.takenAt) {
+                                item.takenAt?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
+                            }
+                            val dateString = remember(localDateTime) {
+                                localDateTime?.let { formatter.format(it) } ?: ""
+                            }
 
-                                OutlinedText(
-                                    text = dateString,
+                            if (dateString.isNotEmpty() || ocrRemainingPercent != null) {
+                                Box(
                                     modifier = Modifier
+                                        .fillMaxWidth()
                                         .align(Alignment.BottomStart)
-                                        .padding(16.dp),
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                                )
+                                        .padding(16.dp)
+                                ) {
+                                    // Слева — дата/время
+                                    if (dateString.isNotEmpty()) {
+                                        OutlinedText(
+                                            text = dateString,
+                                            modifier = Modifier.align(Alignment.BottomStart),
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    }
+
+                                    // Справа — Остаток OCR
+                                    ocrRemainingPercent?.let { percent ->
+                                        OutlinedText(
+                                            text = stringResource(
+                                                R.string.viewer_ocr_remaining,
+                                                percent.coerceIn(0, 100)
+                                            ),
+                                            modifier = Modifier.align(Alignment.BottomEnd),
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    }
+                                }
                             }
                             
                             if (isCurrentPage && isCurrentUploadQueued) {

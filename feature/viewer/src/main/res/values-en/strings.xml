@@ -60,4 +60,5 @@
     <string name="viewer_health_degraded">Issues</string>
     <string name="viewer_health_offline">Offline</string>
     <string name="viewer_health_unknown">—</string>
+    <string name="viewer_ocr_remaining">OCR remaining: %1$d%%</string>
 </resources>

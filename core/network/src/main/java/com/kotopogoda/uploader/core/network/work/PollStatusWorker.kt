@@ -48,6 +48,7 @@ class PollStatusWorker @AssistedInject constructor(
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
     private val mediaStoreDeleteLauncher: MediaStoreDeleteLauncher,
+    private val ocrQuotaRepository: com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -159,6 +160,37 @@ class PollStatusWorker @AssistedInject constructor(
                                     ),
                                 ),
                             )
+                            // Обновляем остаток OCR токенов, если бэкенд вернул значение
+                            body.ocrRemainingPercent?.let { percent ->
+                                runCatching {
+                                    ocrQuotaRepository.updatePercent(percent)
+                                }.onSuccess {
+                                    Timber.tag("WorkManager").i(
+                                        pollLogMessage(
+                                            action = "poll_ocr_quota_updated",
+                                            itemId = itemId,
+                                            uploadId = uploadId,
+                                            uri = uri,
+                                            details = arrayOf(
+                                                "ocr_remaining_percent" to percent,
+                                            ),
+                                        ),
+                                    )
+                                }.onFailure { error ->
+                                    Timber.tag("WorkManager").w(
+                                        error,
+                                        pollLogMessage(
+                                            action = "poll_ocr_quota_update_failed",
+                                            itemId = itemId,
+                                            uploadId = uploadId,
+                                            uri = uri,
+                                            details = arrayOf(
+                                                "ocr_remaining_percent" to percent,
+                                            ),
+                                        ),
+                                    )
+                                }
+                            }
                             handleCompletion(
                                 itemId = itemId,
                                 uploadId = uploadId,

@@ -110,6 +110,7 @@ class ViewerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val nativeEnhanceAdapter: NativeEnhanceAdapter?,
     private val settingsRepository: com.kotopogoda.uploader.core.settings.SettingsRepository,
+    private val ocrQuotaRepository: com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -175,6 +176,8 @@ class ViewerViewModel @Inject constructor(
 
     private val _availableDates = MutableStateFlow<Set<LocalDate>?>(null)
     val availableDates: StateFlow<Set<LocalDate>?> = _availableDates.asStateFlow()
+
+    val ocrRemainingPercent: StateFlow<Int?> = ocrQuotaRepository.percent
 
     private var enhancementJob: Job? = null
     private var adapterInitializationJob: Job? = null
