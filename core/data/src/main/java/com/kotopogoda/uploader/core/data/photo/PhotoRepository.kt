@@ -79,7 +79,8 @@ class PhotoRepository @Inject constructor(
         val spec = buildQuerySpec(folder)
         val projection = arrayOf(
             MediaStore.Images.Media.DATE_TAKEN,
-            MediaStore.Images.Media.DATE_ADDED
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.DATE_MODIFIED
         )
         val dates = HashSet<LocalDate>()
         val zoneId = ZoneId.systemDefault()
@@ -108,6 +109,7 @@ class PhotoRepository @Inject constructor(
             ) { _, cursor ->
                 val dateTakenIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
                 val dateAddedIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                val dateModifiedIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
 
                 while (cursor.moveToNext()) {
                     val dateTaken = if (dateTakenIndex >= 0 && !cursor.isNull(dateTakenIndex)) {
@@ -120,7 +122,12 @@ class PhotoRepository @Inject constructor(
                     } else {
                         null
                     }
-                    val millis = dateTaken ?: dateAdded?.let { it * 1000 }
+                    val dateModified = if (dateModifiedIndex >= 0 && !cursor.isNull(dateModifiedIndex)) {
+                        cursor.getLong(dateModifiedIndex).takeIf { it > 0 }
+                    } else {
+                        null
+                    }
+                    val millis = dateTaken ?: dateAdded?.let { it * 1000 } ?: dateModified?.let { it * 1000 }
                     if (millis != null) {
                         val date = Instant.ofEpochMilli(millis).atZone(zoneId).toLocalDate()
                         dates.add(date)
