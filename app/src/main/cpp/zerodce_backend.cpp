@@ -103,7 +103,8 @@ bool ZeroDceBackend::process(
     const ncnn::Mat& input,
     ncnn::Mat& output,
     float strength,
-    TelemetryData& telemetry
+    TelemetryData& telemetry,
+    const std::function<void(int, int)>& stageProgressCallback
 ) {
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -192,10 +193,13 @@ bool ZeroDceBackend::process(
             return false;
         };
 
-        auto progressCallback = [&telemetry](int current, int total) {
+        auto tileProgressReporter = [&telemetry, &stageProgressCallback](int current, int total) {
             telemetry.tileTelemetry.processedTiles = current;
             telemetry.tileTelemetry.totalTiles = total;
             LOGI("Zero-DCE++ прогресс тайлов: %d/%d", current, total);
+            if (stageProgressCallback) {
+                stageProgressCallback(current, total);
+            }
         };
 
         TileProcessStats stats;
@@ -204,7 +208,7 @@ bool ZeroDceBackend::process(
             output,
             net_,
             processFunc,
-            progressCallback,
+            tileProgressReporter,
             &stats,
             &extractorErrorCode
         );

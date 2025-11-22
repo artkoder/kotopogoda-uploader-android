@@ -30,6 +30,22 @@ const char* delegateToString(DelegateType delegate) {
 
 constexpr int kTileDefault = 384;
 constexpr int kTileOverlapDefault = 64;
+constexpr const char* kStageRestormerPreview = "restormer_preview";
+constexpr const char* kStageZerodcePreview = "zerodce_preview";
+constexpr const char* kStageRestormerFull = "restormer_full";
+constexpr const char* kStageZerodceFull = "zerodce_full";
+
+std::function<void(int, int)> makeStageCallback(
+    const TileProgressCallback& callback,
+    const char* stage
+) {
+    if (!callback) {
+        return {};
+    }
+    return [callback, stage](int current, int total) {
+        callback(stage, current, total);
+    };
+}
 
 void logFileDiagnostics(const char* stage, const std::string& path) {
     LOGI("NCNN file_check: stage=%s path=%s", stage, path.c_str());
@@ -350,7 +366,8 @@ bool NcnnEngine::runPreview(
     JNIEnv* env,
     jobject sourceBitmap,
     float strength,
-    TelemetryData& telemetry
+    TelemetryData& telemetry,
+    const TileProgressCallback& progressCallback
 ) {
     if (!initialized_.load()) {
         LOGE("Движок не инициализирован");
@@ -406,8 +423,9 @@ bool NcnnEngine::runPreview(
             ncnn::Mat restOutput;
             RestormerBackend restormer(restormerNet_.get(), cancelled_);
             TelemetryData restormerTelemetry;
+            auto restormerProgress = makeStageCallback(progressCallback, kStageRestormerPreview);
 
-            if (!restormer.process(inputMat, restOutput, restormerTelemetry)) {
+            if (!restormer.process(inputMat, restOutput, restormerTelemetry, restormerProgress)) {
                 propagateExtractorError(restormerTelemetry, "restormer_preview");
                 return false;
             }
@@ -417,8 +435,9 @@ bool NcnnEngine::runPreview(
             ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
             TelemetryData zeroDceTelemetry;
             ncnn::Mat finalMat;
+            auto zeroProgress = makeStageCallback(progressCallback, kStageZerodcePreview);
 
-            if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry)) {
+            if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, zeroProgress)) {
                 propagateExtractorError(zeroDceTelemetry, "zerodce_preview_quality");
                 return false;
             }
@@ -433,7 +452,8 @@ bool NcnnEngine::runPreview(
         }
 
         ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
-        bool ok = zeroDce.process(inputMat, output, strength, telemetry);
+        auto zeroProgress = makeStageCallback(progressCallback, kStageZerodcePreview);
+        bool ok = zeroDce.process(inputMat, output, strength, telemetry, zeroProgress);
         if (!ok) {
             propagateExtractorError(telemetry, "zerodce_preview_balanced");
         }
@@ -465,7 +485,8 @@ bool NcnnEngine::runFull(
     jobject sourceBitmap,
     float strength,
     jobject outputBitmap,
-    TelemetryData& telemetry
+    TelemetryData& telemetry,
+    const TileProgressCallback& progressCallback
 ) {
     if (!initialized_.load()) {
         LOGE("Движок не инициализирован");
@@ -519,9 +540,10 @@ bool NcnnEngine::runFull(
 
         RestormerBackend restormer(restormerNet_.get(), cancelled_);
         TelemetryData restormerTelemetry;
+        auto restormerProgress = makeStageCallback(progressCallback, kStageRestormerFull);
 
         ncnn::Mat restOutput;
-        if (!restormer.process(inputMat, restOutput, restormerTelemetry)) {
+        if (!restormer.process(inputMat, restOutput, restormerTelemetry, restormerProgress)) {
             propagateExtractorError(restormerTelemetry, "restormer_full");
             return false;
         }
@@ -530,8 +552,9 @@ bool NcnnEngine::runFull(
 
         ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
         TelemetryData zeroDceTelemetry;
+        auto zeroProgress = makeStageCallback(progressCallback, kStageZerodceFull);
 
-        if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry)) {
+        if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, zeroProgress)) {
             propagateExtractorError(zeroDceTelemetry, "zerodce_full");
             return false;
         }

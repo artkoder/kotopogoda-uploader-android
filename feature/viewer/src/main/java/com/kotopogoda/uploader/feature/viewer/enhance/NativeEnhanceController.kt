@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
+import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -29,6 +30,7 @@ class NativeEnhanceController(
     private var lastDelegateUsed: String = DELEGATE_CPU
     private var lastVulkanAvailable: Boolean = false
     private var lastRestPrecision: String = BACKEND_PRECISION
+    private var currentPreviewProfile: PreviewProfile = PreviewProfile.BALANCED
 
     enum class PreviewProfile {
         BALANCED,
@@ -137,6 +139,10 @@ class NativeEnhanceController(
     data class ProgressInfo(
         val progress: Float,
         val currentStage: String,
+        val tilesCompleted: Int,
+        val tileCount: Int,
+        val backendId: String = BACKEND_ID,
+        val backendPrecision: String = BACKEND_PRECISION,
     )
 
     suspend fun initialize(params: InitParams) = withContext(dispatcher) {
@@ -172,6 +178,7 @@ class NativeEnhanceController(
             initializationFlag.set(INITIALIZED)
             lastForceCpuReason = params.forceCpuReason
             lastForceCpuFlag = params.forceCpu
+            currentPreviewProfile = params.previewProfile
 
             Timber.tag(LOG_TAG).i(
                 "Нативный контроллер инициализирован: handle=%d profile=%s",
@@ -241,7 +248,20 @@ class NativeEnhanceController(
             )
 
             val startTime = System.currentTimeMillis()
-            val telemetry = nativeRunPreview(nativeHandle, sourceBitmap, strength)
+            val previewStages = previewStagePlan()
+            val progressAggregator = NativeProgressAggregator(previewStages)
+            val progressCallback = NativeTileProgressCallback { stage, tilesCompleted, tileCount ->
+                val normalized = progressAggregator.update(stage, tilesCompleted, tileCount)
+                val info = ProgressInfo(
+                    progress = normalized,
+                    currentStage = stage,
+                    tilesCompleted = tilesCompleted,
+                    tileCount = tileCount,
+                )
+                onProgress(info)
+            }
+
+            val telemetry = nativeRunPreview(nativeHandle, sourceBitmap, strength, progressCallback)
             val elapsed = System.currentTimeMillis() - startTime
 
             lastRestPrecision = telemetry.restPrecision
@@ -339,7 +359,20 @@ class NativeEnhanceController(
                 Bitmap.Config.ARGB_8888,
             )
 
-            val telemetry = nativeRunFull(nativeHandle, sourceBitmap, strength, resultBitmap)
+            val fullStages = fullStagePlan()
+            val progressAggregator = NativeProgressAggregator(fullStages)
+            val progressCallback = NativeTileProgressCallback { stage, tilesCompleted, tileCount ->
+                val normalized = progressAggregator.update(stage, tilesCompleted, tileCount)
+                val info = ProgressInfo(
+                    progress = normalized,
+                    currentStage = stage,
+                    tilesCompleted = tilesCompleted,
+                    tileCount = tileCount,
+                )
+                onProgress(info)
+            }
+
+            val telemetry = nativeRunFull(nativeHandle, sourceBitmap, strength, resultBitmap, progressCallback)
             val elapsed = System.currentTimeMillis() - startTime
 
             lastRestPrecision = telemetry.restPrecision
@@ -461,6 +494,7 @@ class NativeEnhanceController(
         handle: Long,
         bitmap: Bitmap,
         strength: Float,
+        progressCallback: NativeTileProgressCallback?,
     ): NativeRunTelemetry
 
     private external fun nativeRunFull(
@@ -468,11 +502,43 @@ class NativeEnhanceController(
         sourceBitmap: Bitmap,
         strength: Float,
         outputBitmap: Bitmap,
+        progressCallback: NativeTileProgressCallback?,
     ): NativeRunTelemetry
 
     private external fun nativeCancel(handle: Long)
 
     private external fun nativeRelease(handle: Long)
+
+    private fun previewStagePlan(): List<String> = when (currentPreviewProfile) {
+        PreviewProfile.BALANCED -> listOf(STAGE_ZERODCE_PREVIEW)
+        PreviewProfile.QUALITY -> listOf(STAGE_RESTORMER_PREVIEW, STAGE_ZERODCE_PREVIEW)
+    }
+
+    private fun fullStagePlan(): List<String> = listOf(STAGE_RESTORMER_FULL, STAGE_ZERODCE_FULL)
+
+    private class NativeProgressAggregator(stageOrder: List<String>) {
+        private val order = stageOrder.toMutableList().ifEmpty { mutableListOf(STAGE_GENERIC) }
+        private val progressByStage = LinkedHashMap<String, Float>().apply {
+            order.forEach { put(it, 0f) }
+        }
+
+        fun update(stage: String, tilesCompleted: Int, tileCount: Int): Float {
+            val normalized = if (tileCount <= 0) 0f else (tilesCompleted.toFloat() / tileCount).coerceIn(0f, 1f)
+            if (!progressByStage.containsKey(stage)) {
+                order.add(stage)
+            }
+            progressByStage[stage] = normalized
+            return aggregate()
+        }
+
+        private fun aggregate(): Float {
+            if (order.isEmpty()) {
+                return progressByStage.values.lastOrNull() ?: 0f
+            }
+            val total = order.sumOf { stage -> progressByStage[stage]?.toDouble() ?: 0.0 }
+            return (total / order.size).toFloat().coerceIn(0f, 1f)
+        }
+    }
 
     companion object {
         private const val LOG_TAG = "NativeEnhanceController"
@@ -491,6 +557,12 @@ class NativeEnhanceController(
         private const val DELEGATE_CPU = "cpu"
         private const val DELEGATE_CPU_ONLY = "cpu_only"
         private const val DELEGATE_PLAN_CPU_ONLY = "cpu_only"
+
+        private const val STAGE_RESTORMER_PREVIEW = "restormer_preview"
+        private const val STAGE_ZERODCE_PREVIEW = "zerodce_preview"
+        private const val STAGE_RESTORMER_FULL = "restormer_full"
+        private const val STAGE_ZERODCE_FULL = "zerodce_full"
+        private const val STAGE_GENERIC = "native"
 
         @JvmStatic
         private external fun nativeConsumeIntegrityFailure(): Array<String>?
