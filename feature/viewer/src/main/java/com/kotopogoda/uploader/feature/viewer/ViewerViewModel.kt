@@ -3133,19 +3133,30 @@ class ViewerViewModel @Inject constructor(
     }
 
     private fun restoreUndoStack() {
-        val saved = savedStateHandle.get<ArrayList<UndoEntryState>>(undoStackKey)
-        if (saved.isNullOrEmpty()) {
+        try {
+            val saved = savedStateHandle.get<ArrayList<UndoEntryState>>(undoStackKey)
+            if (saved.isNullOrEmpty()) {
+                _undoCount.value = 0
+                updateCanUndo()
+                return
+            }
+            saved.mapNotNull { state ->
+                runCatching { state.toUserAction() }.getOrNull()
+            }.forEach { action ->
+                undoStack.addLast(action)
+            }
+            _undoCount.value = undoStack.size
+            updateCanUndo()
+        } catch (e: Exception) {
+            Timber.tag(UI_TAG).e(
+                e,
+                "Failed to restore undo stack due to serialization mismatch. Clearing stack."
+            )
+            savedStateHandle.remove<ArrayList<UndoEntryState>>(undoStackKey)
+            undoStack.clear()
             _undoCount.value = 0
             updateCanUndo()
-            return
         }
-        saved.mapNotNull { state ->
-            runCatching { state.toUserAction() }.getOrNull()
-        }.forEach { action ->
-            undoStack.addLast(action)
-        }
-        _undoCount.value = undoStack.size
-        updateCanUndo()
     }
 
     private suspend fun buildIdempotencyKey(info: DocumentInfo): String = withContext(Dispatchers.IO) {
