@@ -17,6 +17,7 @@ import androidx.work.WorkerParameters
 import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadSourceInfo
 import com.kotopogoda.uploader.core.network.api.UploadApi
@@ -59,6 +60,7 @@ class PollStatusWorkerTest {
     private lateinit var uploadQueueRepository: UploadQueueRepository
     private lateinit var cleanupCoordinator: UploadCleanupCoordinator
     private lateinit var mediaStoreDeleteLauncher: TestMediaStoreDeleteLauncher
+    private lateinit var ocrQuotaRepository: OcrQuotaRepository
 
     @Before
     fun setUp() {
@@ -74,6 +76,7 @@ class PollStatusWorkerTest {
         cleanupCoordinator = mockk(relaxed = true)
         coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
         mediaStoreDeleteLauncher = TestMediaStoreDeleteLauncher()
+        ocrQuotaRepository = mockk(relaxed = true)
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
@@ -98,6 +101,7 @@ class PollStatusWorkerTest {
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                         mediaStoreDeleteLauncher,
+                        ocrQuotaRepository,
                     )
                 }
                 return null
@@ -188,6 +192,27 @@ class PollStatusWorkerTest {
                 httpCode = 200,
                 successKind = "poll_done",
             )
+        }
+    }
+
+    @Test
+    fun doneStatusUpdatesOcrQuotaWhenPercentPresent() = runBlocking {
+        val file = createTempFile()
+        val inputData = pollInputData(file)
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"status":"done","ocr_remaining_percent":95}""")
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        coVerify(exactly = 1) {
+            ocrQuotaRepository.updatePercent(95)
         }
     }
 

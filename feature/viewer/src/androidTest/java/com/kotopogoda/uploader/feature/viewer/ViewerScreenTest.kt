@@ -22,6 +22,9 @@ import com.kotopogoda.uploader.core.network.health.HealthState
 import com.kotopogoda.uploader.feature.viewer.R
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import io.mockk.mockk
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -114,6 +117,79 @@ class ViewerScreenTest {
         composeRule.onNodeWithText(
             composeRule.activity.getString(R.string.viewer_empty_title)
         ).assertDoesNotExist()
+    }
+
+    @Test
+    fun viewerDisplaysDateAndOcrQuotaWhenAvailable() {
+        val takenAt = Instant.parse("2024-09-10T08:15:30Z")
+        val photo = PhotoItem(
+            id = "id",
+            uri = Uri.parse("content://photo/ocr"),
+            takenAt = takenAt
+        )
+        val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+        val expectedDate = formatter.format(takenAt.atZone(ZoneId.systemDefault()).toLocalDateTime())
+
+        composeRule.setContent {
+            val pagingItems = flowOf(PagingData.from(listOf(photo))).collectAsLazyPagingItems()
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                observeDeletionQueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                onLaunchDeletionBatch = {},
+                onPageChanged = {},
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onEnqueueDeletion = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = 0.5f,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {},
+                ocrRemainingPercent = 95
+            )
+        }
+
+        val quotaText = composeRule.activity.getString(R.string.viewer_ocr_remaining, 95)
+        composeRule.onNodeWithText(expectedDate).assertExists()
+        composeRule.onNodeWithText(quotaText).assertExists()
     }
 
     @Test

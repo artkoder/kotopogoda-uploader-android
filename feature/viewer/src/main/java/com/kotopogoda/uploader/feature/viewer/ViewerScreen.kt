@@ -411,8 +411,8 @@ internal fun ViewerScreen(
     onEnhancementStrengthChange: (Float) -> Unit,
     onEnhancementStrengthChangeFinished: () -> Unit,
     isEnhancementAvailable: Boolean,
-    availableDates: Set<LocalDate>?,
-    onRequestAvailableDates: () -> Unit,
+    availableDates: Set<LocalDate>? = null,
+    onRequestAvailableDates: () -> Unit = {},
     onEnhancementUnavailable: () -> Unit,
     ocrRemainingPercent: Int? = null,
 ) {

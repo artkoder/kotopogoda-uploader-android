@@ -162,8 +162,9 @@ class PollStatusWorker @AssistedInject constructor(
                             )
                             // Обновляем остаток OCR токенов, если бэкенд вернул значение
                             body.ocrRemainingPercent?.let { percent ->
+                                val normalized = percent.coerceIn(0, 100)
                                 runCatching {
-                                    ocrQuotaRepository.updatePercent(percent)
+                                    ocrQuotaRepository.updatePercent(normalized)
                                 }.onSuccess {
                                     Timber.tag("WorkManager").i(
                                         pollLogMessage(
@@ -172,7 +173,7 @@ class PollStatusWorker @AssistedInject constructor(
                                             uploadId = uploadId,
                                             uri = uri,
                                             details = arrayOf(
-                                                "ocr_remaining_percent" to percent,
+                                                "ocr_remaining_percent" to normalized,
                                             ),
                                         ),
                                     )
@@ -185,7 +186,7 @@ class PollStatusWorker @AssistedInject constructor(
                                             uploadId = uploadId,
                                             uri = uri,
                                             details = arrayOf(
-                                                "ocr_remaining_percent" to percent,
+                                                "ocr_remaining_percent" to normalized,
                                             ),
                                         ),
                                     )
