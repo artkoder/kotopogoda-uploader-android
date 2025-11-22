@@ -21,6 +21,7 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.api.UploadAcceptedDto
 import com.kotopogoda.uploader.core.network.api.UploadApi
@@ -57,6 +58,7 @@ class PollStatusWorkerMediaStoreTest {
     private lateinit var uploadQueueRepository: UploadQueueRepository
     private lateinit var cleanupCoordinator: UploadCleanupCoordinator
     private lateinit var mediaStoreDeleteLauncher: RecordingDeleteLauncher
+    private lateinit var ocrQuotaRepository: OcrQuotaRepository
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
 
@@ -71,6 +73,7 @@ class PollStatusWorkerMediaStoreTest {
         cleanupCoordinator = mockk(relaxed = true)
         coEvery { cleanupCoordinator.handleUploadSuccess(any(), any(), any(), any(), any(), any()) } returns CleanupResult.Success(0L, 0)
         mediaStoreDeleteLauncher = RecordingDeleteLauncher(resolver)
+        ocrQuotaRepository = mockk(relaxed = true)
         uploadApi = SuccessUploadApi()
         workerFactory = object : WorkerFactory() {
             override fun createWorker(
@@ -88,6 +91,7 @@ class PollStatusWorkerMediaStoreTest {
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
                         mediaStoreDeleteLauncher,
+                        ocrQuotaRepository,
                     )
                 }
                 return null
