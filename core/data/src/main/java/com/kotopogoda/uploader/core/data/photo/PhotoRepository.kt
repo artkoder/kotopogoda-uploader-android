@@ -172,8 +172,7 @@ class PhotoRepository @Inject constructor(
         
         if (requestId != null && selectedDate != null) {
             Timber.tag(CALENDAR_DEBUG_TAG).i(
-                "CalendarQueryStart requestId=%s date=%s tsStart=%d tsEnd=%d source=MediaStore sort=DATE_TAKEN_DESC (repo layer)",
-                requestId,
+                "CalendarQueryStart date=%s rangeStartMillis=%d rangeEndMillis=%d source=MediaStore sort=DATE_TAKEN_DESC",
                 selectedDate,
                 rangeStartMillis,
                 rangeEndMillis
@@ -189,17 +188,14 @@ class PhotoRepository @Inject constructor(
         if (requestId != null && selectedDate != null) {
             if (inRangeCount == 0) {
                 Timber.tag(CALENDAR_DEBUG_TAG).i(
-                    "CalendarQueryResult requestId=%s date=%s resultCount=0",
-                    requestId,
+                    "CalendarQueryResult date=%s queryCount=0",
                     selectedDate
                 )
             } else {
                 Timber.tag(CALENDAR_DEBUG_TAG).i(
-                    "CalendarQueryResult requestId=%s date=%s resultCount=%d beforeCount=%d targetIndex=%d",
-                    requestId,
+                    "CalendarQueryResult date=%s queryCount=%d targetIndex=%d",
                     selectedDate,
                     inRangeCount,
-                    beforeCount,
                     beforeCount
                 )
                 logPhotosInRange(spec, rangeStartMillis, rangeEndMillis, requestId, selectedDate)
@@ -707,12 +703,10 @@ class PhotoRepository @Inject constructor(
                     
                     val uri = ContentUris.withAppendedId(contentUri, id)
                     Timber.tag(CALENDAR_DEBUG_TAG).i(
-                        "CalendarQueryResult requestId=%s date=%s item[%d] taken=%s path=%s uri=%s",
-                        requestId,
+                        "CalendarQueryPhoto date=%s index=%d takenAt=%s uri=%s",
                         selectedDate,
                         itemIndex,
                         takenStr,
-                        path ?: "null",
                         uri.toString()
                     )
                     itemIndex++
@@ -721,8 +715,7 @@ class PhotoRepository @Inject constructor(
         }.onFailure { error ->
             Timber.tag(CALENDAR_DEBUG_TAG).e(
                 error,
-                "CalendarQueryResult requestId=%s date=%s error fetching photo details",
-                requestId,
+                "CalendarQueryPhoto date=%s error fetching photo details",
                 selectedDate
             )
         }
@@ -752,7 +745,7 @@ class PhotoRepository @Inject constructor(
         private const val DATE_MODIFIED_MILLIS_EXPRESSION =
             "${MediaStore.Images.Media.DATE_MODIFIED} * 1000"
         private const val MEDIA_LOG_TAG = "MediaStore"
-        private const val CALENDAR_DEBUG_TAG = "CalendarDebug"
+        private const val CALENDAR_DEBUG_TAG = "ViewerCalendar"
         private const val CATEGORY_MEDIA_REQUEST = "MEDIA_QUERY/REQUEST"
         private const val CATEGORY_MEDIA_RESULT = "MEDIA_QUERY/RESULT"
         private const val CATEGORY_MEDIA_COUNT_REQUEST = "MEDIA_QUERY/COUNT_REQUEST"

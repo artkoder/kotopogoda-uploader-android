@@ -54,6 +54,7 @@ android {
 dependencies {
     implementation(project(":core:logging"))
     implementation(project(":core:work"))
+    implementation(project(":core:settings"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.room.runtime)
@@ -62,6 +63,7 @@ dependencies {
     implementation(libs.dagger.hilt.android)
     kapt(libs.dagger.hilt.compiler)
     implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.exif)
     implementation(libs.androidx.paging.runtime)
     implementation(libs.timber)

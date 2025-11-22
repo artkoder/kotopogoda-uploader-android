@@ -460,76 +460,32 @@ class ViewerViewModel @Inject constructor(
             val startOfDay = localDate.atStartOfDay(zone).toInstant()
             val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
             
-            Timber.tag(CALENDAR_DEBUG_TAG).i(
-                "CalendarSelect date=%s source=calendar userAction=day_click requestId=%s tz=%s",
-                localDate.toString(),
-                requestId,
-                zone.id
-            )
+            val currentIdx = _currentIndex.value
+            val currentPhotoSnapshot = currentPhoto.value
+            val currentTakenAtIsoOrNull = currentPhotoSnapshot?.takenAt?.toString()
+            val totalPhotos = photoCount.value
+            val availableDatesCount = _availableDates.value?.size ?: 0
             
             Timber.tag(CALENDAR_DEBUG_TAG).i(
-                "CalendarQueryStart requestId=%s date=%s tsStart=%d tsEnd=%d source=MediaStore sort=DATE_TAKEN_DESC",
-                requestId,
+                "CalendarUiSelect date=%s currentIndex=%d currentTakenAt=%s totalPhotos=%d availableDates=%d",
                 localDate.toString(),
-                startOfDay.toEpochMilli(),
-                endOfDay.toEpochMilli()
+                currentIdx,
+                currentTakenAtIsoOrNull ?: "null",
+                totalPhotos,
+                availableDatesCount
             )
             
-            Timber.tag(UI_TAG).i(
-                UploadLog.message(
-                    category = "CALENDAR/SELECT_DATE",
-                    action = "jump_to_date",
-                    details = arrayOf(
-                        "start_ms" to startOfDay.toEpochMilli(),
-                        "end_ms" to endOfDay.toEpochMilli(),
-                        "timezone" to zone.id,
-                        "request_id" to requestId,
-                    ),
-                ),
-            )
-            Timber.tag(UI_TAG).i(
-                UploadLog.message(
-                    category = "MEDIA_QUERY/REQUEST",
-                    action = "find_index_at_or_after",
-                    details = arrayOf(
-                        "start_ms" to startOfDay.toEpochMilli(),
-                        "end_ms" to endOfDay.toEpochMilli(),
-                        "sort" to "taken_desc",
-                        "request_id" to requestId,
-                    ),
-                ),
-            )
             var index: Int?
             val elapsed = measureTimeMillis {
                 index = photoRepository.findIndexAtOrAfter(startOfDay, endOfDay, requestId, localDate.toString())
             }
             val resolvedIndex = index
-            val resultDetails = if (resolvedIndex == null) {
-                arrayOf(
-                    "duration_ms" to elapsed,
-                    "count_in_day" to 0,
-                    "request_id" to requestId,
-                )
-            } else {
-                arrayOf(
-                    "duration_ms" to elapsed,
-                    "index" to resolvedIndex,
-                    "request_id" to requestId,
-                )
-            }
-            Timber.tag(UI_TAG).i(
-                UploadLog.message(
-                    category = "CALENDAR/RESULT",
-                    action = "jump_to_date",
-                    details = resultDetails,
-                ),
-            )
             
             if (resolvedIndex == null) {
                 Timber.tag(CALENDAR_DEBUG_TAG).i(
-                    "CalendarNoPhotos requestId=%s date=%s resultCount=0",
-                    requestId,
-                    localDate.toString()
+                    "CalendarNoPhotos date=%s resultCount=0 durationMs=%d",
+                    localDate.toString(),
+                    elapsed
                 )
                 _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
             } else {
@@ -540,33 +496,36 @@ class ViewerViewModel @Inject constructor(
                     resolvedIndex
                 )
                 setCurrentIndex(resolvedIndex)
-                viewModelScope.launch {
-                    delay(100)
-                    val photo = currentPhoto.value
-                    if (photo != null) {
-                        val photoTakenAt = photo.takenAt
-                        if (photoTakenAt != null) {
-                            val photoDate = photoTakenAt.atZone(zone).toLocalDate()
-                            val daysDiff = java.time.temporal.ChronoUnit.DAYS.between(localDate, photoDate)
-                            Timber.tag(CALENDAR_DEBUG_TAG).i(
-                                "CalendarShowPhoto requestId=%s selectedDate=%s photoTaken=%s absDayDiff=%d uri=%s indexInList=%d",
-                                requestId,
-                                localDate.toString(),
-                                photoTakenAt.toString(),
-                                abs(daysDiff),
-                                photo.uri.toString(),
-                                resolvedIndex
-                            )
-                        } else {
-                            Timber.tag(CALENDAR_DEBUG_TAG).w(
-                                "CalendarShowPhoto requestId=%s selectedDate=%s photoTaken=null uri=%s indexInList=%d",
-                                requestId,
-                                localDate.toString(),
-                                photo.uri.toString(),
-                                resolvedIndex
-                            )
-                        }
+                delay(100)
+                val resultPhoto = currentPhoto.value
+                if (resultPhoto != null) {
+                    val resultTakenAt = resultPhoto.takenAt
+                    val resultTakenAtIsoOrNull = resultTakenAt?.toString()
+                    val resultTakenDate = resultTakenAt?.atZone(zone)?.toLocalDate()
+                    val resultTakenDateStr = resultTakenDate?.toString() ?: "null"
+                    val deltaDays = if (resultTakenDate != null) {
+                        java.time.temporal.ChronoUnit.DAYS.between(localDate, resultTakenDate).toInt()
+                    } else {
+                        0
                     }
+                    val hasExactMatch = resultTakenDate == localDate
+                    
+                    Timber.tag(CALENDAR_DEBUG_TAG).i(
+                        "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=%s resultTakenDate=%s deltaDays=%+d hasExactMatch=%s uri=%s",
+                        localDate.toString(),
+                        resolvedIndex,
+                        resultTakenAtIsoOrNull ?: "null",
+                        resultTakenDateStr,
+                        deltaDays,
+                        hasExactMatch.toString(),
+                        resultPhoto.uri.toString()
+                    )
+                } else {
+                    Timber.tag(CALENDAR_DEBUG_TAG).w(
+                        "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=null resultTakenDate=null deltaDays=0 hasExactMatch=false uri=null",
+                        localDate.toString(),
+                        resolvedIndex
+                    )
                 }
             }
         }
@@ -3432,7 +3391,7 @@ class ViewerViewModel @Inject constructor(
         private const val LOG_TAG = "ViewerViewModel"
         private const val UI_TAG = "UI"
         private const val PERMISSION_TAG = "Permissions"
-        private const val CALENDAR_DEBUG_TAG = "CalendarDebug"
+        private const val CALENDAR_DEBUG_TAG = "ViewerCalendar"
         private const val MIN_ENHANCEMENT_STRENGTH = 0f
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
         private const val ENHANCE_TAG = "Enhance"
