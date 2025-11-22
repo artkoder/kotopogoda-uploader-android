@@ -142,6 +142,24 @@ class PhotoRepositoryTest {
     }
 
     @Test
+    fun `getAvailableDates falls back to date modified`() = runTest {
+        val modified = Instant.parse("2025-01-04T12:00:00Z").epochSecond
+        val environment = createRepositoryEnvironment(
+            listOf(
+                FakePhoto(
+                    dateTakenMillis = null,
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = modified
+                )
+            )
+        )
+
+        val dates = environment.repository.getAvailableDates()
+
+        assertEquals(1, dates.size)
+    }
+
+    @Test
     fun `findIndexAtOrAfter uses consistent sort key logic for future dates`() = runTest {
         val targetDate = Instant.parse("2024-10-02T00:00:00Z")
         val futureDate = Instant.parse("2025-06-07T19:31:00Z")
@@ -225,12 +243,20 @@ class PhotoRepositoryTest {
             selectionHistory += selection
             argsHistory += args
             val filtered = photos.filter { photo -> matchesSelection(photo, selection, args) }
-            return MatrixCursor(arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_ADDED)).apply {
+            return MatrixCursor(
+                arrayOf(
+                    MediaStore.Images.Media._ID,
+                    MediaStore.Images.Media.DATE_TAKEN,
+                    MediaStore.Images.Media.DATE_ADDED,
+                    MediaStore.Images.Media.DATE_MODIFIED
+                )
+            ).apply {
                 filtered.forEachIndexed { index, photo ->
                     val row = arrayOf<Any?>(
                         index.toLong(),
                         photo.dateTakenMillis,
-                        photo.dateAddedSeconds
+                        photo.dateAddedSeconds,
+                        photo.dateModifiedSeconds
                     )
                     addRow(row)
                 }
