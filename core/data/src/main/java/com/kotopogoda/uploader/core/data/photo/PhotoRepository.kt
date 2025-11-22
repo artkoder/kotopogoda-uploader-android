@@ -243,7 +243,13 @@ class PhotoRepository @Inject constructor(
     ): PhotoItem? {
         val selection = spec.selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
         val selectionArgs = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
-        val sortOrder = buildSortOrder(limit = 1, offset = offset.takeIf { it > 0 }, ascending = ascending)
+        val (sortOrder, bundle) = buildQueryArgs(
+            selection = selection,
+            selectionArgs = selectionArgs,
+            limit = 1,
+            offset = offset.takeIf { it > 0 },
+            ascending = ascending,
+        )
 
         return runCatching {
             resolver.queryWithFallback(
@@ -252,7 +258,7 @@ class PhotoRepository @Inject constructor(
                 selection = selection,
                 selectionArgs = selectionArgs,
                 sortOrder = sortOrder,
-                bundle = null
+                bundle = bundle
             ) { contentUri, cursor ->
                 cursor.readPhotoItems(contentUri).firstOrNull()
             }
@@ -427,6 +433,31 @@ class PhotoRepository @Inject constructor(
         return selection to args
     }
 
+    private fun buildQueryArgs(
+        selection: String?,
+        selectionArgs: Array<String>?,
+        limit: Int?,
+        offset: Int?,
+        ascending: Boolean = false,
+    ): Pair<String?, Bundle> {
+        val legacySortOrder = buildSortOrder(limit = limit, offset = offset, ascending = ascending)
+        val sortExpression = buildSortOrder(limit = null, offset = null, ascending = ascending)
+
+        val bundle = bundleOf().apply {
+            selection?.let {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
+            }
+            selectionArgs?.let {
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
+            }
+            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortExpression)
+            limit?.let { putInt(ContentResolver.QUERY_ARG_LIMIT, it) }
+            offset?.takeIf { it > 0 }?.let { putInt(ContentResolver.QUERY_ARG_OFFSET, it) }
+        }
+
+        return legacySortOrder to bundle
+    }
+
     private fun buildQuerySpec(folder: Folder): MediaStoreQuerySpec {
         val treeUri = Uri.parse(folder.treeUri)
         val documentId = DocumentsContract.getTreeDocumentId(treeUri)
@@ -490,7 +521,12 @@ class PhotoRepository @Inject constructor(
             val limit = params.loadSize
             val selection = spec.selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
             val args = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
-            val sortOrder = buildSortOrder(limit = limit, offset = offset)
+            val (sortOrder, bundle) = buildQueryArgs(
+                selection = selection,
+                selectionArgs = args,
+                limit = limit,
+                offset = offset,
+            )
 
             Timber.tag(MEDIA_LOG_TAG).i(
                 UploadLog.message(
@@ -511,7 +547,7 @@ class PhotoRepository @Inject constructor(
                     selection = selection,
                     selectionArgs = args,
                     sortOrder = sortOrder,
-                    bundle = null
+                    bundle = bundle
                 ) { contentUri, result ->
                     val items = result.readPhotoItems(contentUri)
                     val nextKey = if (items.size < limit) {
@@ -596,7 +632,12 @@ class PhotoRepository @Inject constructor(
         }
         val selectionString = selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
         val selectionArgsArray = args.takeIf { it.isNotEmpty() }?.toTypedArray()
-        val sortOrder = buildSortOrder(limit = 5, offset = null)
+        val (sortOrder, bundle) = buildQueryArgs(
+            selection = selectionString,
+            selectionArgs = selectionArgsArray,
+            limit = 5,
+            offset = null,
+        )
         
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -613,7 +654,7 @@ class PhotoRepository @Inject constructor(
                 selection = selectionString,
                 selectionArgs = selectionArgsArray,
                 sortOrder = sortOrder,
-                bundle = null
+                bundle = bundle
             ) { contentUri, cursor ->
                 val idIndex = cursor.getColumnIndex(MediaStore.Images.Media._ID)
                 val dateTakenIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
