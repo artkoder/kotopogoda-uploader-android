@@ -149,7 +149,8 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     jobject thiz,
     jlong handle,
     jobject bitmap,
-    jfloat strength
+    jfloat strength,
+    jobject progressCallback
 ) {
     LOGI("nativeRunPreview вызван: handle=%lld, strength=%.2f", (long long)handle, strength);
     
@@ -163,11 +164,43 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
         }
         engine = it->second;
     }
+
+    kotopogoda::NcnnEngine::TileProgressCallback tileProgressCallback;
+    jobject progressGlobal = nullptr;
+    jmethodID onTileProgressMethod = nullptr;
+
+    if (progressCallback != nullptr) {
+        jclass callbackClass = env->GetObjectClass(progressCallback);
+        if (callbackClass != nullptr) {
+            onTileProgressMethod = env->GetMethodID(
+                callbackClass,
+                "onTileProgress",
+                "(Ljava/lang/String;II)V"
+            );
+            env->DeleteLocalRef(callbackClass);
+        }
+        if (onTileProgressMethod != nullptr) {
+            progressGlobal = env->NewGlobalRef(progressCallback);
+            JNIEnv* threadEnv = env;
+            tileProgressCallback = [threadEnv, progressGlobal, onTileProgressMethod](const char* stage, int completed, int total) {
+                if (progressGlobal == nullptr) {
+                    return;
+                }
+                jstring stageString = threadEnv->NewStringUTF(stage != nullptr ? stage : "");
+                threadEnv->CallVoidMethod(progressGlobal, onTileProgressMethod, stageString, completed, total);
+                threadEnv->DeleteLocalRef(stageString);
+            };
+        }
+    }
     
     kotopogoda::TelemetryData telemetry;
-    bool success = engine->runPreview(env, bitmap, strength, telemetry);
+    bool success = engine->runPreview(env, bitmap, strength, telemetry, tileProgressCallback);
     
     jobject payload = buildTelemetryPayload(env, telemetry, success);
+
+    if (progressGlobal != nullptr) {
+        env->DeleteGlobalRef(progressGlobal);
+    }
 
     LOGI("nativeRunPreview завершен: success=%d, timing=%ldms", success, telemetry.timingMs);
 
@@ -181,7 +214,8 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
     jlong handle,
     jobject sourceBitmap,
     jfloat strength,
-    jobject outputBitmap
+    jobject outputBitmap,
+    jobject progressCallback
 ) {
     LOGI("nativeRunFull вызван: handle=%lld, strength=%.2f", (long long)handle, strength);
     
@@ -195,11 +229,43 @@ Java_com_kotopogoda_uploader_feature_viewer_enhance_NativeEnhanceController_nati
         }
         engine = it->second;
     }
+
+    kotopogoda::NcnnEngine::TileProgressCallback tileProgressCallback;
+    jobject progressGlobal = nullptr;
+    jmethodID onTileProgressMethod = nullptr;
+
+    if (progressCallback != nullptr) {
+        jclass callbackClass = env->GetObjectClass(progressCallback);
+        if (callbackClass != nullptr) {
+            onTileProgressMethod = env->GetMethodID(
+                callbackClass,
+                "onTileProgress",
+                "(Ljava/lang/String;II)V"
+            );
+            env->DeleteLocalRef(callbackClass);
+        }
+        if (onTileProgressMethod != nullptr) {
+            progressGlobal = env->NewGlobalRef(progressCallback);
+            JNIEnv* threadEnv = env;
+            tileProgressCallback = [threadEnv, progressGlobal, onTileProgressMethod](const char* stage, int completed, int total) {
+                if (progressGlobal == nullptr) {
+                    return;
+                }
+                jstring stageString = threadEnv->NewStringUTF(stage != nullptr ? stage : "");
+                threadEnv->CallVoidMethod(progressGlobal, onTileProgressMethod, stageString, completed, total);
+                threadEnv->DeleteLocalRef(stageString);
+            };
+        }
+    }
     
     kotopogoda::TelemetryData telemetry;
-    bool success = engine->runFull(env, sourceBitmap, strength, outputBitmap, telemetry);
+    bool success = engine->runFull(env, sourceBitmap, strength, outputBitmap, telemetry, tileProgressCallback);
     
     jobject payload = buildTelemetryPayload(env, telemetry, success);
+
+    if (progressGlobal != nullptr) {
+        env->DeleteGlobalRef(progressGlobal);
+    }
 
     LOGI("nativeRunFull завершен: success=%d, timing=%ldms, cancelled=%d",
          success, telemetry.timingMs, telemetry.cancelled);

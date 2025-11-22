@@ -130,14 +130,15 @@ class NativeEnhanceAdapter @Inject constructor(
 
         crashLoopDetector.markEnhanceRunning()
         try {
+            val previewProgressState = NativeProgressLogState()
             val result = controller.runPreview(
                 sourceBitmap = sourceBitmap,
                 strength = strength,
                 onProgress = { info ->
-                    EnhanceLogging.logEvent(
-                        "native_preview_progress",
-                        "progress" to info.progress,
-                        "stage" to info.currentStage,
+                    logNativeProgress(
+                        event = "native_preview_progress",
+                        info = info,
+                        state = previewProgressState,
                     )
                     onProgress(info.progress)
                 },
@@ -193,16 +194,17 @@ class NativeEnhanceAdapter @Inject constructor(
 
         crashLoopDetector.markEnhanceRunning()
         try {
+            val fullProgressState = NativeProgressLogState()
             val result = controller.runFull(
                 sourceBitmap = sourceBitmap,
                 strength = strength,
                 outputFile = outputFile,
                 quality = 95,
                 onProgress = { info ->
-                    EnhanceLogging.logEvent(
-                        "native_full_progress",
-                        "progress" to info.progress,
-                        "stage" to info.currentStage,
+                    logNativeProgress(
+                        event = "native_full_progress",
+                        info = info,
+                        state = fullProgressState,
                     )
                     onProgress(info.progress)
                 },
@@ -255,6 +257,35 @@ class NativeEnhanceAdapter @Inject constructor(
     private fun clearFullCache() {
         cachedFullBitmap?.recycle()
         cachedFullBitmap = null
+    }
+
+    private data class NativeProgressLogState(
+        var lastStage: String? = null,
+        var lastProgress: Float = -1f,
+    )
+
+    private fun logNativeProgress(
+        event: String,
+        info: NativeEnhanceController.ProgressInfo,
+        state: NativeProgressLogState,
+    ) {
+        val progressed = info.progress - state.lastProgress >= PROGRESS_LOG_DELTA
+        val stageChanged = info.currentStage != state.lastStage
+        val finished = info.progress >= 0.999f
+        if (!stageChanged && !progressed && !finished) {
+            return
+        }
+        EnhanceLogging.logEvent(
+            event,
+            "progress" to info.progress,
+            "stage" to info.currentStage,
+            "tile_count" to info.tileCount,
+            "tiles_completed" to info.tilesCompleted,
+            "backend" to info.backendId,
+            "backend_precision" to info.backendPrecision,
+        )
+        state.lastStage = info.currentStage
+        state.lastProgress = info.progress
     }
 
     private fun buildEnhancementInfo(
@@ -397,6 +428,7 @@ class NativeEnhanceAdapter @Inject constructor(
         private const val TAG = "NativeEnhanceAdapter"
         private const val ZERO_DCE_MODEL_NAME = "zerodcepp_fp16"
         private const val RESTORMER_MODEL_CPU = "restormer_fp16"
+        private const val PROGRESS_LOG_DELTA = 0.005f
         private val cpuOnlyLogGuard = AtomicBoolean(false)
     }
 }

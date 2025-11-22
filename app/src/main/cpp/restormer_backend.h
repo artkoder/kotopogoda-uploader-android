@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <atomic>
+#include <functional>
 
 namespace ncnn {
     class Mat;
@@ -22,7 +23,8 @@ public:
     bool process(
         const ncnn::Mat& input,
         ncnn::Mat& output,
-        TelemetryData& telemetry
+        TelemetryData& telemetry,
+        const std::function<void(int, int)>& stageProgressCallback = std::function<void(int, int)>()
     );
 
 private:

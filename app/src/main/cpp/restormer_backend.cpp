@@ -80,7 +80,8 @@ bool RestormerBackend::processDirectly(
 bool RestormerBackend::process(
     const ncnn::Mat& input,
     ncnn::Mat& output,
-    TelemetryData& telemetry
+    TelemetryData& telemetry,
+    const std::function<void(int, int)>& stageProgressCallback
 ) {
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -115,9 +116,12 @@ bool RestormerBackend::process(
             return this->processDirectly(tileIn, tileOut, errorCode);
         };
 
-        auto progressCallback = [&telemetry](int current, int total) {
+        auto tileProgressReporter = [&telemetry, &stageProgressCallback](int current, int total) {
             telemetry.tileTelemetry.processedTiles = current;
             telemetry.tileTelemetry.totalTiles = total;
+            if (stageProgressCallback) {
+                stageProgressCallback(current, total);
+            }
         };
 
         TileProcessStats stats;
@@ -126,7 +130,7 @@ bool RestormerBackend::process(
             output,
             net_,
             processFunc,
-            progressCallback,
+            tileProgressReporter,
             &stats,
             &extractorErrorCode
         );

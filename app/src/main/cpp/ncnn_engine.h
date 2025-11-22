@@ -5,6 +5,7 @@
 #include <string>
 #include <atomic>
 #include <mutex>
+#include <functional>
 #include <jni.h>
 #include <android/asset_manager.h>
 #include <android/bitmap.h>
@@ -62,6 +63,8 @@ struct TelemetryData {
     FallbackCause fallbackCause = FallbackCause::NONE;
 };
 
+using TileProgressCallback = std::function<void(const char*, int, int)>;
+
 class NcnnEngine {
 public:
     struct ModelChecksums {
@@ -92,7 +95,8 @@ public:
         JNIEnv* env,
         jobject sourceBitmap,
         float strength,
-        TelemetryData& telemetry
+        TelemetryData& telemetry,
+        const TileProgressCallback& progressCallback = TileProgressCallback()
     );
 
     bool runFull(
@@ -100,7 +104,8 @@ public:
         jobject sourceBitmap,
         float strength,
         jobject outputBitmap,
-        TelemetryData& telemetry
+        TelemetryData& telemetry,
+        const TileProgressCallback& progressCallback = TileProgressCallback()
     );
 
     void cancel();
