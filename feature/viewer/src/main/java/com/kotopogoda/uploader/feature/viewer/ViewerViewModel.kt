@@ -489,6 +489,12 @@ class ViewerViewModel @Inject constructor(
                 )
                 _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
             } else {
+                Timber.tag(CALENDAR_DEBUG_TAG).i(
+                    "CalendarShiftCalculation requestId=%s selectedDate=%s targetIndex=%d reason=found_in_range",
+                    requestId,
+                    localDate.toString(),
+                    resolvedIndex
+                )
                 setCurrentIndex(resolvedIndex)
                 delay(100)
                 val resultPhoto = currentPhoto.value
