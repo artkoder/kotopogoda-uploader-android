@@ -5,20 +5,20 @@
       "release": "models-v1",
       "asset": "zerodcepp_fp16_v1.zip",
       "unzipped": "models",
-      "sha256": "0c9dbddfcaded9a5086d4580b62530736413041461f93ef1dcdf9f102d328da5",
+      "sha256": "5b0627da2aa9c4dd8ffb02a901a4c6f3cd98e49db99e8177be2b5b2c27f7ed9e",
       "backend": "ncnn",
-      "min_mb": 0.039,
+      "min_mb": 0.0395,
       "files": [
         {
           "path": "zerodcepp_fp16.param",
           "sha256": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
-          "min_mb": 0.0095,
+          "min_mb": 0.0096,
           "label": "param"
         },
         {
           "path": "zerodcepp_fp16.bin",
           "sha256": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
-          "min_mb": 0.04,
+          "min_mb": 0.0403,
           "label": "bin"
         }
       ],
@@ -51,8 +51,7 @@
           "bin_size_bytes": 42300,
           "bin_size_mib": 0.0403,
           "sha256_param": "481bbca0895108ccdcd43e5e5a6114bcb1b67fbbcea60883d12ace3b6b950f86",
-          "sha256_bin": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73",
-          "tile_size": 384
+          "sha256_bin": "a50be7f4f68c620713485aa886b2910cd16f93168d1d3afd1c4ba1688e0b3e73"
         },
         "onnx": {
           "path": "zerodcepp_simplified.onnx",
@@ -77,60 +76,60 @@
       "release": "models-v1",
       "asset": "restormer_fp16_v1.zip",
       "unzipped": "models",
-      "sha256": "c91dbe7bc65e41303caadc93cf8480cbc3d0d67be434360e3d3a187a31befa5a",
+      "sha256": "fab422205dc9e04fdf2b2078d5c822b9739f34ce4d7079ab763f2bf19158b787",
       "backend": "ncnn",
-      "min_mb": 34.645,
+      "min_mb": 34.6454,
       "files": [
         {
           "path": "restormer_fp16.param",
-          "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
-          "min_mb": 0.685,
+          "sha256": "91e5fc55cd71c337f379efaaef34f580df213997428402b14e934f4fdc6fc877",
+          "min_mb": 0.6849,
           "label": "param"
         },
         {
           "path": "restormer_fp16.bin",
-          "sha256": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
-          "min_mb": 50.367,
+          "sha256": "82757e1987b611e11c719b485068a900695a58f4aa06d71173df71b3e88e84d6",
+          "min_mb": 50.3672,
           "label": "bin"
         }
       ],
       "hashes": [
         {
           "path": "models/restormer_fp16.param",
-          "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
-          "size_mb": 0.6851,
+          "sha256": "91e5fc55cd71c337f379efaaef34f580df213997428402b14e934f4fdc6fc877",
+          "size_mb": 0.6849,
           "label": "param",
           "included": true
         },
         {
           "path": "models/restormer_fp16.bin",
-          "sha256": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
+          "sha256": "82757e1987b611e11c719b485068a900695a58f4aa06d71173df71b3e88e84d6",
           "size_mb": 50.3672,
           "label": "bin",
           "included": true
         },
         {
           "path": "restormer_simplified.onnx",
-          "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
-          "size_mb": 100.9805,
+          "sha256": "887feb318f730a6dcc8002049e784d6d6d73d07f55ffe92fca614a3e55afd3f3",
+          "size_mb": 100.9796,
           "label": "onnx",
           "included": false
         }
       ],
       "metadata": {
         "ncnn": {
-          "param_size_bytes": 718348,
+          "param_size_bytes": 718216,
           "bin_size_bytes": 52813800,
           "bin_size_mib": 50.3672,
-          "sha256_param": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
-          "sha256_bin": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
+          "sha256_param": "91e5fc55cd71c337f379efaaef34f580df213997428402b14e934f4fdc6fc877",
+          "sha256_bin": "82757e1987b611e11c719b485068a900695a58f4aa06d71173df71b3e88e84d6",
           "tile_size": 384,
           "precision": "fp16"
         },
         "onnx": {
           "path": "restormer_simplified.onnx",
-          "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
-          "size_mib": 100.9805,
+          "sha256": "887feb318f730a6dcc8002049e784d6d6d73d07f55ffe92fca614a3e55afd3f3",
+          "size_mib": 100.9796,
           "operators": [
             "Add",
             "Clip",
@@ -151,7 +150,8 @@
             "Sub",
             "Transpose"
           ]
-        }
+        },
+        "precision": "fp16"
       },
       "precision": "fp16",
       "enabled": true
@@ -160,62 +160,60 @@
       "release": "models-v1",
       "asset": "restormer_fp32_v1.zip",
       "unzipped": "models",
-      "sha256": "2b9e7f1c2d3a4b5c6e7f8899aabbccddeeff00112233445566778899aabbccdd",
+      "sha256": "f7f618a4cf3d0506b266811c49cbd6e38b90c1918675a6d7e3aa6fb7d63c7744",
       "backend": "ncnn",
-      "precision": "fp32",
-      "enabled": false,
-      "min_mb": 69.29,
+      "min_mb": 93.0414,
       "files": [
         {
           "path": "restormer_fp32.param",
-          "sha256": "5d6c7b8a9f00112233445566778899aabbccddeeff00112233445566778899aa",
-          "min_mb": 0.685,
+          "sha256": "8d9504bb4757f5abfd7200e25428544654d5a90d734d024b8d7253b5a7fc93db",
+          "min_mb": 0.6744,
           "label": "param"
         },
         {
           "path": "restormer_fp32.bin",
-          "sha256": "9a8b7c6d5e4f00112233445566778899aabbccddeeff001122334455667788ff",
-          "min_mb": 100.7345,
+          "sha256": "de3acf8cdf3ffbd5a09b871418cba5860aa2bb073194144d854a1c56dcf62edc",
+          "min_mb": 100.1424,
           "label": "bin"
         }
       ],
       "hashes": [
         {
           "path": "models/restormer_fp32.param",
-          "sha256": "5d6c7b8a9f00112233445566778899aabbccddeeff00112233445566778899aa",
-          "size_mb": 0.6851,
+          "sha256": "8d9504bb4757f5abfd7200e25428544654d5a90d734d024b8d7253b5a7fc93db",
+          "size_mb": 0.6744,
           "label": "param",
           "included": true
         },
         {
           "path": "models/restormer_fp32.bin",
-          "sha256": "9a8b7c6d5e4f00112233445566778899aabbccddeeff001122334455667788ff",
-          "size_mb": 100.7345,
+          "sha256": "de3acf8cdf3ffbd5a09b871418cba5860aa2bb073194144d854a1c56dcf62edc",
+          "size_mb": 100.1424,
           "label": "bin",
           "included": true
         },
         {
           "path": "restormer_simplified.onnx",
-          "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
-          "size_mb": 100.9805,
+          "sha256": "451cf8cf443e0e71dd550f3e40068997061489823cd02bc43b3dd492f353c7c9",
+          "size_mb": 100.9796,
           "label": "onnx",
           "included": false
         }
       ],
       "metadata": {
         "ncnn": {
-          "param_size_bytes": 718348,
-          "bin_size_bytes": 105627000,
-          "bin_size_mib": 100.7345,
-          "sha256_param": "5d6c7b8a9f00112233445566778899aabbccddeeff00112233445566778899aa",
-          "sha256_bin": "9a8b7c6d5e4f00112233445566778899aabbccddeeff001122334455667788ff",
+          "param_size_bytes": 707180,
+          "bin_size_bytes": 105006892,
+          "bin_size_mib": 100.1424,
+          "sha256_param": "8d9504bb4757f5abfd7200e25428544654d5a90d734d024b8d7253b5a7fc93db",
+          "sha256_bin": "de3acf8cdf3ffbd5a09b871418cba5860aa2bb073194144d854a1c56dcf62edc",
           "tile_size": 384,
           "precision": "fp32"
         },
         "onnx": {
           "path": "restormer_simplified.onnx",
-          "sha256": "faedf233aa1545be3f9b199f9078c428ed2ebaf8e7ca985df4b4c24dde7cf25a",
-          "size_mib": 100.9805,
+          "sha256": "451cf8cf443e0e71dd550f3e40068997061489823cd02bc43b3dd492f353c7c9",
+          "size_mib": 100.9796,
           "operators": [
             "Add",
             "Clip",
@@ -236,8 +234,11 @@
             "Sub",
             "Transpose"
           ]
-        }
-      }
+        },
+        "precision": "fp32"
+      },
+      "precision": "fp32",
+      "enabled": false
     }
   }
 }
