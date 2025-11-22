@@ -57,6 +57,7 @@ import java.io.Serializable
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.ArrayList
 import java.util.Locale
 import java.util.LinkedHashMap
@@ -495,38 +496,54 @@ class ViewerViewModel @Inject constructor(
                     localDate.toString(),
                     resolvedIndex
                 )
-                setCurrentIndex(resolvedIndex)
-                delay(100)
-                val resultPhoto = currentPhoto.value
-                if (resultPhoto != null) {
-                    val resultTakenAt = resultPhoto.takenAt
-                    val resultTakenAtIsoOrNull = resultTakenAt?.toString()
-                    val resultTakenDate = resultTakenAt?.atZone(zone)?.toLocalDate()
-                    val resultTakenDateStr = resultTakenDate?.toString() ?: "null"
-                    val deltaDays = if (resultTakenDate != null) {
-                        java.time.temporal.ChronoUnit.DAYS.between(localDate, resultTakenDate).toInt()
-                    } else {
-                        0
-                    }
-                    val hasExactMatch = resultTakenDate == localDate
-                    
+
+                val candidatePhoto = photoRepository.getPhotoAt(resolvedIndex)
+                val resultTakenAt = candidatePhoto?.takenAt
+                val resultTakenDate = resultTakenAt?.atZone(zone)?.toLocalDate()
+                val resultTakenAtIsoOrNull = resultTakenAt?.toString() ?: "null"
+                val resultTakenDateStr = resultTakenDate?.toString() ?: "null"
+                val deltaDays = resultTakenDate?.let {
+                    ChronoUnit.DAYS.between(localDate, it).toInt()
+                }
+                val deltaDaysStr = deltaDays?.let { String.format(Locale.US, "%+d", it) } ?: "null"
+                val hasExactMatch = resultTakenDate == localDate
+
+                Timber.tag(CALENDAR_DEBUG_TAG).i(
+                    "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=%s resultTakenDate=%s deltaDays=%s hasExactMatch=%s uri=%s",
+                    localDate.toString(),
+                    resolvedIndex,
+                    resultTakenAtIsoOrNull,
+                    resultTakenDateStr,
+                    deltaDaysStr,
+                    hasExactMatch.toString(),
+                    candidatePhoto?.uri?.toString() ?: "null"
+                )
+
+                if (candidatePhoto == null) {
                     Timber.tag(CALENDAR_DEBUG_TAG).i(
-                        "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=%s resultTakenDate=%s deltaDays=%+d hasExactMatch=%s uri=%s",
-                        localDate.toString(),
-                        resolvedIndex,
-                        resultTakenAtIsoOrNull ?: "null",
-                        resultTakenDateStr,
-                        deltaDays,
-                        hasExactMatch.toString(),
-                        resultPhoto.uri.toString()
-                    )
-                } else {
-                    Timber.tag(CALENDAR_DEBUG_TAG).w(
-                        "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=null resultTakenDate=null deltaDays=0 hasExactMatch=false uri=null",
+                        "CalendarMismatch avoided jump: requested=%s reason=no_photo_at_index index=%d",
                         localDate.toString(),
                         resolvedIndex
                     )
+                    _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
+                    return@launch
                 }
+
+                val exceedsTolerance = deltaDays != null && abs(deltaDays) > MAX_ALLOWED_CALENDAR_DELTA_DAYS
+                if (exceedsTolerance) {
+                    Timber.tag(CALENDAR_DEBUG_TAG).w(
+                        "CalendarMismatch avoided jump: requested=%s found=%s index=%d deltaDays=%s tolerance=%d",
+                        localDate.toString(),
+                        resultTakenDateStr,
+                        resolvedIndex,
+                        deltaDaysStr,
+                        MAX_ALLOWED_CALENDAR_DELTA_DAYS
+                    )
+                    _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
+                    return@launch
+                }
+
+                setCurrentIndex(resolvedIndex)
             }
         }
     }
@@ -3392,6 +3409,7 @@ class ViewerViewModel @Inject constructor(
         private const val UI_TAG = "UI"
         private const val PERMISSION_TAG = "Permissions"
         private const val CALENDAR_DEBUG_TAG = "ViewerCalendar"
+        private const val MAX_ALLOWED_CALENDAR_DELTA_DAYS = 3
         private const val MIN_ENHANCEMENT_STRENGTH = 0f
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
         private const val ENHANCE_TAG = "Enhance"

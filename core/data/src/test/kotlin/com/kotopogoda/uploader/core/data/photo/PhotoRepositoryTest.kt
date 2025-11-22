@@ -248,7 +248,8 @@ class PhotoRepositoryTest {
                     MediaStore.Images.Media._ID,
                     MediaStore.Images.Media.DATE_TAKEN,
                     MediaStore.Images.Media.DATE_ADDED,
-                    MediaStore.Images.Media.DATE_MODIFIED
+                    MediaStore.Images.Media.DATE_MODIFIED,
+                    MediaStore.Images.Media.MIME_TYPE
                 )
             ).apply {
                 filtered.forEachIndexed { index, photo ->
@@ -256,7 +257,8 @@ class PhotoRepositoryTest {
                         index.toLong(),
                         photo.dateTakenMillis,
                         photo.dateAddedSeconds,
-                        photo.dateModifiedSeconds
+                        photo.dateModifiedSeconds,
+                        "image/jpeg"
                     )
                     addRow(row)
                 }
