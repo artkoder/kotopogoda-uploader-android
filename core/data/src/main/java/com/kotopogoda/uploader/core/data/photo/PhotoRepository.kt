@@ -156,26 +156,62 @@ class PhotoRepository @Inject constructor(
         }
     }
 
-    suspend fun findIndexAtOrAfter(start: Instant, endExclusive: Instant): Int? =
-        withContext(ioDispatcher) {
-            val folder = folderRepository.getFolder() ?: return@withContext null
-            if (!endExclusive.isAfter(start)) {
-                return@withContext null
-            }
-            val spec = buildQuerySpec(folder)
-            val rangeStartMillis = start.toEpochMilli()
-            val rangeEndMillis = endExclusive.toEpochMilli()
-            val (beforeSelection, beforeArgs) =
-                buildTimestampLowerBoundSelection(rangeEndMillis, inclusive = true)
-            val beforeCount = queryCount(spec, beforeSelection, beforeArgs)
-            val (rangeSelection, rangeArgs) = buildTimestampRangeSelection(rangeStartMillis, rangeEndMillis)
-            val inRangeCount = queryCount(spec, rangeSelection, rangeArgs)
+    suspend fun findIndexAtOrAfter(
+        start: Instant,
+        endExclusive: Instant,
+        requestId: String? = null,
+        selectedDate: String? = null
+    ): Int? = withContext(ioDispatcher) {
+        val folder = folderRepository.getFolder() ?: return@withContext null
+        if (!endExclusive.isAfter(start)) {
+            return@withContext null
+        }
+        val spec = buildQuerySpec(folder)
+        val rangeStartMillis = start.toEpochMilli()
+        val rangeEndMillis = endExclusive.toEpochMilli()
+        
+        if (requestId != null && selectedDate != null) {
+            Timber.tag(CALENDAR_DEBUG_TAG).i(
+                "CalendarQueryStart requestId=%s date=%s tsStart=%d tsEnd=%d source=MediaStore sort=DATE_TAKEN_DESC (repo layer)",
+                requestId,
+                selectedDate,
+                rangeStartMillis,
+                rangeEndMillis
+            )
+        }
+        
+        val (beforeSelection, beforeArgs) =
+            buildTimestampLowerBoundSelection(rangeEndMillis, inclusive = true)
+        val beforeCount = queryCount(spec, beforeSelection, beforeArgs)
+        val (rangeSelection, rangeArgs) = buildTimestampRangeSelection(rangeStartMillis, rangeEndMillis)
+        val inRangeCount = queryCount(spec, rangeSelection, rangeArgs)
+        
+        if (requestId != null && selectedDate != null) {
             if (inRangeCount == 0) {
-                null
+                Timber.tag(CALENDAR_DEBUG_TAG).i(
+                    "CalendarQueryResult requestId=%s date=%s resultCount=0",
+                    requestId,
+                    selectedDate
+                )
             } else {
-                beforeCount
+                Timber.tag(CALENDAR_DEBUG_TAG).i(
+                    "CalendarQueryResult requestId=%s date=%s resultCount=%d beforeCount=%d targetIndex=%d",
+                    requestId,
+                    selectedDate,
+                    inRangeCount,
+                    beforeCount,
+                    beforeCount
+                )
+                logPhotosInRange(spec, rangeStartMillis, rangeEndMillis, requestId, selectedDate)
             }
         }
+        
+        if (inRangeCount == 0) {
+            null
+        } else {
+            beforeCount
+        }
+    }
 
     suspend fun clampIndex(index: Int): Int = withContext(ioDispatcher) {
         val total = countAll()
@@ -563,6 +599,135 @@ class PhotoRepository @Inject constructor(
         }
     }
 
+    private fun logPhotosInRange(
+        spec: MediaStoreQuerySpec,
+        rangeStartMillis: Long,
+        rangeEndMillis: Long,
+        requestId: String,
+        selectedDate: String
+    ) {
+        val (rangeSelection, rangeArgs) = buildTimestampRangeSelection(rangeStartMillis, rangeEndMillis)
+        val selectionParts = mutableListOf<String>().apply {
+            addAll(spec.selectionParts)
+            add(rangeSelection)
+        }
+        val args = mutableListOf<String>().apply {
+            addAll(spec.selectionArgs)
+            addAll(rangeArgs)
+        }
+        val selectionString = selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
+        val selectionArgsArray = args.takeIf { it.isNotEmpty() }?.toTypedArray()
+        
+        val sortOrder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            null
+        } else {
+            "$SORT_KEY_EXPRESSION DESC LIMIT 5"
+        }
+        
+        val bundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            bundleOf().apply {
+                putStringArray(
+                    ContentResolver.QUERY_ARG_SORT_COLUMNS,
+                    arrayOf(
+                        MediaStore.Images.Media.DATE_TAKEN,
+                        MediaStore.Images.Media.DATE_ADDED,
+                        MediaStore.Images.Media.DATE_MODIFIED
+                    )
+                )
+                putInt(
+                    ContentResolver.QUERY_ARG_SORT_DIRECTION,
+                    ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+                )
+                putInt(ContentResolver.QUERY_ARG_LIMIT, 5)
+                selectionString?.let {
+                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
+                }
+                selectionArgsArray?.let {
+                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
+                }
+            }
+        } else {
+            bundleOf().apply {
+                selectionString?.let {
+                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
+                }
+                selectionArgsArray?.let {
+                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
+                }
+            }
+        }
+        
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.DATA
+        )
+        
+        runCatching {
+            resolver.queryWithFallback(
+                uris = spec.contentUris,
+                projection = projection,
+                selection = selectionString,
+                selectionArgs = selectionArgsArray,
+                sortOrder = sortOrder,
+                bundle = bundle
+            ) { contentUri, cursor ->
+                val idIndex = cursor.getColumnIndex(MediaStore.Images.Media._ID)
+                val dateTakenIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
+                val dateAddedIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                val dataIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
+                
+                var itemIndex = 0
+                val zoneId = ZoneId.systemDefault()
+                while (cursor.moveToNext() && itemIndex < 5) {
+                    val id = if (idIndex >= 0) cursor.getLong(idIndex) else -1
+                    val dateTaken = if (dateTakenIndex >= 0 && !cursor.isNull(dateTakenIndex)) {
+                        cursor.getLong(dateTakenIndex).takeIf { it > 0 }
+                    } else {
+                        null
+                    }
+                    val dateAdded = if (dateAddedIndex >= 0 && !cursor.isNull(dateAddedIndex)) {
+                        cursor.getLong(dateAddedIndex).takeIf { it > 0 }
+                    } else {
+                        null
+                    }
+                    val path = if (dataIndex >= 0 && !cursor.isNull(dataIndex)) {
+                        cursor.getString(dataIndex)
+                    } else {
+                        null
+                    }
+                    
+                    val takenMillis = dateTaken ?: dateAdded?.let { it * 1000 }
+                    val takenStr = if (takenMillis != null) {
+                        Instant.ofEpochMilli(takenMillis).atZone(zoneId).toString()
+                    } else {
+                        "null"
+                    }
+                    
+                    val uri = ContentUris.withAppendedId(contentUri, id)
+                    Timber.tag(CALENDAR_DEBUG_TAG).i(
+                        "CalendarQueryResult requestId=%s date=%s item[%d] taken=%s path=%s uri=%s",
+                        requestId,
+                        selectedDate,
+                        itemIndex,
+                        takenStr,
+                        path ?: "null",
+                        uri.toString()
+                    )
+                    itemIndex++
+                }
+            }
+        }.onFailure { error ->
+            Timber.tag(CALENDAR_DEBUG_TAG).e(
+                error,
+                "CalendarQueryResult requestId=%s date=%s error fetching photo details",
+                requestId,
+                selectedDate
+            )
+        }
+    }
+
     companion object {
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
@@ -587,6 +752,7 @@ class PhotoRepository @Inject constructor(
         private const val DATE_MODIFIED_MILLIS_EXPRESSION =
             "${MediaStore.Images.Media.DATE_MODIFIED} * 1000"
         private const val MEDIA_LOG_TAG = "MediaStore"
+        private const val CALENDAR_DEBUG_TAG = "CalendarDebug"
         private const val CATEGORY_MEDIA_REQUEST = "MEDIA_QUERY/REQUEST"
         private const val CATEGORY_MEDIA_RESULT = "MEDIA_QUERY/RESULT"
         private const val CATEGORY_MEDIA_COUNT_REQUEST = "MEDIA_QUERY/COUNT_REQUEST"
