@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import com.kotopogoda.uploader.core.settings.SettingsPreferencesStore
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,7 +21,7 @@ import kotlinx.coroutines.withContext
 
 @Singleton
 class OcrQuotaRepository @Inject constructor(
-    @com.kotopogoda.uploader.core.settings.SettingsPreferencesStore private val dataStore: DataStore<Preferences>,
+    @SettingsPreferencesStore private val dataStore: DataStore<Preferences>,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val _percent = MutableStateFlow<Int?>(null)
