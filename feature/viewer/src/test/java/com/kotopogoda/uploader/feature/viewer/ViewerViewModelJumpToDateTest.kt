@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
 import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
+import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
@@ -51,7 +52,14 @@ class ViewerViewModelJumpToDateTest {
         val startOfDay = localDate.atStartOfDay(zone).toInstant()
         val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
 
+        val photoUri = Uri.parse("content://test/photo/7")
+        val candidatePhoto = PhotoItem(
+            id = "7",
+            uri = photoUri,
+            takenAt = startOfDay.plusSeconds(3600)
+        )
         coEvery { environment.photoRepository.findIndexAtOrAfter(startOfDay, endOfDay) } returns 7
+        coEvery { environment.photoRepository.getPhotoAt(7) } returns candidatePhoto
 
         environment.viewModel.jumpToDate(target)
         advanceUntilIdle()
@@ -59,6 +67,9 @@ class ViewerViewModelJumpToDateTest {
         assertEquals(7, environment.viewModel.currentIndex.value)
         coVerify(exactly = 1) {
             environment.photoRepository.findIndexAtOrAfter(startOfDay, endOfDay)
+        }
+        coVerify(exactly = 1) {
+            environment.photoRepository.getPhotoAt(7)
         }
     }
 
@@ -86,6 +97,41 @@ class ViewerViewModelJumpToDateTest {
         assertTrue(event is ViewerViewModel.ViewerEvent.ShowToast)
         val toast = event as ViewerViewModel.ViewerEvent.ShowToast
         assertEquals(R.string.viewer_toast_no_photos_for_day, toast.messageRes)
+        coVerify(exactly = 0) {
+            environment.photoRepository.getPhotoAt(any())
+        }
+    }
+
+    @Test
+    fun `jumpToDate skips jump when result is too far`() = runTest(context = mainDispatcherRule.dispatcher) {
+        val environment = createEnvironment()
+        advanceUntilIdle()
+
+        val target = Instant.parse("2024-01-01T00:00:00Z")
+        val zone = ZoneId.systemDefault()
+        val localDate = target.atZone(zone).toLocalDate()
+        val startOfDay = localDate.atStartOfDay(zone).toInstant()
+        val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
+
+        coEvery { environment.photoRepository.findIndexAtOrAfter(startOfDay, endOfDay) } returns 3
+        val farPhoto = PhotoItem(
+            id = "3",
+            uri = Uri.parse("content://test/photo/3"),
+            takenAt = target.plusSeconds(10L * 24 * 3600)
+        )
+        coEvery { environment.photoRepository.getPhotoAt(3) } returns farPhoto
+        val initialIndex = environment.viewModel.currentIndex.value
+        val eventDeferred = async { environment.viewModel.events.first() }
+
+        environment.viewModel.jumpToDate(target)
+        advanceUntilIdle()
+
+        val event = eventDeferred.await()
+        assertEquals(initialIndex, environment.viewModel.currentIndex.value)
+        assertTrue(event is ViewerViewModel.ViewerEvent.ShowToast)
+        coVerify(exactly = 1) {
+            environment.photoRepository.getPhotoAt(3)
+        }
     }
 
     private fun createEnvironment(): ViewModelEnvironment {

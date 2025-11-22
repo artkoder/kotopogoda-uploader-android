@@ -21,6 +21,7 @@ import com.kotopogoda.uploader.core.data.upload.UploadLog
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
@@ -43,6 +44,7 @@ class PhotoRepository @Inject constructor(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val resolver: ContentResolver = context.contentResolver
+    private val hasLoggedInitialOrder = AtomicBoolean(false)
 
     fun observePhotos(): Flow<PagingData<PhotoItem>> =
         folderRepository.observeFolder()
@@ -59,10 +61,7 @@ class PhotoRepository @Inject constructor(
                             enablePlaceholders = false
                         ),
                         pagingSourceFactory = {
-                            MediaStorePhotoPagingSource(
-                                contentResolver = resolver,
-                                spec = spec
-                            )
+                            MediaStorePhotoPagingSource(spec)
                         }
                     ).flow
                 }
@@ -152,6 +151,7 @@ class PhotoRepository @Inject constructor(
     suspend fun findIndexAtOrAfter(date: Instant): Int = withContext(ioDispatcher) {
         val folder = folderRepository.getFolder() ?: return@withContext 0
         val spec = buildQuerySpec(folder)
+        maybeLogInitialPhotoOrder(spec)
         val targetMillis = date.toEpochMilli()
         val (selection, args) = buildTimestampLowerBoundSelection(targetMillis, inclusive = false)
         val newerCount = queryCount(spec, selection, args)
@@ -174,6 +174,7 @@ class PhotoRepository @Inject constructor(
             return@withContext null
         }
         val spec = buildQuerySpec(folder)
+        maybeLogInitialPhotoOrder(spec)
         val rangeStartMillis = start.toEpochMilli()
         val rangeEndMillis = endExclusive.toEpochMilli()
         
@@ -216,6 +217,13 @@ class PhotoRepository @Inject constructor(
         }
     }
 
+    suspend fun getPhotoAt(index: Int): PhotoItem? = withContext(ioDispatcher) {
+        val folder = folderRepository.getFolder() ?: return@withContext null
+        val spec = buildQuerySpec(folder)
+        maybeLogInitialPhotoOrder(spec)
+        queryPhotoAt(spec, index.coerceAtLeast(0))
+    }
+
     suspend fun clampIndex(index: Int): Int = withContext(ioDispatcher) {
         val total = countAll()
         if (total == 0) {
@@ -223,6 +231,59 @@ class PhotoRepository @Inject constructor(
         } else {
             index.coerceIn(0, total - 1)
         }
+    }
+
+    private fun queryPhotoAt(spec: MediaStoreQuerySpec, index: Int): PhotoItem? =
+        querySinglePhoto(spec, ascending = false, offset = index)
+
+    private fun querySinglePhoto(
+        spec: MediaStoreQuerySpec,
+        ascending: Boolean,
+        offset: Int = 0
+    ): PhotoItem? {
+        val selection = spec.selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
+        val selectionArgs = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
+        val sortOrder = buildSortOrder(limit = 1, offset = offset.takeIf { it > 0 }, ascending = ascending)
+
+        return runCatching {
+            resolver.queryWithFallback(
+                uris = spec.contentUris,
+                projection = PHOTO_PROJECTION,
+                selection = selection,
+                selectionArgs = selectionArgs,
+                sortOrder = sortOrder,
+                bundle = null
+            ) { contentUri, cursor ->
+                cursor.readPhotoItems(contentUri).firstOrNull()
+            }
+        }.onFailure { error ->
+            Timber.tag(MEDIA_LOG_TAG).e(
+                error,
+                UploadLog.message(
+                    category = CATEGORY_MEDIA_ERROR,
+                    action = "single_photo",
+                    details = arrayOf(
+                        "ascending" to ascending,
+                        "offset" to offset,
+                    ),
+                ),
+            )
+        }.getOrNull()
+    }
+
+    private fun maybeLogInitialPhotoOrder(spec: MediaStoreQuerySpec) {
+        if (!hasLoggedInitialOrder.compareAndSet(false, true)) {
+            return
+        }
+        val newest = querySinglePhoto(spec, ascending = false)
+        val oldest = querySinglePhoto(spec, ascending = true)
+        Timber.tag(CALENDAR_DEBUG_TAG).i(
+            "Initial photo order check: firstTakenAt=%s firstUri=%s lastTakenAt=%s lastUri=%s",
+            newest?.takenAt?.toString() ?: "null",
+            newest?.uri?.toString() ?: "null",
+            oldest?.takenAt?.toString() ?: "null",
+            oldest?.uri?.toString() ?: "null"
+        )
     }
 
     private fun queryCount(
@@ -420,8 +481,7 @@ class PhotoRepository @Inject constructor(
         val selectionArgs: List<String>
     )
 
-    private class MediaStorePhotoPagingSource(
-        private val contentResolver: ContentResolver,
+    private inner class MediaStorePhotoPagingSource(
         private val spec: MediaStoreQuerySpec
     ) : PagingSource<Int, PhotoItem>() {
 
@@ -430,44 +490,7 @@ class PhotoRepository @Inject constructor(
             val limit = params.loadSize
             val selection = spec.selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
             val args = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
-            val bundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Bundle().apply {
-                    putStringArray(
-                        ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                        arrayOf(
-                            MediaStore.Images.Media.DATE_TAKEN,
-                            MediaStore.Images.Media.DATE_ADDED,
-                            MediaStore.Images.Media.DATE_MODIFIED
-                        )
-                    )
-                    putInt(
-                        ContentResolver.QUERY_ARG_SORT_DIRECTION,
-                        ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
-                    )
-                    putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
-                    putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
-                    selection?.let {
-                        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
-                    }
-                    args?.let {
-                        putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
-                    }
-                }
-            } else {
-                null
-            }
-
-            val legacySortOrder = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                buildString {
-                    append("$SORT_KEY_EXPRESSION DESC")
-                    append(" LIMIT $limit")
-                    if (offset > 0) {
-                        append(" OFFSET $offset")
-                    }
-                }
-            } else {
-                null
-            }
+            val sortOrder = buildSortOrder(limit = limit, offset = offset)
 
             Timber.tag(MEDIA_LOG_TAG).i(
                 UploadLog.message(
@@ -482,50 +505,15 @@ class PhotoRepository @Inject constructor(
             )
 
             val page = runCatching {
-                contentResolver.queryWithFallback(
+                resolver.queryWithFallback(
                     uris = spec.contentUris,
-                    projection = PROJECTION,
+                    projection = PHOTO_PROJECTION,
                     selection = selection,
                     selectionArgs = args,
-                    sortOrder = legacySortOrder,
-                    bundle = bundle
+                    sortOrder = sortOrder,
+                    bundle = null
                 ) { contentUri, result ->
-                    val idIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                    val mimeIndex = result.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
-                    val dateTakenIndex =
-                        result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
-                    val dateAddedIndex =
-                        result.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
-                    val items = buildList {
-                        while (result.moveToNext()) {
-                            val id = result.getLong(idIndex)
-                            val uri = ContentUris.withAppendedId(contentUri, id)
-                            val dateTaken = if (result.isNull(dateTakenIndex)) {
-                                null
-                            } else {
-                                result.getLong(dateTakenIndex)
-                                    .takeIf { it > 0 }
-                            }
-                            val dateAdded = if (result.isNull(dateAddedIndex)) {
-                                null
-                            } else {
-                                result.getLong(dateAddedIndex)
-                                    .takeIf { it > 0 }
-                            }
-                            val takenAtMillis = dateTaken ?: dateAdded?.let { it * 1000 }
-                            val takenAt = takenAtMillis?.let(Instant::ofEpochMilli)
-                            val mime = if (result.isNull(mimeIndex)) null else result.getString(mimeIndex)
-                            if (mime != null && mime.startsWith("image/")) {
-                                add(
-                                    PhotoItem(
-                                        id = id.toString(),
-                                        uri = uri,
-                                        takenAt = takenAt
-                                    )
-                                )
-                            }
-                        }
-                    }
+                    val items = result.readPhotoItems(contentUri)
                     val nextKey = if (items.size < limit) {
                         null
                     } else {
@@ -588,18 +576,6 @@ class PhotoRepository @Inject constructor(
             return closestPage.prevKey?.let { it + state.config.pageSize }
                 ?: closestPage.nextKey?.let { max(0, it - state.config.pageSize) }
         }
-
-        companion object {
-            private val PROJECTION = arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DATE_TAKEN,
-                MediaStore.Images.Media.DATE_ADDED,
-                MediaStore.Images.Media.RELATIVE_PATH,
-                MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-                MediaStore.Images.Media.SIZE,
-                MediaStore.Images.Media.MIME_TYPE
-            )
-        }
     }
 
     private fun logPhotosInRange(
@@ -620,50 +596,13 @@ class PhotoRepository @Inject constructor(
         }
         val selectionString = selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
         val selectionArgsArray = args.takeIf { it.isNotEmpty() }?.toTypedArray()
-        
-        val sortOrder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            null
-        } else {
-            "$SORT_KEY_EXPRESSION DESC LIMIT 5"
-        }
-        
-        val bundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            bundleOf().apply {
-                putStringArray(
-                    ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                    arrayOf(
-                        MediaStore.Images.Media.DATE_TAKEN,
-                        MediaStore.Images.Media.DATE_ADDED,
-                        MediaStore.Images.Media.DATE_MODIFIED
-                    )
-                )
-                putInt(
-                    ContentResolver.QUERY_ARG_SORT_DIRECTION,
-                    ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
-                )
-                putInt(ContentResolver.QUERY_ARG_LIMIT, 5)
-                selectionString?.let {
-                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
-                }
-                selectionArgsArray?.let {
-                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
-                }
-            }
-        } else {
-            bundleOf().apply {
-                selectionString?.let {
-                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it)
-                }
-                selectionArgsArray?.let {
-                    putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it)
-                }
-            }
-        }
+        val sortOrder = buildSortOrder(limit = 5, offset = null)
         
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DATE_TAKEN,
             MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.DATE_MODIFIED,
             MediaStore.Images.Media.DATA
         )
         
@@ -674,11 +613,12 @@ class PhotoRepository @Inject constructor(
                 selection = selectionString,
                 selectionArgs = selectionArgsArray,
                 sortOrder = sortOrder,
-                bundle = bundle
+                bundle = null
             ) { contentUri, cursor ->
                 val idIndex = cursor.getColumnIndex(MediaStore.Images.Media._ID)
                 val dateTakenIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
                 val dateAddedIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                val dateModifiedIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
                 val dataIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
                 
                 var itemIndex = 0
@@ -695,13 +635,20 @@ class PhotoRepository @Inject constructor(
                     } else {
                         null
                     }
+                    val dateModified = if (dateModifiedIndex >= 0 && !cursor.isNull(dateModifiedIndex)) {
+                        cursor.getLong(dateModifiedIndex).takeIf { it > 0 }
+                    } else {
+                        null
+                    }
                     val path = if (dataIndex >= 0 && !cursor.isNull(dataIndex)) {
                         cursor.getString(dataIndex)
                     } else {
                         null
                     }
                     
-                    val takenMillis = dateTaken ?: dateAdded?.let { it * 1000 }
+                    val takenMillis = dateTaken
+                        ?: dateAdded?.let { it * 1000 }
+                        ?: dateModified?.let { it * 1000 }
                     val takenStr = if (takenMillis != null) {
                         Instant.ofEpochMilli(takenMillis).atZone(zoneId).toString()
                     } else {
@@ -710,11 +657,12 @@ class PhotoRepository @Inject constructor(
                     
                     val uri = ContentUris.withAppendedId(contentUri, id)
                     Timber.tag(CALENDAR_DEBUG_TAG).i(
-                        "CalendarQueryPhoto date=%s index=%d takenAt=%s uri=%s",
+                        "CalendarQueryPhoto date=%s index=%d takenAt=%s uri=%s path=%s",
                         selectedDate,
                         itemIndex,
                         takenStr,
-                        uri.toString()
+                        uri.toString(),
+                        path ?: "null"
                     )
                     itemIndex++
                 }
@@ -758,6 +706,34 @@ class PhotoRepository @Inject constructor(
         private const val CATEGORY_MEDIA_COUNT_REQUEST = "MEDIA_QUERY/COUNT_REQUEST"
         private const val CATEGORY_MEDIA_COUNT_RESULT = "MEDIA_QUERY/COUNT_RESULT"
         private const val CATEGORY_MEDIA_ERROR = "MEDIA_QUERY/ERROR"
+
+        private val PHOTO_PROJECTION = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.DATE_MODIFIED,
+            MediaStore.Images.Media.RELATIVE_PATH,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.MIME_TYPE
+        )
+
+        private fun buildSortOrder(
+            limit: Int?,
+            offset: Int?,
+            ascending: Boolean = false
+        ): String {
+            val direction = if (ascending) "ASC" else "DESC"
+            return buildString {
+                append("$SORT_KEY_EXPRESSION $direction")
+                limit?.let {
+                    append(" LIMIT $it")
+                }
+                offset?.takeIf { it > 0 }?.let {
+                    append(" OFFSET $it")
+                }
+            }
+        }
     }
 }
 
@@ -793,4 +769,49 @@ private inline fun <T> ContentResolver.queryWithFallback(
         throw lastIllegalArgument
     }
     return null
+}
+
+private fun Cursor.readPhotoItems(contentUri: Uri): List<PhotoItem> {
+    val idIndex = getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+    val mimeIndex = getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+    val dateTakenIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+    val dateAddedIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+    val dateModifiedIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
+    val items = mutableListOf<PhotoItem>()
+    while (moveToNext()) {
+        val mime = getStringOrNull(mimeIndex)
+        if (mime?.startsWith("image/") != true) {
+            continue
+        }
+        val id = getLong(idIndex)
+        val uri = ContentUris.withAppendedId(contentUri, id)
+        val takenAtMillis = readMillis(dateTakenIndex, seconds = false)
+            ?: readMillis(dateAddedIndex, seconds = true)
+            ?: readMillis(dateModifiedIndex, seconds = true)
+        val takenAt = takenAtMillis?.let(Instant::ofEpochMilli)
+        items += PhotoItem(
+            id = id.toString(),
+            uri = uri,
+            takenAt = takenAt
+        )
+    }
+    return items
+}
+
+private fun Cursor.getStringOrNull(index: Int): String? {
+    if (index < 0 || isNull(index)) {
+        return null
+    }
+    return getString(index)
+}
+
+private fun Cursor.readMillis(index: Int, seconds: Boolean): Long? {
+    if (index < 0 || isNull(index)) {
+        return null
+    }
+    val value = getLong(index)
+    if (value <= 0) {
+        return null
+    }
+    return if (seconds) value * 1000 else value
 }
