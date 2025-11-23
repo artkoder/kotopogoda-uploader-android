@@ -127,6 +127,7 @@ class PhotoRepositoryTest {
                 )
             )
         )
+        val zone = ZoneId.systemDefault()
         val startOfDay = LocalDate.of(2024, 12, 18).atStartOfDay(zone).toInstant()
         val endOfDay = LocalDate.of(2024, 12, 19).atStartOfDay(zone).toInstant()
 

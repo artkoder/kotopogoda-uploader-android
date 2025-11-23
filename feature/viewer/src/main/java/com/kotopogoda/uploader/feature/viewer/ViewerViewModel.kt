@@ -456,6 +456,7 @@ class ViewerViewModel @Inject constructor(
 
     fun jumpToDate(target: Instant) {
         viewModelScope.launch {
+            pendingDeepScroll = null
             val requestId = UUID.randomUUID().toString().takeLast(8)
             val zone = ZoneId.systemDefault()
             val localDate = target.atZone(zone).toLocalDate()
@@ -515,15 +516,19 @@ class ViewerViewModel @Inject constructor(
                         CalendarJumpResolution(
                             index = result.index,
                             photo = result.photo,
-                            match = if (result.matchType == MatchType.Exact) CalendarMatch.Exact else CalendarMatch.Nearest
+                            match = if (result.matchType == MatchType.Exact) {
+                                CalendarMatch.Exact
+                            } else {
+                                CalendarMatch.Nearest
+                            }
                         )
                     }
                     calculationReason = "nearest_search"
                 }
             }
-            val resolvedIndex = calendarResult?.index
 
-            if (resolvedIndex == null) {
+            val resolved = calendarResult
+            if (resolved == null) {
                 Timber.tag(CALENDAR_DEBUG_TAG).i(
                     "CalendarNoPhotos date=%s resultCount=0 durationMs=%d reason=%s",
                     localDate.toString(),
@@ -534,7 +539,8 @@ class ViewerViewModel @Inject constructor(
                 return@launch
             }
 
-            val matchType = calendarResult!!.match
+            val resolvedIndex = resolved.index
+            val matchType = resolved.match
 
             Timber.tag(CALENDAR_DEBUG_TAG).i(
                 "CalendarShiftCalculation requestId=%s selectedDate=%s targetIndex=%d reason=%s match=%s",
@@ -545,7 +551,7 @@ class ViewerViewModel @Inject constructor(
                 matchType.name
             )
 
-            val candidatePhoto = calendarResult!!.photo ?: photoRepository.getPhotoAt(resolvedIndex)
+            val candidatePhoto = resolved.photo ?: photoRepository.getPhotoAt(resolvedIndex)
             val resultTakenAt = candidatePhoto?.takenAt
             val resultTakenDate = resultTakenAt?.atZone(zone)?.toLocalDate()
             val resultTakenAtIsoOrNull = resultTakenAt?.toString() ?: "null"
@@ -622,7 +628,6 @@ class ViewerViewModel @Inject constructor(
             setCurrentIndex(resolvedIndex)
         }
     }
-
     private suspend fun findIndexBinarySearch(
         target: LocalDate,
         totalCount: Int,
@@ -719,9 +724,7 @@ class ViewerViewModel @Inject constructor(
 
                 SortOrder.Ascending -> {
                     if (epochDay >= targetEpochDay) {
-                        if (epochDay == targetEpochDay &&
-                            (ascendingExact == null || mid < ascendingExact.index)
-                        ) {
+                        if (epochDay == targetEpochDay && (ascendingExact == null || mid < ascendingExact.index)) {
                             ascendingExact = BinarySearchResult(mid, photo, MatchType.Exact)
                         }
                         high = mid - 1
@@ -759,7 +762,6 @@ class ViewerViewModel @Inject constructor(
         }
 
         Timber.tag(CALENDAR_DEBUG_TAG).i(
-        Timber.tag(CALENDAR_DEBUG_TAG).i(
             "SmartSearch result requestId=%s order=%s steps=%d index=%s match=%s",
             requestId,
             order.name,
@@ -775,10 +777,6 @@ class ViewerViewModel @Inject constructor(
         return this?.takenAt?.atZone(zone)?.toLocalDate()
     }
 
-        private fun PhotoItem?.toLocalDate(zone: ZoneId): LocalDate? {
-
-    }
-
     private fun resolveSortOrder(firstDate: LocalDate?, lastDate: LocalDate?): SortOrder {
         val firstEpoch = firstDate?.toEpochDay()
         val lastEpoch = lastDate?.toEpochDay()
@@ -791,6 +789,22 @@ class ViewerViewModel @Inject constructor(
         }
         return SortOrder.Descending
     }
+
+    private data class CalendarJumpResolution(
+        val index: Int,
+        val photo: PhotoItem?,
+        val match: CalendarMatch,
+    )
+
+    private enum class CalendarMatch { Exact, Nearest }
+
+    private data class PendingDeepScroll(
+        val requestId: String,
+        val selectedDate: LocalDate,
+        val targetIndex: Int,
+        val totalCount: Int,
+        val match: CalendarMatch,
+    )
 
     private data class BinarySearchResult(
         val index: Int,
@@ -2350,7 +2364,32 @@ class ViewerViewModel @Inject constructor(
                 resultUri = state.resultUri.takeIf { matches },
             )
         }
+        maybeCompleteDeepScroll(totalCount, photo)
     }
+
+    private fun maybeCompleteDeepScroll(totalCount: Int, photo: PhotoItem?) {
+        val pending = pendingDeepScroll ?: return
+        val visiblePhoto = photo ?: return
+        val currentIndexSnapshot = _currentIndex.value
+        if (currentIndexSnapshot != pending.targetIndex) {
+            return
+        }
+        val zone = ZoneId.systemDefault()
+        val visibleDate = visiblePhoto.takenAt?.atZone(zone)?.toLocalDate()
+        Timber.tag(CALENDAR_DEBUG_TAG).i(
+            "DeepScrollCompleted requestId=%s selectedDate=%s targetIndex=%d actualIndex=%d visibleDate=%s totalCount=%d match=%s uri=%s",
+            pending.requestId,
+            pending.selectedDate.toString(),
+            pending.targetIndex,
+            currentIndexSnapshot,
+            visibleDate?.toString() ?: "null",
+            totalCount,
+            pending.match.name,
+            visiblePhoto.uri.toString()
+        )
+        pendingDeepScroll = null
+    }
+
 
     private fun pushAction(action: UserAction) {
         undoStack.addLast(action)
@@ -3666,6 +3705,7 @@ class ViewerViewModel @Inject constructor(
     }
 
     companion object {
+        private const val PAGING_PLACEHOLDERS_ENABLED = true
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
         private const val QUEUE_DELETE_REASON = "user_delete"

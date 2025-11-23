@@ -478,11 +478,6 @@ class PhotoRepository @Inject constructor(
     ) : PagingSource<Int, PhotoItem>() {
         private var cachedTotalCount: Int? = null
 
-        override fun invalidate() {
-            cachedTotalCount = null
-            super.invalidate()
-        }
-
         override suspend fun load(params: LoadParams<Int>): LoadResult<Int, PhotoItem> {
             val totalCount = resolveTotalCount(force = params is LoadParams.Refresh)
             val rawOffset = params.key ?: 0
