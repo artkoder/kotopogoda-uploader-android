@@ -101,6 +101,7 @@ class UploadEnqueuer @Inject constructor(
         const val KEY_ERROR_MESSAGE = "errorMessage"
         const val KEY_DELETED = "deleted"
         const val KEY_COMPLETION_STATE = "completionState"
+        const val KEY_OCR_PERCENT = "ocrPercent"
         const val STATE_UPLOADED_DELETED = "uploadedDeleted"
         const val STATE_UPLOADED_AWAITING_DELETE = "uploadedAwaitingDelete"
         const val STATE_UPLOAD_COMPLETED_UNKNOWN = "uploadCompletedUnknown"

@@ -38,4 +38,5 @@
     <string name="queue_network_metered">Требуется подключение к сети (допустимы платные каналы)</string>
     <string name="queue_retry_in">Ожидание повтора через %1$s</string>
     <string name="queue_location_hidden_by_system">Система скрывает местоположение. Проверьте разрешение и доступ к оригиналу.</string>
+    <string name="queue_ocr_balance">Остаток OCR: %1$d%%</string>
 </resources>
