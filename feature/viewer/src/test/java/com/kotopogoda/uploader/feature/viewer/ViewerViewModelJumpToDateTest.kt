@@ -24,7 +24,6 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import java.time.Instant
-import java.time.ZoneId
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -41,85 +40,74 @@ class ViewerViewModelJumpToDateTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun `jumpToDate scrolls to first photo even when date taken missing`() =
+    fun `jumpToDate scrolls to requested date in descending order`() =
         runTest(context = mainDispatcherRule.dispatcher) {
-        val environment = createEnvironment()
-        advanceUntilIdle()
+            val environment = createEnvironment()
+            advanceUntilIdle()
 
-        val target = Instant.parse("2025-01-02T10:15:30Z")
-        val zone = ZoneId.systemDefault()
-        val localDate = target.atZone(zone).toLocalDate()
-        val startOfDay = localDate.atStartOfDay(zone).toInstant()
-        val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
+            val photos = listOf(
+                photo(id = 0, instant = "2025-01-05T00:00:00Z"),
+                photo(id = 1, instant = "2025-01-04T00:00:00Z"),
+                photo(id = 2, instant = "2025-01-03T00:00:00Z"),
+                photo(id = 3, instant = "2025-01-02T00:00:00Z"),
+            )
+            stubPhotos(environment.photoRepository, photos)
+            environment.viewModel.updateVisiblePhoto(photos.size, photos.first())
 
-        val photoUri = Uri.parse("content://test/photo/7")
-        val candidatePhoto = PhotoItem(
-            id = "7",
-            uri = photoUri,
-            takenAt = startOfDay.plusSeconds(3600)
-        )
-        coEvery { environment.photoRepository.findIndexAtOrAfter(startOfDay, endOfDay) } returns 7
-        coEvery { environment.photoRepository.getPhotoAt(7) } returns candidatePhoto
+            val target = Instant.parse("2025-01-03T10:15:30Z")
 
-        environment.viewModel.jumpToDate(target)
-        advanceUntilIdle()
+            environment.viewModel.jumpToDate(target)
+            advanceUntilIdle()
 
-        assertEquals(7, environment.viewModel.currentIndex.value)
-        coVerify(exactly = 1) {
-            environment.photoRepository.findIndexAtOrAfter(startOfDay, endOfDay)
+            assertEquals(2, environment.viewModel.currentIndex.value)
+            coVerify(atLeast = 1) {
+                environment.photoRepository.getPhotoAt(any())
+            }
         }
-        coVerify(exactly = 1) {
-            environment.photoRepository.getPhotoAt(7)
-        }
-    }
 
     @Test
-    fun `jumpToDate emits event when day is empty`() = runTest(context = mainDispatcherRule.dispatcher) {
-        val environment = createEnvironment()
-        advanceUntilIdle()
+    fun `jumpToDate emits event when no earlier photos exist`() =
+        runTest(context = mainDispatcherRule.dispatcher) {
+            val environment = createEnvironment()
+            advanceUntilIdle()
 
-        val target = Instant.parse("2025-01-02T10:15:30Z")
-        val zone = ZoneId.systemDefault()
-        val localDate = target.atZone(zone).toLocalDate()
-        val startOfDay = localDate.atStartOfDay(zone).toInstant()
-        val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
+            val photos = listOf(
+                photo(id = 0, instant = "2025-01-10T00:00:00Z"),
+                photo(id = 1, instant = "2025-01-09T00:00:00Z"),
+            )
+            stubPhotos(environment.photoRepository, photos)
+            environment.viewModel.updateVisiblePhoto(photos.size, photos.first())
 
-        coEvery { environment.photoRepository.findIndexAtOrAfter(startOfDay, endOfDay) } returns null
-        val initialIndex = environment.viewModel.currentIndex.value
-        val eventDeferred = async { environment.viewModel.events.first() }
+            val target = Instant.parse("2024-01-02T00:00:00Z")
+            val initialIndex = environment.viewModel.currentIndex.value
+            val eventDeferred = async { environment.viewModel.events.first() }
 
-        environment.viewModel.jumpToDate(target)
-        advanceUntilIdle()
+            environment.viewModel.jumpToDate(target)
+            advanceUntilIdle()
 
-        val event = eventDeferred.await()
+            val event = eventDeferred.await()
 
-        assertEquals(initialIndex, environment.viewModel.currentIndex.value)
-        assertTrue(event is ViewerViewModel.ViewerEvent.ShowToast)
-        val toast = event as ViewerViewModel.ViewerEvent.ShowToast
-        assertEquals(R.string.viewer_toast_no_photos_for_day, toast.messageRes)
-        coVerify(exactly = 0) {
-            environment.photoRepository.getPhotoAt(any())
+            assertEquals(initialIndex, environment.viewModel.currentIndex.value)
+            assertTrue(event is ViewerViewModel.ViewerEvent.ShowToast)
+            val toast = event as ViewerViewModel.ViewerEvent.ShowToast
+            assertEquals(R.string.viewer_toast_no_photos_for_day, toast.messageRes)
         }
-    }
 
     @Test
     fun `jumpToDate skips jump when result is too far`() = runTest(context = mainDispatcherRule.dispatcher) {
         val environment = createEnvironment()
         advanceUntilIdle()
 
-        val target = Instant.parse("2024-01-01T00:00:00Z")
-        val zone = ZoneId.systemDefault()
-        val localDate = target.atZone(zone).toLocalDate()
-        val startOfDay = localDate.atStartOfDay(zone).toInstant()
-        val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
-
-        coEvery { environment.photoRepository.findIndexAtOrAfter(startOfDay, endOfDay) } returns 3
-        val farPhoto = PhotoItem(
-            id = "3",
-            uri = Uri.parse("content://test/photo/3"),
-            takenAt = target.plusSeconds(10L * 24 * 3600)
+        val photos = listOf(
+            photo(id = 0, instant = "2024-01-15T00:00:00Z"),
+            photo(id = 1, instant = "2024-01-10T00:00:00Z"),
+            photo(id = 2, instant = "2023-12-20T00:00:00Z"),
+            photo(id = 3, instant = "2023-12-10T00:00:00Z"),
         )
-        coEvery { environment.photoRepository.getPhotoAt(3) } returns farPhoto
+        stubPhotos(environment.photoRepository, photos)
+        environment.viewModel.updateVisiblePhoto(photos.size, photos.first())
+
+        val target = Instant.parse("2024-01-01T00:00:00Z")
         val initialIndex = environment.viewModel.currentIndex.value
         val eventDeferred = async { environment.viewModel.events.first() }
 
@@ -127,12 +115,33 @@ class ViewerViewModelJumpToDateTest {
         advanceUntilIdle()
 
         val event = eventDeferred.await()
+
         assertEquals(initialIndex, environment.viewModel.currentIndex.value)
         assertTrue(event is ViewerViewModel.ViewerEvent.ShowToast)
-        coVerify(exactly = 1) {
-            environment.photoRepository.getPhotoAt(3)
-        }
     }
+
+    @Test
+    fun `jumpToDate handles ascending order by falling back to closest earlier date`() =
+        runTest(context = mainDispatcherRule.dispatcher) {
+            val environment = createEnvironment()
+            advanceUntilIdle()
+
+            val photos = listOf(
+                photo(id = 0, instant = "2022-01-01T00:00:00Z"),
+                photo(id = 1, instant = "2022-01-05T00:00:00Z"),
+                photo(id = 2, instant = "2022-02-01T00:00:00Z"),
+                photo(id = 3, instant = "2022-03-01T00:00:00Z"),
+            )
+            stubPhotos(environment.photoRepository, photos)
+            environment.viewModel.updateVisiblePhoto(photos.size, photos.first())
+
+            val target = Instant.parse("2022-01-20T00:00:00Z")
+
+            environment.viewModel.jumpToDate(target)
+            advanceUntilIdle()
+
+            assertEquals(1, environment.viewModel.currentIndex.value)
+        }
 
     private fun createEnvironment(): ViewModelEnvironment {
         val photoRepository = mockk<PhotoRepository>()
@@ -172,6 +181,7 @@ class ViewerViewModelJumpToDateTest {
         )
         every { nativeEnhanceAdapter.isReady() } returns false
         coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
+        coEvery { photoRepository.getPhotoAt(any()) } returns null
 
         val context = mockk<Context>(relaxed = true)
 
@@ -191,6 +201,19 @@ class ViewerViewModelJumpToDateTest {
 
         return ViewModelEnvironment(viewModel, photoRepository)
     }
+
+    private fun stubPhotos(photoRepository: PhotoRepository, photos: List<PhotoItem>) {
+        coEvery { photoRepository.getPhotoAt(any()) } coAnswers {
+            val index = arg<Int>(0)
+            photos.getOrNull(index)
+        }
+    }
+
+    private fun photo(id: Int, instant: String): PhotoItem = PhotoItem(
+        id = id.toString(),
+        uri = Uri.parse("content://test/photo/$id"),
+        takenAt = Instant.parse(instant)
+    )
 
     private data class ViewModelEnvironment(
         val viewModel: ViewerViewModel,

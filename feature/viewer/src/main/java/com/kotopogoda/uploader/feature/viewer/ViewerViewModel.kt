@@ -458,15 +458,13 @@ class ViewerViewModel @Inject constructor(
             val requestId = UUID.randomUUID().toString().takeLast(8)
             val zone = ZoneId.systemDefault()
             val localDate = target.atZone(zone).toLocalDate()
-            val startOfDay = localDate.atStartOfDay(zone).toInstant()
-            val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
-            
+
             val currentIdx = _currentIndex.value
             val currentPhotoSnapshot = currentPhoto.value
             val currentTakenAtIsoOrNull = currentPhotoSnapshot?.takenAt?.toString()
             val totalPhotos = photoCount.value
             val availableDatesCount = _availableDates.value?.size ?: 0
-            
+
             Timber.tag(CALENDAR_DEBUG_TAG).i(
                 "CalendarUiSelect date=%s currentIndex=%d currentTakenAt=%s totalPhotos=%d availableDates=%d",
                 localDate.toString(),
@@ -475,78 +473,260 @@ class ViewerViewModel @Inject constructor(
                 totalPhotos,
                 availableDatesCount
             )
-            
-            var index: Int?
-            val elapsed = measureTimeMillis {
-                index = photoRepository.findIndexAtOrAfter(startOfDay, endOfDay, requestId, localDate.toString())
+
+            if (totalPhotos <= 0) {
+                Timber.tag(CALENDAR_DEBUG_TAG).i(
+                    "CalendarNoPhotos date=%s resultCount=0 durationMs=0 reason=no_items",
+                    localDate.toString()
+                )
+                _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
+                return@launch
             }
-            val resolvedIndex = index
-            
+
+            val searchResult: BinarySearchResult?
+            val elapsed = measureTimeMillis {
+                searchResult = findIndexBinarySearch(
+                    target = localDate,
+                    totalCount = totalPhotos,
+                    zone = zone,
+                    requestId = requestId
+                )
+            }
+            val resolvedIndex = searchResult?.index
+
             if (resolvedIndex == null) {
                 Timber.tag(CALENDAR_DEBUG_TAG).i(
-                    "CalendarNoPhotos date=%s resultCount=0 durationMs=%d",
+                    "CalendarNoPhotos date=%s resultCount=0 durationMs=%d reason=binary_search_empty",
                     localDate.toString(),
                     elapsed
                 )
                 _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
-            } else {
+                return@launch
+            }
+
+            Timber.tag(CALENDAR_DEBUG_TAG).i(
+                "CalendarShiftCalculation requestId=%s selectedDate=%s targetIndex=%d reason=binary_search",
+                requestId,
+                localDate.toString(),
+                resolvedIndex
+            )
+
+            val candidatePhoto = searchResult.photo ?: photoRepository.getPhotoAt(resolvedIndex)
+            val resultTakenAt = candidatePhoto?.takenAt
+            val resultTakenDate = resultTakenAt?.atZone(zone)?.toLocalDate()
+            val resultTakenAtIsoOrNull = resultTakenAt?.toString() ?: "null"
+            val resultTakenDateStr = resultTakenDate?.toString() ?: "null"
+            val deltaDays = resultTakenDate?.let {
+                ChronoUnit.DAYS.between(localDate, it).toInt()
+            }
+            val deltaDaysStr = deltaDays?.let { String.format(Locale.US, "%+d", it) } ?: "null"
+            val hasExactMatch = resultTakenDate == localDate
+
+            Timber.tag(CALENDAR_DEBUG_TAG).i(
+                "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=%s resultTakenDate=%s deltaDays=%s hasExactMatch=%s uri=%s",
+                localDate.toString(),
+                resolvedIndex,
+                resultTakenAtIsoOrNull,
+                resultTakenDateStr,
+                deltaDaysStr,
+                hasExactMatch.toString(),
+                candidatePhoto?.uri?.toString() ?: "null"
+            )
+
+            if (candidatePhoto == null) {
                 Timber.tag(CALENDAR_DEBUG_TAG).i(
-                    "CalendarShiftCalculation requestId=%s selectedDate=%s targetIndex=%d reason=found_in_range",
-                    requestId,
+                    "CalendarMismatch avoided jump: requested=%s reason=no_photo_at_index index=%d",
                     localDate.toString(),
                     resolvedIndex
                 )
-
-                val candidatePhoto = photoRepository.getPhotoAt(resolvedIndex)
-                val resultTakenAt = candidatePhoto?.takenAt
-                val resultTakenDate = resultTakenAt?.atZone(zone)?.toLocalDate()
-                val resultTakenAtIsoOrNull = resultTakenAt?.toString() ?: "null"
-                val resultTakenDateStr = resultTakenDate?.toString() ?: "null"
-                val deltaDays = resultTakenDate?.let {
-                    ChronoUnit.DAYS.between(localDate, it).toInt()
-                }
-                val deltaDaysStr = deltaDays?.let { String.format(Locale.US, "%+d", it) } ?: "null"
-                val hasExactMatch = resultTakenDate == localDate
-
-                Timber.tag(CALENDAR_DEBUG_TAG).i(
-                    "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=%s resultTakenDate=%s deltaDays=%s hasExactMatch=%s uri=%s",
-                    localDate.toString(),
-                    resolvedIndex,
-                    resultTakenAtIsoOrNull,
-                    resultTakenDateStr,
-                    deltaDaysStr,
-                    hasExactMatch.toString(),
-                    candidatePhoto?.uri?.toString() ?: "null"
-                )
-
-                if (candidatePhoto == null) {
-                    Timber.tag(CALENDAR_DEBUG_TAG).i(
-                        "CalendarMismatch avoided jump: requested=%s reason=no_photo_at_index index=%d",
-                        localDate.toString(),
-                        resolvedIndex
-                    )
-                    _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
-                    return@launch
-                }
-
-                val exceedsTolerance = deltaDays != null && abs(deltaDays) > MAX_ALLOWED_CALENDAR_DELTA_DAYS
-                if (exceedsTolerance) {
-                    Timber.tag(CALENDAR_DEBUG_TAG).w(
-                        "CalendarMismatch avoided jump: requested=%s found=%s index=%d deltaDays=%s tolerance=%d",
-                        localDate.toString(),
-                        resultTakenDateStr,
-                        resolvedIndex,
-                        deltaDaysStr,
-                        MAX_ALLOWED_CALENDAR_DELTA_DAYS
-                    )
-                    _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
-                    return@launch
-                }
-
-                setCurrentIndex(resolvedIndex)
+                _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
+                return@launch
             }
+
+            val exceedsTolerance = deltaDays != null && abs(deltaDays) > MAX_ALLOWED_CALENDAR_DELTA_DAYS
+            if (exceedsTolerance) {
+                Timber.tag(CALENDAR_DEBUG_TAG).w(
+                    "CalendarMismatch avoided jump: requested=%s found=%s index=%d deltaDays=%s tolerance=%d",
+                    localDate.toString(),
+                    resultTakenDateStr,
+                    resolvedIndex,
+                    deltaDaysStr,
+                    MAX_ALLOWED_CALENDAR_DELTA_DAYS
+                )
+                _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
+                return@launch
+            }
+
+            setCurrentIndex(resolvedIndex)
         }
     }
+
+    private suspend fun findIndexBinarySearch(
+        target: LocalDate,
+        totalCount: Int,
+        zone: ZoneId,
+        requestId: String
+    ): BinarySearchResult? {
+        if (totalCount <= 0) {
+            return null
+        }
+
+        val firstPhoto = photoRepository.getPhotoAt(0)
+        if (firstPhoto == null) {
+            Timber.tag(CALENDAR_DEBUG_TAG).w(
+                "SmartSearch aborted requestId=%s reason=missing_first_photo total=%d",
+                requestId,
+                totalCount
+            )
+            return null
+        }
+        val lastPhoto = if (totalCount > 1) {
+            photoRepository.getPhotoAt(totalCount - 1) ?: firstPhoto
+        } else {
+            firstPhoto
+        }
+        val firstDate = firstPhoto.toLocalDate(zone)
+        val lastDate = lastPhoto.toLocalDate(zone)
+        val order = resolveSortOrder(firstDate, lastDate)
+
+        if (firstDate == null || lastDate == null) {
+            Timber.tag(CALENDAR_DEBUG_TAG).w(
+                "SmartSearch orderFallback requestId=%s order=%s firstDate=%s lastDate=%s",
+                requestId,
+                order.name,
+                firstDate?.toString() ?: "null",
+                lastDate?.toString() ?: "null"
+            )
+        }
+
+        Timber.tag(CALENDAR_DEBUG_TAG).i(
+            "SmartSearch init requestId=%s order=%s target=%s total=%d firstDate=%s lastDate=%s",
+            requestId,
+            order.name,
+            target.toString(),
+            totalCount,
+            firstDate?.toString() ?: "null",
+            lastDate?.toString() ?: "null"
+        )
+
+        val targetEpochDay = target.toEpochDay()
+        var low = 0
+        var high = totalCount - 1
+        var steps = 0
+        var descendingResult: BinarySearchResult? = null
+        var ascendingExact: BinarySearchResult? = null
+        var ascendingFallback: BinarySearchResult? = null
+
+        while (low <= high && steps < MAX_BINARY_SEARCH_STEPS) {
+            val mid = (low + high) ushr 1
+            val photo = photoRepository.getPhotoAt(mid)
+            val photoDate = photo.toLocalDate(zone)
+            val epochDay = photoDate?.toEpochDay()
+            val cmp = epochDay?.compareTo(targetEpochDay)
+            Timber.tag(CALENDAR_DEBUG_TAG).i(
+                "SmartSearch step=%d requestId=%s order=%s low=%d high=%d mid=%d date=%s cmp=%s",
+                steps + 1,
+                requestId,
+                order.name,
+                low,
+                high,
+                mid,
+                photoDate?.toString() ?: "null",
+                cmp?.toString() ?: "null"
+            )
+            if (photo == null || epochDay == null) {
+                Timber.tag(CALENDAR_DEBUG_TAG).w(
+                    "SmartSearch aborted requestId=%s reason=missing_photo mid=%d",
+                    requestId,
+                    mid
+                )
+                break
+            }
+
+            when (order) {
+                SortOrder.Descending -> {
+                    if (epochDay <= targetEpochDay) {
+                        val matchType =
+                            if (epochDay == targetEpochDay) MatchType.Exact else MatchType.FallbackOlder
+                        descendingResult = BinarySearchResult(mid, photo, matchType)
+                        high = mid - 1
+                    } else {
+                        low = mid + 1
+                    }
+                }
+
+                SortOrder.Ascending -> {
+                    if (epochDay >= targetEpochDay) {
+                        if (epochDay == targetEpochDay &&
+                            (ascendingExact == null || mid < ascendingExact.index)
+                        ) {
+                            ascendingExact = BinarySearchResult(mid, photo, MatchType.Exact)
+                        }
+                        high = mid - 1
+                    } else {
+                        if (ascendingFallback == null || mid > ascendingFallback.index) {
+                            ascendingFallback = BinarySearchResult(mid, photo, MatchType.FallbackOlder)
+                        }
+                        low = mid + 1
+                    }
+                }
+            }
+            steps++
+        }
+
+        if (steps >= MAX_BINARY_SEARCH_STEPS && low <= high) {
+            Timber.tag(CALENDAR_DEBUG_TAG).w(
+                "SmartSearch aborted requestId=%s reason=max_steps steps=%d remainingRange=[%d,%d]",
+                requestId,
+                steps,
+                low,
+                high
+            )
+        }
+
+        val result = when (order) {
+            SortOrder.Descending -> descendingResult
+            SortOrder.Ascending -> ascendingExact ?: ascendingFallback
+        }
+
+        Timber.tag(CALENDAR_DEBUG_TAG).i(
+            "SmartSearch result requestId=%s order=%s steps=%d index=%s match=%s",
+            requestId,
+            order.name,
+            steps,
+            result?.index?.toString() ?: "null",
+            result?.matchType?.name ?: "none"
+        )
+
+        return result
+    }
+
+    private fun PhotoItem?.toLocalDate(zone: ZoneId): LocalDate? {
+        return this?.takenAt?.atZone(zone)?.toLocalDate()
+    }
+
+    private fun resolveSortOrder(firstDate: LocalDate?, lastDate: LocalDate?): SortOrder {
+        val firstEpoch = firstDate?.toEpochDay()
+        val lastEpoch = lastDate?.toEpochDay()
+        if (firstEpoch != null && lastEpoch != null) {
+            return if (firstEpoch >= lastEpoch) {
+                SortOrder.Descending
+            } else {
+                SortOrder.Ascending
+            }
+        }
+        return SortOrder.Descending
+    }
+
+    private data class BinarySearchResult(
+        val index: Int,
+        val photo: PhotoItem,
+        val matchType: MatchType,
+    )
+
+    private enum class MatchType { Exact, FallbackOlder }
+
+    private enum class SortOrder { Ascending, Descending }
 
     fun scrollToNewest() {
         val targetIndex = clampToCount(0, photoCount.value)
@@ -3421,6 +3601,7 @@ class ViewerViewModel @Inject constructor(
         private const val PERMISSION_TAG = "Permissions"
         private const val CALENDAR_DEBUG_TAG = "ViewerCalendar"
         private const val MAX_ALLOWED_CALENDAR_DELTA_DAYS = 3
+        private const val MAX_BINARY_SEARCH_STEPS = 20
         private const val MIN_ENHANCEMENT_STRENGTH = 0f
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
         private const val ENHANCE_TAG = "Enhance"
