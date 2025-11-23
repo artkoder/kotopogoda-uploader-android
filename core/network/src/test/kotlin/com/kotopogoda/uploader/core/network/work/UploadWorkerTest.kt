@@ -27,6 +27,7 @@ import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.HttpFileLogger
 import com.kotopogoda.uploader.core.network.api.UploadApi
@@ -88,6 +89,7 @@ class UploadWorkerTest {
     private lateinit var uploadApi: UploadApi
     private lateinit var workerFactory: WorkerFactory
     private lateinit var uploadQueueRepository: UploadQueueRepository
+    private lateinit var ocrQuotaRepository: OcrQuotaRepository
     private lateinit var workManager: WorkManager
     private lateinit var workManagerProvider: WorkManagerProvider
     private lateinit var constraintsProvider: UploadConstraintsProvider
@@ -100,6 +102,8 @@ class UploadWorkerTest {
         mockWebServer = MockWebServer().apply { start() }
         uploadQueueRepository = mockk(relaxed = true)
         coEvery { uploadQueueRepository.markAccepted(any(), any()) } just Runs
+        ocrQuotaRepository = mockk(relaxed = true)
+        coEvery { ocrQuotaRepository.updatePercent(any()) } just Runs
         workManager = mockk(relaxed = true)
         workManagerProvider = WorkManagerProvider { workManager }
         constraintsProvider = mockk(relaxed = true)
@@ -146,6 +150,7 @@ class UploadWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
+                        ocrQuotaRepository,
                         workManagerProvider,
                         constraintsProvider,
                     )
@@ -208,6 +213,27 @@ class UploadWorkerTest {
         assertTrue(body.contains(file.length().toString()))
         assertTrue(body.contains("name=\"file\"; filename=\"photo.jpg\""))
         assertTrue(body.contains("hello upload"))
+    }
+
+    @Test
+    fun uploadAcceptedUpdatesOcrQuotaWhenPercentProvided() = runBlocking {
+        val file = createTempFileWithContent("quota update")
+        val inputData = inputDataFor(file, displayName = "quota.jpg", idempotencyKey = "quota-key")
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(202)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"upload_id":"quota","status":"accepted","ocr_remaining_percent":83}""")
+        )
+
+        val worker = createWorker(inputData)
+        val result = worker.doWork()
+
+        assertTrue(result is Success)
+        coVerify(exactly = 1) {
+            ocrQuotaRepository.updatePercent(83)
+        }
     }
 
     @Test
@@ -673,6 +699,7 @@ class UploadWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
+                        ocrQuotaRepository,
                         workManagerProvider,
                         constraintsProvider,
                     )
@@ -716,6 +743,7 @@ class UploadWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         ThrowingUploadSummaryStarter,
+                        ocrQuotaRepository,
                         workManagerProvider,
                         constraintsProvider,
                     )
@@ -778,6 +806,7 @@ class UploadWorkerTest {
                         uploadQueueRepository,
                         TestForegroundDelegate(appContext),
                         NoopUploadSummaryStarter,
+                        ocrQuotaRepository,
                         workManagerProvider,
                         constraintsProvider,
                     )
@@ -824,6 +853,7 @@ class UploadWorkerTest {
                         uploadQueueRepository,
                         ThrowingForegroundDelegate,
                         NoopUploadSummaryStarter,
+                        ocrQuotaRepository,
                         workManagerProvider,
                         constraintsProvider,
                     )

@@ -1,5 +1,6 @@
 package com.kotopogoda.uploader.core.network.api
 
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import retrofit2.http.GET
 
@@ -10,6 +11,7 @@ interface HealthApi {
 
 @JsonClass(generateAdapter = true)
 data class HealthResponse(
-    val status: Any?,
+    @Json(name = "ok") val ok: Boolean?,
+    val status: Any? = null,
     val message: String? = null,
 )
