@@ -203,6 +203,7 @@ class ViewerViewModelJumpToDateTest {
     }
 
     private fun stubPhotos(photoRepository: PhotoRepository, photos: List<PhotoItem>) {
+        coEvery { photoRepository.countAll() } returns photos.size
         coEvery { photoRepository.getPhotoAt(any()) } coAnswers {
             val index = arg<Int>(0)
             photos.getOrNull(index)

@@ -462,7 +462,7 @@ class ViewerViewModel @Inject constructor(
             val currentIdx = _currentIndex.value
             val currentPhotoSnapshot = currentPhoto.value
             val currentTakenAtIsoOrNull = currentPhotoSnapshot?.takenAt?.toString()
-            val totalPhotos = photoCount.value
+            val totalPhotos = photoRepository.countAll()
             val availableDatesCount = _availableDates.value?.size ?: 0
 
             Timber.tag(CALENDAR_DEBUG_TAG).i(
