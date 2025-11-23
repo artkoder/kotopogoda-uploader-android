@@ -189,6 +189,7 @@ class ViewerViewModel @Inject constructor(
     private var pendingBatchMove: PendingBatchMove? = null
     private var pendingSingleMove: PendingSingleMove? = null
     private val pendingCleanupJobs = mutableMapOf<String, Job>()
+    private var pendingDeepScroll: PendingDeepScroll? = null
     @Volatile
     private var autoDeleteEnabled: Boolean = false
 
@@ -483,52 +484,84 @@ class ViewerViewModel @Inject constructor(
                 return@launch
             }
 
-            val searchResult: BinarySearchResult?
+            val startOfDay = localDate.atStartOfDay(zone).toInstant()
+            val endOfDay = localDate.plusDays(1).atStartOfDay(zone).toInstant()
+
+            var calendarResult: CalendarJumpResolution? = null
+            var calculationReason = "unknown"
             val elapsed = measureTimeMillis {
-                searchResult = findIndexBinarySearch(
-                    target = localDate,
-                    totalCount = totalPhotos,
-                    zone = zone,
-                    requestId = requestId
+                val exactIndex = photoRepository.findIndexAtOrAfter(
+                    start = startOfDay,
+                    endExclusive = endOfDay,
+                    requestId = requestId,
+                    selectedDate = localDate.toString()
                 )
+                if (exactIndex != null) {
+                    val photo = photoRepository.getPhotoAt(exactIndex)
+                    calendarResult = CalendarJumpResolution(
+                        index = exactIndex,
+                        photo = photo,
+                        match = CalendarMatch.Exact
+                    )
+                    calculationReason = "range_query"
+                } else {
+                    val fallback = findIndexBinarySearch(
+                        target = localDate,
+                        totalCount = totalPhotos,
+                        zone = zone,
+                        requestId = requestId
+                    )
+                    calendarResult = fallback?.let { result ->
+                        CalendarJumpResolution(
+                            index = result.index,
+                            photo = result.photo,
+                            match = if (result.matchType == MatchType.Exact) CalendarMatch.Exact else CalendarMatch.Nearest
+                        )
+                    }
+                    calculationReason = "nearest_search"
+                }
             }
-            val resolvedIndex = searchResult?.index
+            val resolvedIndex = calendarResult?.index
 
             if (resolvedIndex == null) {
                 Timber.tag(CALENDAR_DEBUG_TAG).i(
-                    "CalendarNoPhotos date=%s resultCount=0 durationMs=%d reason=binary_search_empty",
+                    "CalendarNoPhotos date=%s resultCount=0 durationMs=%d reason=%s",
                     localDate.toString(),
-                    elapsed
+                    elapsed,
+                    calculationReason
                 )
                 _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
                 return@launch
             }
 
+            val matchType = calendarResult!!.match
+
             Timber.tag(CALENDAR_DEBUG_TAG).i(
-                "CalendarShiftCalculation requestId=%s selectedDate=%s targetIndex=%d reason=binary_search",
+                "CalendarShiftCalculation requestId=%s selectedDate=%s targetIndex=%d reason=%s match=%s",
                 requestId,
                 localDate.toString(),
-                resolvedIndex
+                resolvedIndex,
+                calculationReason,
+                matchType.name
             )
 
-            val candidatePhoto = searchResult.photo ?: photoRepository.getPhotoAt(resolvedIndex)
+            val candidatePhoto = calendarResult!!.photo ?: photoRepository.getPhotoAt(resolvedIndex)
             val resultTakenAt = candidatePhoto?.takenAt
             val resultTakenDate = resultTakenAt?.atZone(zone)?.toLocalDate()
             val resultTakenAtIsoOrNull = resultTakenAt?.toString() ?: "null"
             val resultTakenDateStr = resultTakenDate?.toString() ?: "null"
-            val deltaDays = resultTakenDate?.let {
-                ChronoUnit.DAYS.between(localDate, it).toInt()
-            }
+            val deltaDays = resultTakenDate?.let { ChronoUnit.DAYS.between(localDate, it).toInt() }
             val deltaDaysStr = deltaDays?.let { String.format(Locale.US, "%+d", it) } ?: "null"
-            val hasExactMatch = resultTakenDate == localDate
+            val hasExactMatch = matchType == CalendarMatch.Exact && resultTakenDate == localDate
 
             Timber.tag(CALENDAR_DEBUG_TAG).i(
-                "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=%s resultTakenDate=%s deltaDays=%s hasExactMatch=%s uri=%s",
+                "CalendarResult selectedDate=%s resultIndex=%d resultTakenAt=%s resultTakenDate=%s deltaDays=%s match=%s hasExactMatch=%s uri=%s",
                 localDate.toString(),
                 resolvedIndex,
                 resultTakenAtIsoOrNull,
                 resultTakenDateStr,
                 deltaDaysStr,
+                matchType.name,
                 hasExactMatch.toString(),
                 candidatePhoto?.uri?.toString() ?: "null"
             )
@@ -543,19 +576,48 @@ class ViewerViewModel @Inject constructor(
                 return@launch
             }
 
-            val exceedsTolerance = deltaDays != null && abs(deltaDays) > MAX_ALLOWED_CALENDAR_DELTA_DAYS
+            if (matchType == CalendarMatch.Exact && deltaDays != null && deltaDays != 0) {
+                Timber.tag(CALENDAR_DEBUG_TAG).w(
+                    "CalendarExactMismatch requestId=%s selectedDate=%s index=%d deltaDays=%s",
+                    requestId,
+                    localDate.toString(),
+                    resolvedIndex,
+                    deltaDaysStr
+                )
+            }
+
+            val exceedsTolerance = matchType == CalendarMatch.Nearest && deltaDays != null && abs(deltaDays) > MAX_ALLOWED_CALENDAR_DELTA_DAYS
             if (exceedsTolerance) {
                 Timber.tag(CALENDAR_DEBUG_TAG).w(
-                    "CalendarMismatch avoided jump: requested=%s found=%s index=%d deltaDays=%s tolerance=%d",
+                    "CalendarMismatch avoided jump: requested=%s found=%s index=%d deltaDays=%s tolerance=%d match=%s",
                     localDate.toString(),
                     resultTakenDateStr,
                     resolvedIndex,
                     deltaDaysStr,
-                    MAX_ALLOWED_CALENDAR_DELTA_DAYS
+                    MAX_ALLOWED_CALENDAR_DELTA_DAYS,
+                    matchType.name
                 )
                 _events.emit(ViewerEvent.ShowToast(R.string.viewer_toast_no_photos_for_day))
                 return@launch
             }
+
+            pendingDeepScroll = PendingDeepScroll(
+                requestId = requestId,
+                selectedDate = localDate,
+                targetIndex = resolvedIndex,
+                totalCount = totalPhotos,
+                match = matchType
+            )
+
+            Timber.tag(CALENDAR_DEBUG_TAG).i(
+                "DeepScrollRequest requestId=%s selectedDate=%s targetIndex=%d totalCount=%d placeholdersEnabled=%s match=%s",
+                requestId,
+                localDate.toString(),
+                resolvedIndex,
+                totalPhotos,
+                PAGING_PLACEHOLDERS_ENABLED,
+                matchType.name
+            )
 
             setCurrentIndex(resolvedIndex)
         }
@@ -684,11 +746,19 @@ class ViewerViewModel @Inject constructor(
             )
         }
 
-        val result = when (order) {
+        var result = when (order) {
             SortOrder.Descending -> descendingResult
             SortOrder.Ascending -> ascendingExact ?: ascendingFallback
         }
 
+        if (result == null) {
+            result = when (order) {
+                SortOrder.Descending -> lastPhoto?.let { BinarySearchResult(totalCount - 1, it, MatchType.FallbackOlder) }
+                SortOrder.Ascending -> firstPhoto?.let { BinarySearchResult(0, it, MatchType.FallbackOlder) }
+            }
+        }
+
+        Timber.tag(CALENDAR_DEBUG_TAG).i(
         Timber.tag(CALENDAR_DEBUG_TAG).i(
             "SmartSearch result requestId=%s order=%s steps=%d index=%s match=%s",
             requestId,
@@ -703,6 +773,10 @@ class ViewerViewModel @Inject constructor(
 
     private fun PhotoItem?.toLocalDate(zone: ZoneId): LocalDate? {
         return this?.takenAt?.atZone(zone)?.toLocalDate()
+    }
+
+        private fun PhotoItem?.toLocalDate(zone: ZoneId): LocalDate? {
+
     }
 
     private fun resolveSortOrder(firstDate: LocalDate?, lastDate: LocalDate?): SortOrder {

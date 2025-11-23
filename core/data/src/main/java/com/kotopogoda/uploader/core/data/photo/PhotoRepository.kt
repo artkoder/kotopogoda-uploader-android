@@ -14,6 +14,7 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.PagingSource
+import androidx.paging.PagingSource.LoadParams
 import androidx.paging.PagingState
 import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
@@ -58,7 +59,7 @@ class PhotoRepository @Inject constructor(
                         config = PagingConfig(
                             pageSize = DEFAULT_PAGE_SIZE,
                             prefetchDistance = DEFAULT_PREFETCH_DISTANCE,
-                            enablePlaceholders = false
+                            enablePlaceholders = true
                         ),
                         pagingSourceFactory = {
                             MediaStorePhotoPagingSource(spec)
@@ -377,27 +378,8 @@ class PhotoRepository @Inject constructor(
         inclusive: Boolean
     ): Pair<String, Array<String>> {
         val operator = if (inclusive) ">=" else ">"
-        val selection = buildString {
-            append("(")
-            append("(")
-            append(DATE_TAKEN_POSITIVE_CONDITION)
-            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} $operator ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_POSITIVE_CONDITION)
-            append(" AND $DATE_ADDED_MILLIS_EXPRESSION $operator ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_MODIFIED_POSITIVE_CONDITION)
-            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION $operator ?)")
-            append(")")
-        }
-        val arg = thresholdMillis.toString()
-        val args = arrayOf(arg, arg, arg)
+        val selection = "($SORT_KEY_EXPRESSION $operator CAST(? AS INTEGER))"
+        val args = arrayOf(thresholdMillis.toString())
         return selection to args
     }
 
@@ -405,31 +387,10 @@ class PhotoRepository @Inject constructor(
         startMillisInclusive: Long,
         endMillisExclusive: Long
     ): Pair<String, Array<String>> {
-        val selection = buildString {
-            append("(")
-            append("(")
-            append(DATE_TAKEN_POSITIVE_CONDITION)
-            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} >= ?")
-            append(" AND ${MediaStore.Images.Media.DATE_TAKEN} < ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_POSITIVE_CONDITION)
-            append(" AND $DATE_ADDED_MILLIS_EXPRESSION >= ?")
-            append(" AND $DATE_ADDED_MILLIS_EXPRESSION < ?)")
-            append(" OR (")
-            append(DATE_TAKEN_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_ADDED_MISSING_CONDITION)
-            append(" AND ")
-            append(DATE_MODIFIED_POSITIVE_CONDITION)
-            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION >= ?")
-            append(" AND $DATE_MODIFIED_MILLIS_EXPRESSION < ?)")
-            append(")")
-        }
+        val selection = "($SORT_KEY_EXPRESSION >= CAST(? AS INTEGER) AND $SORT_KEY_EXPRESSION < CAST(? AS INTEGER))"
         val start = startMillisInclusive.toString()
         val end = endMillisExclusive.toString()
-        val args = arrayOf(start, end, start, end, start, end)
+        val args = arrayOf(start, end)
         return selection to args
     }
 
@@ -515,9 +476,17 @@ class PhotoRepository @Inject constructor(
     private inner class MediaStorePhotoPagingSource(
         private val spec: MediaStoreQuerySpec
     ) : PagingSource<Int, PhotoItem>() {
+        private var cachedTotalCount: Int? = null
+
+        override fun invalidate() {
+            cachedTotalCount = null
+            super.invalidate()
+        }
 
         override suspend fun load(params: LoadParams<Int>): LoadResult<Int, PhotoItem> {
-            val offset = params.key ?: 0
+            val totalCount = resolveTotalCount(force = params is LoadParams.Refresh)
+            val rawOffset = params.key ?: 0
+            val offset = rawOffset.coerceAtLeast(0)
             val limit = params.loadSize
             val selection = spec.selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
             val args = spec.selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
@@ -540,7 +509,7 @@ class PhotoRepository @Inject constructor(
                 ),
             )
 
-            val page = runCatching {
+            val items = runCatching {
                 resolver.queryWithFallback(
                     uris = spec.contentUris,
                     projection = PHOTO_PROJECTION,
@@ -549,22 +518,7 @@ class PhotoRepository @Inject constructor(
                     sortOrder = sortOrder,
                     bundle = bundle
                 ) { contentUri, result ->
-                    val items = result.readPhotoItems(contentUri)
-                    val nextKey = if (items.size < limit) {
-                        null
-                    } else {
-                        offset + items.size
-                    }
-                    val prevKey = if (offset == 0) {
-                        null
-                    } else {
-                        max(0, offset - limit)
-                    }
-                    LoadResult.Page(
-                        data = items,
-                        prevKey = prevKey,
-                        nextKey = nextKey
-                    )
+                    result.readPhotoItems(contentUri)
                 }
             }
                 .onFailure { error ->
@@ -582,28 +536,50 @@ class PhotoRepository @Inject constructor(
                 }
                 .getOrElse { error ->
                     return LoadResult.Error(error)
-                }
+                } ?: emptyList()
 
-            val pageResult = page
-                ?: LoadResult.Page<Int, PhotoItem>(
-                    data = emptyList(),
-                    prevKey = null,
-                    nextKey = null,
-                )
-            
+            val nextKey = if (offset + items.size >= totalCount) {
+                null
+            } else {
+                offset + items.size
+            }
+            val prevKey = if (offset == 0) {
+                null
+            } else {
+                max(0, offset - limit)
+            }
+            val itemsBefore = offset.coerceAtMost(totalCount)
+            val itemsAfter = (totalCount - offset - items.size).coerceAtLeast(0)
+
             Timber.tag(MEDIA_LOG_TAG).i(
                 UploadLog.message(
                     category = CATEGORY_MEDIA_RESULT,
                     action = "page",
                     details = arrayOf(
                         "offset" to offset,
-                        "returned" to pageResult.data.size,
-                        "next_key" to pageResult.nextKey,
+                        "returned" to items.size,
+                        "next_key" to nextKey,
+                        "items_before" to itemsBefore,
+                        "items_after" to itemsAfter,
+                        "total" to totalCount,
                     ),
                 ),
             )
 
-            return pageResult
+            return LoadResult.Page(
+                data = items,
+                prevKey = prevKey,
+                nextKey = nextKey,
+                itemsBefore = itemsBefore,
+                itemsAfter = itemsAfter
+            )
+        }
+
+        private fun resolveTotalCount(force: Boolean): Int {
+            if (force || cachedTotalCount == null) {
+                cachedTotalCount = queryCount(spec)
+            }
+            return cachedTotalCount ?: 0
         }
 
         override fun getRefreshKey(state: PagingState<Int, PhotoItem>): Int? {
@@ -726,20 +702,6 @@ class PhotoRepository @Inject constructor(
                 "WHEN ${MediaStore.Images.Media.DATE_ADDED} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_ADDED} * 1000 " +
                 "ELSE ${MediaStore.Images.Media.DATE_MODIFIED} * 1000 END"
-        private const val DATE_TAKEN_POSITIVE_CONDITION =
-            "${MediaStore.Images.Media.DATE_TAKEN} > 0"
-        private const val DATE_TAKEN_MISSING_CONDITION =
-            "(${MediaStore.Images.Media.DATE_TAKEN} IS NULL OR ${MediaStore.Images.Media.DATE_TAKEN} <= 0)"
-        private const val DATE_ADDED_POSITIVE_CONDITION =
-            "${MediaStore.Images.Media.DATE_ADDED} > 0"
-        private const val DATE_ADDED_MISSING_CONDITION =
-            "(${MediaStore.Images.Media.DATE_ADDED} IS NULL OR ${MediaStore.Images.Media.DATE_ADDED} <= 0)"
-        private const val DATE_ADDED_MILLIS_EXPRESSION =
-            "${MediaStore.Images.Media.DATE_ADDED} * 1000"
-        private const val DATE_MODIFIED_POSITIVE_CONDITION =
-            "${MediaStore.Images.Media.DATE_MODIFIED} > 0"
-        private const val DATE_MODIFIED_MILLIS_EXPRESSION =
-            "${MediaStore.Images.Media.DATE_MODIFIED} * 1000"
         private const val MEDIA_LOG_TAG = "MediaStore"
         private const val CALENDAR_DEBUG_TAG = "ViewerCalendar"
         private const val CATEGORY_MEDIA_REQUEST = "MEDIA_QUERY/REQUEST"
