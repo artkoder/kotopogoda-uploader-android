@@ -272,15 +272,28 @@ private fun QueueItemCard(
                     DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME
                 )
             }
-            Text(
-                text = statusLabel,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (item.highlightWarning) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.primary
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (item.highlightWarning) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                item.ocrBalance?.let { balance ->
+                    Text(
+                        text = stringResource(id = R.string.queue_ocr_balance, balance),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
                 }
-            )
+            }
             if (item.isActiveTransfer) {
                 Text(
                     text = stringResource(id = R.string.queue_transfer_active),

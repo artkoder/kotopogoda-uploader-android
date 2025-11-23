@@ -199,6 +199,7 @@ class PollStatusWorker @AssistedInject constructor(
                                 uriString = uriString,
                                 displayName = displayName,
                                 httpCode = response.code(),
+                                ocrPercent = body.ocrRemainingPercent?.coerceIn(0, 100),
                             )
                         }
                         RemoteState.FAILED -> {
@@ -330,6 +331,7 @@ class PollStatusWorker @AssistedInject constructor(
         uriString: String,
         displayName: String,
         httpCode: Int,
+        ocrPercent: Int?,
     ): Result {
         val completionState = deleteDocument(uri)
         val sourceCleanup = cleanupSource(itemId, uri, completionState)
@@ -399,6 +401,7 @@ class PollStatusWorker @AssistedInject constructor(
             .putString(UploadEnqueuer.KEY_URI, uriString)
             .putString(UploadEnqueuer.KEY_DISPLAY_NAME, displayName)
             .putString(UploadEnqueuer.KEY_COMPLETION_STATE, completionState.toUploadState())
+        ocrPercent?.let { output.putInt(UploadEnqueuer.KEY_OCR_PERCENT, it) }
         when (completionState) {
             DeleteCompletionState.DELETED -> output.putBoolean(UploadEnqueuer.KEY_DELETED, true)
             DeleteCompletionState.AWAITING_MANUAL_DELETE -> output.putBoolean(UploadEnqueuer.KEY_DELETED, false)

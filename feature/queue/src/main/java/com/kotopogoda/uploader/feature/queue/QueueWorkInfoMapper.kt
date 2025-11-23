@@ -27,6 +27,8 @@ class QueueWorkInfoMapper @Inject constructor(
             ?.takeIf { it >= 0 }
         val bytesSent = progressData.getLongOrNull(UploadEnqueuer.KEY_BYTES_SENT)
         val totalBytes = progressData.getLongOrNull(UploadEnqueuer.KEY_TOTAL_BYTES)
+        val ocrBalance = info.outputData.getIntOrNull(UploadEnqueuer.KEY_OCR_PERCENT)
+            ?.takeIf { it in 0..100 }
 
         val waitingReasons = buildWaitingReasons(info, metadata.kind)
 
@@ -39,6 +41,7 @@ class QueueWorkInfoMapper @Inject constructor(
             progressPercent = progressPercent,
             bytesSent = bytesSent,
             totalBytes = totalBytes,
+            ocrBalance = ocrBalance,
             waitingReasons = waitingReasons,
             isActiveTransfer = metadata.kind == UploadWorkKind.UPLOAD && info.state == WorkInfo.State.RUNNING,
         )
@@ -184,6 +187,7 @@ data class QueueItemWorkInfo(
     val progressPercent: Int?,
     val bytesSent: Long?,
     val totalBytes: Long?,
+    val ocrBalance: Int?,
     val waitingReasons: List<QueueItemWaitingReason>,
     val isActiveTransfer: Boolean,
 )

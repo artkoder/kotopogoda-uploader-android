@@ -186,6 +186,7 @@ data class QueueItemUiModel(
     val waitingReasons: List<QueueItemWaitingReason>,
     val isActiveTransfer: Boolean,
     val completedAt: Long?,
+    val ocrBalance: Int? = null,
 ) {
     val isIndeterminate: Boolean get() = progressPercent == null
 }
@@ -228,6 +229,7 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
         }
     } ?: emptyList()
     val mergedIsActive = resolvedWorkInfo?.isActiveTransfer ?: false
+    val mergedOcrBalance = resolvedWorkInfo?.ocrBalance
     val finalCanCancel = when (resolvedWorkInfo?.state) {
         WorkInfo.State.SUCCEEDED,
         WorkInfo.State.FAILED,
@@ -258,6 +260,7 @@ internal fun UploadQueueEntry.toQueueItemUiModel(
         waitingReasons = mergedWaitingReasons,
         isActiveTransfer = mergedIsActive,
         completedAt = completedAt,
+        ocrBalance = mergedOcrBalance,
     )
 }
 
