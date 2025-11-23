@@ -10,6 +10,7 @@ import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import io.mockk.*
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -47,7 +48,7 @@ class PhotoRepositoryTest {
         assertEquals(0, index)
         val selection = environment.selectionHistory.firstOrNull()
         assertNotNull(selection)
-        assertTrue(selection.contains(MediaStore.Images.Media.DATE_ADDED))
+        assertTrue(selection.contains(PhotoRepository.SORT_KEY_EXPRESSION))
         val args = environment.argsHistory.firstOrNull()
         assertNotNull(args)
         assertEquals(target.toEpochMilli().toString(), args.first())
@@ -87,7 +88,52 @@ class PhotoRepositoryTest {
         val index = environment.repository.findIndexAtOrAfter(startOfDay, endOfDay)
 
         assertEquals(1, index)
-        assertTrue(environment.selectionHistory.any { it?.contains(MediaStore.Images.Media.DATE_MODIFIED) == true })
+        assertTrue(environment.selectionHistory.any { it?.contains(PhotoRepository.SORT_KEY_EXPRESSION) == true })
+    }
+
+    @Test
+    fun `findIndexAtOrAfter handles mixed metadata cascade`() = runTest {
+        val environment = createRepositoryEnvironment(
+            listOf(
+                FakePhoto(
+                    dateTakenMillis = Instant.parse("2024-12-19T09:00:00Z").toEpochMilli(),
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = null
+                ),
+                FakePhoto(
+                    dateTakenMillis = null,
+                    dateAddedSeconds = Instant.parse("2024-12-18T23:15:00Z").epochSecond,
+                    dateModifiedSeconds = null
+                ),
+                FakePhoto(
+                    dateTakenMillis = Instant.parse("2024-12-18T21:00:00Z").toEpochMilli(),
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = null
+                ),
+                FakePhoto(
+                    dateTakenMillis = null,
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = Instant.parse("2024-12-18T07:45:00Z").epochSecond
+                ),
+                FakePhoto(
+                    dateTakenMillis = null,
+                    dateAddedSeconds = Instant.parse("2024-12-18T06:05:00Z").epochSecond,
+                    dateModifiedSeconds = null
+                ),
+                FakePhoto(
+                    dateTakenMillis = Instant.parse("2024-12-17T20:00:00Z").toEpochMilli(),
+                    dateAddedSeconds = null,
+                    dateModifiedSeconds = null
+                )
+            )
+        )
+        val zone = ZoneId.systemDefault()
+        val startOfDay = LocalDate.of(2024, 12, 18).atStartOfDay(zone).toInstant()
+        val endOfDay = LocalDate.of(2024, 12, 19).atStartOfDay(zone).toInstant()
+
+        val index = environment.repository.findIndexAtOrAfter(startOfDay, endOfDay)
+
+        assertEquals(1, index)
     }
 
     @Test
