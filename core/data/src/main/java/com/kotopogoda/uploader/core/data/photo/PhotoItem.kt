@@ -6,5 +6,6 @@ import java.time.Instant
 data class PhotoItem(
     val id: String,
     val uri: Uri,
-    val takenAt: Instant?
+    val takenAt: Instant?,
+    val sortKeyMillis: Long? = null,
 )
