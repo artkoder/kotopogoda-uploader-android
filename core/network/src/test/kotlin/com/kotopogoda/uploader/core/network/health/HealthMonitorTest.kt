@@ -75,7 +75,7 @@ class HealthMonitorTest {
             MockResponse()
                 .setResponseCode(200)
                 .addHeader("Content-Type", "application/json")
-                .setBody("""{"status":"$status","message":"test"}"""),
+                .setBody("""{"ok":true,"status":"$status","message":"test"}"""),
         )
     }
 }

@@ -14,6 +14,7 @@ import retrofit2.http.Path
 data class UploadAcceptedDto(
     @Json(name = "upload_id") val uploadId: String?,
     @Json(name = "status") val status: String? = null,
+    @Json(name = "ocr_remaining_percent") val ocrRemainingPercent: Int? = null,
 )
 
 @JsonClass(generateAdapter = true)

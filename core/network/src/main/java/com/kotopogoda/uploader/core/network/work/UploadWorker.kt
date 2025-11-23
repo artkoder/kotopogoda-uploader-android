@@ -13,6 +13,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.data.upload.UploadLog
 import com.kotopogoda.uploader.core.data.util.logUriReadDebug
@@ -61,6 +62,7 @@ class UploadWorker @AssistedInject constructor(
     private val uploadQueueRepository: UploadQueueRepository,
     private val foregroundDelegate: UploadForegroundDelegate,
     private val summaryStarter: UploadSummaryStarter,
+    private val ocrQuotaRepository: OcrQuotaRepository,
     private val workManagerProvider: WorkManagerProvider,
     private val constraintsProvider: UploadConstraintsProvider,
 ) : CoroutineWorker(appContext, params) {
@@ -274,6 +276,41 @@ class UploadWorker @AssistedInject constructor(
             val result = when (responseCode) {
                 202, 409 -> {
                     val initialAcceptance = response.body()
+                    if (responseCode == 202) {
+                        initialAcceptance?.ocrRemainingPercent?.let { percent ->
+                            val normalized = percent.coerceIn(0, 100)
+                            runCatching {
+                                ocrQuotaRepository.updatePercent(normalized)
+                            }.onSuccess {
+                                Timber.tag("WorkManager").i(
+                                    UploadLog.message(
+                                        category = CATEGORY_UPLOAD_SUCCESS,
+                                        action = "upload_ocr_quota_updated",
+                                        uri = uri,
+                                        details = arrayOf(
+                                            "queue_item_id" to itemId,
+                                            "display_name" to displayName,
+                                            "ocr_remaining_percent" to normalized,
+                                        ),
+                                    ),
+                                )
+                            }.onFailure { error ->
+                                Timber.tag("WorkManager").w(
+                                    error,
+                                    UploadLog.message(
+                                        category = CATEGORY_UPLOAD_ERROR,
+                                        action = "upload_ocr_quota_update_failed",
+                                        uri = uri,
+                                        details = arrayOf(
+                                            "queue_item_id" to itemId,
+                                            "display_name" to displayName,
+                                            "ocr_remaining_percent" to normalized,
+                                        ),
+                                    ),
+                                )
+                            }
+                        }
+                    }
                     var resolution: UploadResolution? = null
                     var acceptanceSkipReason: AcceptanceSkipReason? = null
                     var acceptanceError: Throwable? = null
