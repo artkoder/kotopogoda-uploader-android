@@ -321,7 +321,7 @@ class PhotoRepository @Inject constructor(
             ascending = ascending,
         )
 
-        return runCatching {
+        return runCatching<PhotoItem?> {
             resolver.queryWithFallback(
                 uris = spec.contentUris,
                 projection = PHOTO_PROJECTION,
@@ -563,13 +563,18 @@ class PhotoRepository @Inject constructor(
             return runCatching {
                 loadInternal(params)
             }.getOrElse { error ->
+                val loadTypeName = when (params) {
+                    is LoadParams.Refresh -> "REFRESH"
+                    is LoadParams.Append -> "APPEND"
+                    is LoadParams.Prepend -> "PREPEND"
+                }
                 Timber.tag(MEDIA_LOG_TAG).e(
                     error,
                     UploadLog.message(
                         category = CATEGORY_MEDIA_ERROR,
                         action = "window_page",
                         details = arrayOf(
-                            "load_type" to params.loadType.name,
+                            "load_type" to loadTypeName,
                             "has_anchor" to (anchorMillis != null),
                         ),
                     ),
@@ -589,21 +594,21 @@ class PhotoRepository @Inject constructor(
                 addAll(spec.selectionArgs)
             }
 
-            when (params.loadType) {
-                LoadType.REFRESH -> {
+            when (params) {
+                is LoadParams.Refresh -> {
                     val upperBound = params.key?.sortKey ?: anchorMillis
                     if (upperBound != null) {
                         selectionParts += "($SORT_KEY_EXPRESSION <= CAST(? AS INTEGER))"
                         selectionArgs += upperBound.toString()
                     }
                 }
-                LoadType.APPEND -> {
+                is LoadParams.Append -> {
                     val key = params.key ?: return emptyPage()
                     val (selection, args) = buildOlderThanSelection(key)
                     selectionParts += selection
                     selectionArgs += args
                 }
-                LoadType.PREPEND -> {
+                is LoadParams.Prepend -> {
                     val key = params.key ?: return emptyPage()
                     val (selection, args) = buildNewerThanSelection(key)
                     selectionParts += selection
@@ -620,12 +625,17 @@ class PhotoRepository @Inject constructor(
                 offset = null,
             )
 
+            val loadTypeName = when (params) {
+                is LoadParams.Refresh -> "REFRESH"
+                is LoadParams.Append -> "APPEND"
+                is LoadParams.Prepend -> "PREPEND"
+            }
             Timber.tag(MEDIA_LOG_TAG).i(
                 UploadLog.message(
                     category = CATEGORY_MEDIA_REQUEST,
                     action = "window_page",
                     details = arrayOf(
-                        "load_type" to params.loadType.name,
+                        "load_type" to loadTypeName,
                         "limit" to limit,
                         "has_anchor" to (anchorMillis != null),
                         "uri_count" to spec.contentUris.size,
@@ -648,17 +658,22 @@ class PhotoRepository @Inject constructor(
                 return emptyPage()
             }
 
-            val items = entries.map(PhotoEntry::item)
+            val items = entries.map { it.item }
             val firstKey = entries.first().toKey()
             val lastKey = entries.last().toKey()
 
+            val loadTypeNameForResult = when (params) {
+                is LoadParams.Refresh -> "REFRESH"
+                is LoadParams.Append -> "APPEND"
+                is LoadParams.Prepend -> "PREPEND"
+            }
             Timber.tag(MEDIA_LOG_TAG).i(
                 UploadLog.message(
                     category = CATEGORY_MEDIA_RESULT,
                     action = "window_page",
                     details = arrayOf(
                         "returned" to items.size,
-                        "load_type" to params.loadType.name,
+                        "load_type" to loadTypeNameForResult,
                         "first_sort" to firstKey.sortKey,
                         "last_sort" to lastKey.sortKey,
                     ),
@@ -668,9 +683,7 @@ class PhotoRepository @Inject constructor(
             return LoadResult.Page(
                 data = items,
                 prevKey = firstKey,
-                nextKey = lastKey,
-                itemsBefore = LoadResult.Page.COUNT_UNDEFINED,
-                itemsAfter = LoadResult.Page.COUNT_UNDEFINED
+                nextKey = lastKey
             )
         }
 
@@ -685,9 +698,7 @@ class PhotoRepository @Inject constructor(
         private fun emptyPage(): LoadResult.Page<PhotoWindowKey, PhotoItem> = LoadResult.Page(
             data = emptyList(),
             prevKey = null,
-            nextKey = null,
-            itemsBefore = LoadResult.Page.COUNT_UNDEFINED,
-            itemsAfter = LoadResult.Page.COUNT_UNDEFINED
+            nextKey = null
         )
 
         private fun buildOlderThanSelection(key: PhotoWindowKey): Pair<String, List<String>> {
@@ -835,6 +846,58 @@ class PhotoRepository @Inject constructor(
         }
     }
 
+    private fun Cursor.readPhotoEntries(contentUri: Uri): List<PhotoEntry> {
+        val idIndex = getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+        val mimeIndex = getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+        val dateTakenIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+        val dateAddedIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+        val dateModifiedIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
+        val entries = mutableListOf<PhotoEntry>()
+        while (moveToNext()) {
+            val mime = getStringOrNull(mimeIndex)
+            if (mime?.startsWith("image/") != true) {
+                continue
+            }
+            val id = getLong(idIndex)
+            val uri = ContentUris.withAppendedId(contentUri, id)
+            val sortKeyMillis = readMillis(dateTakenIndex, seconds = false)
+                ?: readMillis(dateAddedIndex, seconds = true)
+                ?: readMillis(dateModifiedIndex, seconds = true)
+            val normalizedSortKey = sortKeyMillis ?: 0L
+            val takenAt = sortKeyMillis?.let(Instant::ofEpochMilli)
+            val item = PhotoItem(
+                id = id.toString(),
+                uri = uri,
+                takenAt = takenAt,
+                sortKeyMillis = normalizedSortKey,
+            )
+            entries += PhotoEntry(
+                mediaId = id,
+                sortKey = normalizedSortKey,
+                item = item
+            )
+        }
+        return entries
+    }
+
+    private fun Cursor.getStringOrNull(index: Int): String? {
+        if (index < 0 || isNull(index)) {
+            return null
+        }
+        return getString(index)
+    }
+
+    private fun Cursor.readMillis(index: Int, seconds: Boolean): Long? {
+        if (index < 0 || isNull(index)) {
+            return null
+        }
+        val value = getLong(index)
+        if (value <= 0) {
+            return null
+        }
+        return if (seconds) value * 1000 else value
+    }
+
     companion object {
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
@@ -914,56 +977,4 @@ private inline fun <T> ContentResolver.queryWithFallback(
         throw lastIllegalArgument
     }
     return null
-}
-
-private fun Cursor.readPhotoEntries(contentUri: Uri): List<PhotoEntry> {
-    val idIndex = getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-    val mimeIndex = getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
-    val dateTakenIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
-    val dateAddedIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
-    val dateModifiedIndex = getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
-    val entries = mutableListOf<PhotoEntry>()
-    while (moveToNext()) {
-        val mime = getStringOrNull(mimeIndex)
-        if (mime?.startsWith("image/") != true) {
-            continue
-        }
-        val id = getLong(idIndex)
-        val uri = ContentUris.withAppendedId(contentUri, id)
-        val sortKeyMillis = readMillis(dateTakenIndex, seconds = false)
-            ?: readMillis(dateAddedIndex, seconds = true)
-            ?: readMillis(dateModifiedIndex, seconds = true)
-        val normalizedSortKey = sortKeyMillis ?: 0L
-        val takenAt = sortKeyMillis?.let(Instant::ofEpochMilli)
-        val item = PhotoItem(
-            id = id.toString(),
-            uri = uri,
-            takenAt = takenAt,
-            sortKeyMillis = normalizedSortKey,
-        )
-        entries += PhotoEntry(
-            mediaId = id,
-            sortKey = normalizedSortKey,
-            item = item
-        )
-    }
-    return entries
-}
-
-private fun Cursor.getStringOrNull(index: Int): String? {
-    if (index < 0 || isNull(index)) {
-        return null
-    }
-    return getString(index)
-}
-
-private fun Cursor.readMillis(index: Int, seconds: Boolean): Long? {
-    if (index < 0 || isNull(index)) {
-        return null
-    }
-    val value = getLong(index)
-    if (value <= 0) {
-        return null
-    }
-    return if (seconds) value * 1000 else value
 }
