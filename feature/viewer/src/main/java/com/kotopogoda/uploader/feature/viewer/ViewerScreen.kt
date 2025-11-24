@@ -675,9 +675,10 @@ internal fun ViewerScreen(
                     onUndo = onUndo,
                     onDelete = { onDelete(currentPhoto) },
                     publishBlockedByProcessing = publishBlockedByEnhancement,
-                    )
-                    }
-
+                )
+            }
+        }
+    ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
