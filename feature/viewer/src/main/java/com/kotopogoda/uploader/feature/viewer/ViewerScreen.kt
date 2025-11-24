@@ -663,6 +663,7 @@ internal fun ViewerScreen(
                     publishEnabled = publishBaseEnabled && enhancementReady,
                     deleteEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
                     enqueueDeletionEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !isCurrentDeletionQueued,
+                    isDeletionQueued = isCurrentDeletionQueued,
                     processingBusy = processingBusy,
                     publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
                     deleteBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Delete,
