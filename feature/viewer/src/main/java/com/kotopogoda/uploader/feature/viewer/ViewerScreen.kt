@@ -152,7 +152,10 @@ fun ViewerRoute(
 ) {
     val photos = viewModel.photos.collectAsLazyPagingItems()
     val pagerScrollEnabled by viewModel.isPagerScrollEnabled.collectAsState()
-    val currentIndex by viewModel.currentIndex.collectAsState()
+    val currentIndex by viewModel.visibleIndex.collectAsState()
+    val globalIndex by viewModel.currentIndex.collectAsState()
+    val totalCount by viewModel.totalPhotoCount.collectAsState()
+    val hasOlderItems = totalCount > 0 && globalIndex < totalCount - 1
     val undoCount by viewModel.undoCount.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val actionInProgress by viewModel.actionInProgress.collectAsState()
@@ -298,6 +301,7 @@ fun ViewerRoute(
     ViewerScreen(
         photos = photos,
         currentIndex = currentIndex,
+        hasOlderItems = hasOlderItems,
         isPagerScrollEnabled = pagerScrollEnabled,
         undoCount = undoCount,
         canUndo = canUndo,
@@ -317,7 +321,7 @@ fun ViewerRoute(
         deletionConfirmationEvents = deletionConfirmationEvents,
         deletionPermissionsLauncher = deletionPermissionsLauncher,
         onLaunchDeletionBatch = launchDeletionBatch,
-        onPageChanged = viewModel::setCurrentIndex,
+        onPageChanged = viewModel::onPagerPageChanged,
         onVisiblePhotoChanged = viewModel::updateVisiblePhoto,
         onZoomStateChanged = { atBase -> viewModel.setPagerScrollEnabled(atBase) },
         onSkip = viewModel::onSkip,
@@ -364,6 +368,7 @@ private fun maskPersistableFlags(flags: Int): Int {
 internal fun ViewerScreen(
     photos: LazyPagingItems<PhotoItem>,
     currentIndex: Int,
+    hasOlderItems: Boolean,
     isPagerScrollEnabled: Boolean,
     undoCount: Int,
     canUndo: Boolean,
@@ -646,14 +651,15 @@ internal fun ViewerScreen(
                     actionInProgress == ViewerViewModel.ViewerActionInProgress.Processing
                 val publishBaseEnabled = !isBusy && currentPhoto != null && !isCurrentUploadQueued && !isSelectionMode
                 val publishBlockedByEnhancement = publishBaseEnabled && !enhancementReady
+                val canSkipForward = currentIndex < itemCount - 1 || hasOlderItems
                 ViewerActionBar(
                     isSelectionMode = isSelectionMode,
                     selectionCount = selection.size,
                     onCancelSelection = onCancelSelection,
                     onMoveSelection = onMoveSelection,
                     onDeleteSelection = onDeleteSelection,
-                    skipEnabled = !isBusy && currentIndex < itemCount - 1 && !isSelectionMode,
-                    processingEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !enhancementInProgress,
+                    skipEnabled = !isBusy && canSkipForward && !isSelectionMode,
+
                     publishEnabled = publishBaseEnabled && enhancementReady,
                     deleteEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
                     enqueueDeletionEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !isCurrentDeletionQueued,

@@ -140,7 +140,7 @@ class ViewerViewModelBatchDeleteTest {
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
 
-        every { photoRepository.observePhotos() } returns flowOf(PagingData.empty())
+        every { photoRepository.observePhotos(any(), any()) } returns flowOf(PagingData.empty())
         every { folderRepository.observeFolder() } returns flowOf(null)
         every { uploadQueueRepository.observeQueue() } returns flowOf(emptyList())
         every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
@@ -166,9 +166,15 @@ class ViewerViewModelBatchDeleteTest {
         )
         every { nativeEnhanceAdapter.isReady() } returns false
         coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
+        coEvery { photoRepository.buildWindowAround(any(), any()) } returns PhotoRepository.PhotoWindow(
+            startIndex = 0,
+            endIndexExclusive = 0,
+            totalCount = 10_000,
+            bounds = null,
+        )
 
         val resolver = mockk<ContentResolver>(relaxed = true)
-        val context = mockk<Context>(relaxed = true)
+
         every { context.contentResolver } returns resolver
         every { context.cacheDir } returns createTempDir(prefix = "viewer-test")
 

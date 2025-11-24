@@ -155,7 +155,7 @@ class ViewerViewModelJumpToDateTest {
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
 
-        every { photoRepository.observePhotos() } returns flowOf(PagingData.empty())
+        every { photoRepository.observePhotos(any(), any()) } returns flowOf(PagingData.empty())
         every { folderRepository.observeFolder() } returns flowOf(null)
         coEvery { folderRepository.getFolder() } returns null
         coEvery { reviewProgressStore.loadPosition(any()) } returns null
@@ -182,6 +182,12 @@ class ViewerViewModelJumpToDateTest {
         every { nativeEnhanceAdapter.isReady() } returns false
         coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
         coEvery { photoRepository.getPhotoAt(any()) } returns null
+        coEvery { photoRepository.buildWindowAround(any(), any()) } returns PhotoRepository.PhotoWindow(
+            startIndex = 0,
+            endIndexExclusive = 0,
+            totalCount = 10_000,
+            bounds = null,
+        )
 
         val context = mockk<Context>(relaxed = true)
 
