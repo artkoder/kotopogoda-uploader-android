@@ -701,7 +701,7 @@ class PhotoRepository @Inject constructor(
                     selectionParts += selection
                     selectionArgs += args
                 }
-
+            }
 
             val selection = selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
             val argsArray = selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
@@ -717,6 +717,7 @@ class PhotoRepository @Inject constructor(
                 is LoadParams.Append -> "APPEND"
                 is LoadParams.Prepend -> "PREPEND"
             }
+
             Timber.tag(MEDIA_LOG_TAG).i(
                 UploadLog.message(
                     category = CATEGORY_MEDIA_REQUEST,
