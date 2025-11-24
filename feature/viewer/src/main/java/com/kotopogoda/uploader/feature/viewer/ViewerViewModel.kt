@@ -3791,40 +3791,42 @@ class ViewerViewModel @Inject constructor(
         )
     }
 
-    private fun UndoEntryState.toUserAction(): UserAction = when (type) {
-        UserActionType.Skip -> UserAction.Skip(
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.MovedToProcessing -> UserAction.MovedToProcessing(
-            fromUri = Uri.parse(requireNotNull(fromUri)),
-            toUri = Uri.parse(requireNotNull(toUri)),
-            originalParent = Uri.parse(requireNotNull(originalParent)),
-            displayName = requireNotNull(displayName),
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.EnqueuedUpload -> UserAction.EnqueuedUpload(
-            uri = Uri.parse(requireNotNull(fromUri)),
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.QueuedDeletion -> UserAction.QueuedDeletion(
-            mediaId = requireNotNull(mediaId),
-            uri = Uri.parse(requireNotNull(fromUri)),
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.Deleted -> UserAction.Deleted(
-            uri = Uri.parse(requireNotNull(fromUri)),
-            originalParent = Uri.parse(requireNotNull(originalParent)),
-            displayName = requireNotNull(displayName),
-            mimeType = mimeType,
-            backupPath = backupPath,
-            fromIndex = fromIndex,
-            toIndex = toIndex,
-            takenAt = takenAt?.let(Instant::ofEpochMilli)
-        )
+    private fun UndoEntryState.toUserAction(): UserAction {
+        return when (type) {
+            UserActionType.Skip -> UserAction.Skip(
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.MovedToProcessing -> UserAction.MovedToProcessing(
+                fromUri = Uri.parse(requireNotNull(fromUri)),
+                toUri = Uri.parse(requireNotNull(toUri)),
+                originalParent = Uri.parse(requireNotNull(originalParent)),
+                displayName = requireNotNull(displayName),
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.EnqueuedUpload -> UserAction.EnqueuedUpload(
+                uri = Uri.parse(requireNotNull(fromUri)),
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.QueuedDeletion -> UserAction.QueuedDeletion(
+                mediaId = requireNotNull(mediaId),
+                uri = Uri.parse(requireNotNull(fromUri)),
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.Deleted -> UserAction.Deleted(
+                uri = Uri.parse(requireNotNull(fromUri)),
+                originalParent = Uri.parse(requireNotNull(originalParent)),
+                displayName = requireNotNull(displayName),
+                mimeType = mimeType,
+                backupPath = backupPath,
+                fromIndex = fromIndex,
+                toIndex = toIndex,
+                takenAt = takenAt?.let(Instant::ofEpochMilli)
+            )
+        }
     }
 
     companion object {
