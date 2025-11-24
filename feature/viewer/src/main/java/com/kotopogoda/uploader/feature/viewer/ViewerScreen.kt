@@ -368,7 +368,7 @@ private fun maskPersistableFlags(flags: Int): Int {
 internal fun ViewerScreen(
     photos: LazyPagingItems<PhotoItem>,
     currentIndex: Int,
-    hasOlderItems: Boolean,
+    hasOlderItems: Boolean = false,
     isPagerScrollEnabled: Boolean,
     undoCount: Int,
     canUndo: Boolean,
@@ -659,11 +659,10 @@ internal fun ViewerScreen(
                     onMoveSelection = onMoveSelection,
                     onDeleteSelection = onDeleteSelection,
                     skipEnabled = !isBusy && canSkipForward && !isSelectionMode,
-
+                    processingEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !enhancementInProgress,
                     publishEnabled = publishBaseEnabled && enhancementReady,
                     deleteEnabled = !isBusy && currentPhoto != null && !isSelectionMode,
                     enqueueDeletionEnabled = !isBusy && currentPhoto != null && !isSelectionMode && !isCurrentDeletionQueued,
-                    isDeletionQueued = isCurrentDeletionQueued,
                     processingBusy = processingBusy,
                     publishBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Upload,
                     deleteBusy = actionInProgress == ViewerViewModel.ViewerActionInProgress.Delete,
@@ -675,11 +674,10 @@ internal fun ViewerScreen(
                     onEnqueueDeletion = { onEnqueueDeletion(currentPhoto) },
                     onUndo = onUndo,
                     onDelete = { onDelete(currentPhoto) },
-                    publishBlockedByProcessing = publishBlockedByEnhancement
-                )
-            }
-        }
-    ) { paddingValues ->
+                    publishBlockedByProcessing = publishBlockedByEnhancement,
+                    )
+                    }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()

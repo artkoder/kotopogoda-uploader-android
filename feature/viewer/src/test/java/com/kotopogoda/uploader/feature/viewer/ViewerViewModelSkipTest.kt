@@ -127,6 +127,7 @@ class ViewerViewModelSkipTest {
         )
 
         val resolver = mockk<ContentResolver>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
 
         every { context.contentResolver } returns resolver
         every { context.cacheDir } returns createTempDir(prefix = "viewer-test")

@@ -2408,7 +2408,12 @@ class ViewerViewModel @Inject constructor(
     }
 
     private suspend fun rebuildWindow(centerIndex: Int, reason: String): ViewerWindowState? {
-        val result = photoRepository.buildWindowAround(centerIndex, WINDOW_TARGET_SIZE) ?: return null
+        val result = photoRepository.buildWindowAround(centerIndex, WINDOW_TARGET_SIZE) ?: run {
+            windowBounds.value = null
+            windowState.value = ViewerWindowState()
+            photoCount.value = 0
+            return null
+        }
         val newState = ViewerWindowState(
             startIndex = result.startIndex,
             endIndexExclusive = result.endIndexExclusive,

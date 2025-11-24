@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -320,10 +321,10 @@ class PhotoRepository @Inject constructor(
         }
         val upperAnchor = upperPhoto?.toWindowAnchor()
         val lowerAnchor = lowerPhoto?.toWindowAnchor()
-        val bounds = if (upperAnchor != null && lowerAnchor != null) {
-            WindowBounds(upper = upperAnchor, lower = lowerAnchor)
-        } else {
+        val bounds = if (upperAnchor == null && lowerAnchor == null) {
             null
+        } else {
+            WindowBounds(upper = upperAnchor, lower = lowerAnchor)
         }
         PhotoWindow(
             startIndex = startIndex,
@@ -681,7 +682,7 @@ class PhotoRepository @Inject constructor(
             }
 
             when (params) {
-
+                is LoadParams.Refresh -> {
                     val upperBound = params.key?.sortKey ?: anchorMillis
                     if (upperBound != null) {
                         selectionParts += "($SORT_KEY_EXPRESSION <= CAST(? AS INTEGER))"
@@ -700,7 +701,7 @@ class PhotoRepository @Inject constructor(
                     selectionParts += selection
                     selectionArgs += args
                 }
-            }
+
 
             val selection = selectionParts.joinToString(separator = " AND ").takeIf { it.isNotEmpty() }
             val argsArray = selectionArgs.takeIf { it.isNotEmpty() }?.toTypedArray()
