@@ -3866,7 +3866,6 @@ class ViewerViewModel @Inject constructor(
         )
 
         internal var buildVersionOverride: Int? = null
-        
         internal var mediaStoreDeleteRequestFactory: (ContentResolver, List<Uri>) -> PendingIntent = { resolver, uris ->
             MediaStore.createDeleteRequest(resolver, uris)
         }
