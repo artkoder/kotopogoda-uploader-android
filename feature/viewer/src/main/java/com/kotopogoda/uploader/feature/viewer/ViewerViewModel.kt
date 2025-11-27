@@ -3918,3 +3918,4 @@ class ViewerViewModel @Inject constructor(
         val height: Int,
     )
 }
+}
