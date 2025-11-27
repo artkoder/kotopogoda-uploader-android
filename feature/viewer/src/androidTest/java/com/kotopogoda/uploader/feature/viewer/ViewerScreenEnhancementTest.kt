@@ -64,6 +64,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -139,6 +140,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -218,6 +220,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -303,6 +306,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -372,6 +376,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -440,6 +445,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -509,6 +515,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -586,6 +593,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -666,6 +674,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,
@@ -745,6 +754,7 @@ class ViewerScreenEnhancementTest {
             ViewerScreen(
                 photos = pagingItems,
                 currentIndex = 0,
+                hasOlderItems = false,
                 isPagerScrollEnabled = true,
                 undoCount = 0,
                 canUndo = false,

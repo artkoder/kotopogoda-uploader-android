@@ -633,7 +633,7 @@ class ViewerViewModelDocumentInfoTest {
         val savedStateHandle = SavedStateHandle()
         val pendingDeletions = MutableStateFlow<List<DeletionItem>>(emptyList())
 
-        every { photoRepository.observePhotos() } returns flowOf(PagingData.empty())
+        every { photoRepository.observePhotos(any(), any()) } returns flowOf(PagingData.empty())
         every { folderRepository.observeFolder() } returns flowOf(folder)
         coEvery { folderRepository.getFolder() } returns folder
         coEvery { reviewProgressStore.loadPosition(any()) } returns storedPosition
@@ -657,6 +657,12 @@ class ViewerViewModelDocumentInfoTest {
         coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
         every { deletionQueueRepository.observePending() } returns pendingDeletions
         coEvery { deletionQueueRepository.getPending() } coAnswers { pendingDeletions.value }
+        coEvery { photoRepository.buildWindowAround(any(), any()) } returns PhotoRepository.PhotoWindow(
+            startIndex = 0,
+            endIndexExclusive = 0,
+            totalCount = 10_000,
+            bounds = null,
+        )
         coEvery { deletionQueueRepository.enqueue(any()) } returns 0
         coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
 

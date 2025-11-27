@@ -80,6 +80,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -115,7 +116,11 @@ class ViewerViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    val photos: Flow<PagingData<PhotoItem>> = photoRepository.observePhotos()
+    private val windowBounds = MutableStateFlow<PhotoRepository.WindowBounds?>(null)
+    private val windowState = MutableStateFlow(ViewerWindowState())
+
+    val photos: Flow<PagingData<PhotoItem>> = windowBounds
+        .flatMapLatest { bounds -> photoRepository.observePhotos(bounds = bounds) }
         .cachedIn(viewModelScope)
 
     private val _isPagerScrollEnabled = MutableStateFlow(true)
@@ -129,9 +134,18 @@ class ViewerViewModel @Inject constructor(
         MutableStateFlow(savedStateHandle.get<Int>(currentIndexKey) ?: startIndexArgument)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
 
+    val visibleIndex: StateFlow<Int> = combine(_currentIndex, windowState) { index, window ->
+        (index - window.startIndex).coerceAtLeast(0)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = (_currentIndex.value - windowState.value.startIndex).coerceAtLeast(0)
+    )
+
     private val folderId = MutableStateFlow<String?>(null)
     private val anchorDate = MutableStateFlow<Instant?>(null)
     private val photoCount = MutableStateFlow(0)
+    val totalPhotoCount: StateFlow<Int> = photoCount.asStateFlow()
     private val currentPhoto = MutableStateFlow<PhotoItem?>(null)
     private val _currentFolderTreeUri = MutableStateFlow<String?>(null)
     val currentFolderTreeUri: StateFlow<String?> = _currentFolderTreeUri.asStateFlow()
@@ -190,6 +204,8 @@ class ViewerViewModel @Inject constructor(
     private var pendingSingleMove: PendingSingleMove? = null
     private val pendingCleanupJobs = mutableMapOf<String, Job>()
     private var pendingDeepScroll: PendingDeepScroll? = null
+    private var windowShiftJob: Job? = null
+    private var suppressWindowShiftOnce: Boolean = false
     @Volatile
     private var autoDeleteEnabled: Boolean = false
 
@@ -346,14 +362,22 @@ class ViewerViewModel @Inject constructor(
                     anchorDate.value = stored?.anchorDate
                     pendingInitialIndex = stored?.index?.coerceAtLeast(0)
                     initialIndexRestored.value = pendingInitialIndex == null
+                    val initialCenter = pendingInitialIndex ?: startIndexArgument
                     pendingInitialIndex?.let { index ->
                         updateCurrentIndexInternal(index)
+                    }
+                    viewModelScope.launch {
+                        rebuildWindow(initialCenter, reason = "folder_changed")
                     }
                 } else {
                     folderId.value = null
                     anchorDate.value = null
                     pendingInitialIndex = null
                     initialIndexRestored.value = true
+                    windowShiftJob?.cancel()
+                    windowBounds.value = null
+                    windowState.value = ViewerWindowState()
+                    photoCount.value = 0
                 }
             }
         }
@@ -440,6 +464,18 @@ class ViewerViewModel @Inject constructor(
             return
         }
         updateCurrentIndexInternal(normalized)
+        if (suppressWindowShiftOnce) {
+            suppressWindowShiftOnce = false
+        } else {
+            maybeScheduleWindowShift(normalized)
+        }
+    }
+
+    fun onPagerPageChanged(localIndex: Int) {
+        val window = windowState.value
+        val normalizedLocal = localIndex.coerceAtLeast(0)
+        val globalIndex = (window.startIndex + normalizedLocal).coerceAtLeast(0)
+        setCurrentIndex(globalIndex)
     }
 
     fun refreshAvailableDates() {
@@ -607,6 +643,8 @@ class ViewerViewModel @Inject constructor(
                 return@launch
             }
 
+            rebuildWindow(resolvedIndex, reason = "calendar_jump")
+
             pendingDeepScroll = PendingDeepScroll(
                 requestId = requestId,
                 selectedDate = localDate,
@@ -625,8 +663,9 @@ class ViewerViewModel @Inject constructor(
                 matchType.name
             )
 
+            suppressWindowShiftOnce = true
             setCurrentIndex(resolvedIndex)
-        }
+
     }
     private suspend fun findIndexBinarySearch(
         target: LocalDate,
@@ -816,15 +855,32 @@ class ViewerViewModel @Inject constructor(
 
     private enum class SortOrder { Ascending, Descending }
 
+    private data class ViewerWindowState(
+        val startIndex: Int = 0,
+        val endIndexExclusive: Int = 0,
+        val totalCount: Int = 0,
+        val bounds: PhotoRepository.WindowBounds? = null,
+    ) {
+        val size: Int get() = (endIndexExclusive - startIndex).coerceAtLeast(0)
+        fun contains(index: Int): Boolean {
+            if (endIndexExclusive <= startIndex) {
+                return false
+            }
+            return index in startIndex until endIndexExclusive
+        }
+    }
+
     fun scrollToNewest() {
-        val targetIndex = clampToCount(0, photoCount.value)
-        updateCurrentIndexInternal(targetIndex)
         clearSelection()
         if (undoStack.isNotEmpty()) {
             undoStack.clear()
             persistUndoStack()
         }
         viewModelScope.launch {
+            val targetIndex = clampToCount(0, photoCount.value)
+            rebuildWindow(targetIndex, reason = "scroll_to_newest")
+            suppressWindowShiftOnce = true
+            setCurrentIndex(targetIndex)
             persistProgress(targetIndex, Instant.now())
         }
     }
@@ -2351,8 +2407,64 @@ class ViewerViewModel @Inject constructor(
         return (current + 1).coerceAtMost(count - 1)
     }
 
+    private suspend fun rebuildWindow(centerIndex: Int, reason: String): ViewerWindowState? {
+        val result = photoRepository.buildWindowAround(centerIndex, WINDOW_TARGET_SIZE) ?: run {
+            windowBounds.value = null
+            windowState.value = ViewerWindowState()
+            photoCount.value = 0
+            return null
+        }
+        val newState = ViewerWindowState(
+            startIndex = result.startIndex,
+            endIndexExclusive = result.endIndexExclusive,
+            totalCount = result.totalCount,
+            bounds = result.bounds,
+        )
+        windowState.value = newState
+        windowBounds.value = result.bounds
+        photoCount.value = result.totalCount
+        Timber.tag(CALENDAR_DEBUG_TAG).i(
+            "WindowRebuild globalIndex=%d windowStart=%d windowEnd=%d windowSize=%d totalCount=%d reason=%s",
+            centerIndex,
+            newState.startIndex,
+            newState.endIndexExclusive,
+            newState.size,
+            result.totalCount,
+            reason
+        )
+        return newState
+    }
+
+    private fun scheduleWindowRebuild(centerIndex: Int, reason: String) {
+        windowShiftJob?.cancel()
+        windowShiftJob = viewModelScope.launch {
+            rebuildWindow(centerIndex, reason)
+        }
+    }
+
+    private fun maybeScheduleWindowShift(targetIndex: Int) {
+        val window = windowState.value
+        if (window.bounds == null || window.size == 0) {
+            return
+        }
+        val threshold = max(1, min(WINDOW_SHIFT_THRESHOLD, window.size / 2))
+        val outside = !window.contains(targetIndex)
+        val nearStart = window.startIndex > 0 && targetIndex <= window.startIndex + threshold
+        val nearEnd = window.endIndexExclusive < window.totalCount &&
+            targetIndex >= window.endIndexExclusive - threshold
+        if (!outside && !nearStart && !nearEnd) {
+            return
+        }
+        val reason = when {
+            outside -> "outside_window"
+            nearStart -> "near_newer_edge"
+            else -> "near_older_edge"
+        }
+        scheduleWindowRebuild(targetIndex, reason)
+    }
+
+    @Suppress("UNUSED_PARAMETER")
     fun updateVisiblePhoto(totalCount: Int, photo: PhotoItem?) {
-        photoCount.value = totalCount
         if (photo != currentPhoto.value) {
             cancelEnhancementJob(resetToReady = true)
         }
@@ -2364,7 +2476,18 @@ class ViewerViewModel @Inject constructor(
                 resultUri = state.resultUri.takeIf { matches },
             )
         }
-        maybeCompleteDeepScroll(totalCount, photo)
+        if (photo != null) {
+            val globalIndexSnapshot = _currentIndex.value
+            val localIndex = (globalIndexSnapshot - windowState.value.startIndex).coerceAtLeast(0)
+            Timber.tag(CALENDAR_DEBUG_TAG).i(
+                "ViewerVisiblePhoto localIndex=%d globalIndex=%d takenAt=%s uri=%s",
+                localIndex,
+                globalIndexSnapshot,
+                photo.takenAt?.toString() ?: "null",
+                photo.uri.toString()
+            )
+        }
+        maybeCompleteDeepScroll(photoCount.value, photo)
     }
 
     private fun maybeCompleteDeepScroll(totalCount: Int, photo: PhotoItem?) {
@@ -3668,40 +3791,42 @@ class ViewerViewModel @Inject constructor(
         )
     }
 
-    private fun UndoEntryState.toUserAction(): UserAction = when (type) {
-        UserActionType.Skip -> UserAction.Skip(
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.MovedToProcessing -> UserAction.MovedToProcessing(
-            fromUri = Uri.parse(requireNotNull(fromUri)),
-            toUri = Uri.parse(requireNotNull(toUri)),
-            originalParent = Uri.parse(requireNotNull(originalParent)),
-            displayName = requireNotNull(displayName),
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.EnqueuedUpload -> UserAction.EnqueuedUpload(
-            uri = Uri.parse(requireNotNull(fromUri)),
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.QueuedDeletion -> UserAction.QueuedDeletion(
-            mediaId = requireNotNull(mediaId),
-            uri = Uri.parse(requireNotNull(fromUri)),
-            fromIndex = fromIndex,
-            toIndex = toIndex
-        )
-        UserActionType.Deleted -> UserAction.Deleted(
-            uri = Uri.parse(requireNotNull(fromUri)),
-            originalParent = Uri.parse(requireNotNull(originalParent)),
-            displayName = requireNotNull(displayName),
-            mimeType = mimeType,
-            backupPath = backupPath,
-            fromIndex = fromIndex,
-            toIndex = toIndex,
-            takenAt = takenAt?.let(Instant::ofEpochMilli)
-        )
+    private fun UndoEntryState.toUserAction(): UserAction {
+        return when (type) {
+            UserActionType.Skip -> UserAction.Skip(
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.MovedToProcessing -> UserAction.MovedToProcessing(
+                fromUri = Uri.parse(requireNotNull(fromUri)),
+                toUri = Uri.parse(requireNotNull(toUri)),
+                originalParent = Uri.parse(requireNotNull(originalParent)),
+                displayName = requireNotNull(displayName),
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.EnqueuedUpload -> UserAction.EnqueuedUpload(
+                uri = Uri.parse(requireNotNull(fromUri)),
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.QueuedDeletion -> UserAction.QueuedDeletion(
+                mediaId = requireNotNull(mediaId),
+                uri = Uri.parse(requireNotNull(fromUri)),
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            UserActionType.Deleted -> UserAction.Deleted(
+                uri = Uri.parse(requireNotNull(fromUri)),
+                originalParent = Uri.parse(requireNotNull(originalParent)),
+                displayName = requireNotNull(displayName),
+                mimeType = mimeType,
+                backupPath = backupPath,
+                fromIndex = fromIndex,
+                toIndex = toIndex,
+                takenAt = takenAt?.let(Instant::ofEpochMilli)
+            )
+        }
     }
 
     companion object {
@@ -3716,6 +3841,8 @@ class ViewerViewModel @Inject constructor(
         private const val CALENDAR_DEBUG_TAG = "ViewerCalendar"
         private const val MAX_ALLOWED_CALENDAR_DELTA_DAYS = 3
         private const val MAX_BINARY_SEARCH_STEPS = 20
+        private const val WINDOW_TARGET_SIZE = 240
+        private const val WINDOW_SHIFT_THRESHOLD = 40
         private const val MIN_ENHANCEMENT_STRENGTH = 0f
         private const val MAX_ENHANCEMENT_STRENGTH = 1f
         private const val ENHANCE_TAG = "Enhance"
@@ -3739,7 +3866,6 @@ class ViewerViewModel @Inject constructor(
         )
 
         internal var buildVersionOverride: Int? = null
-        
         internal var mediaStoreDeleteRequestFactory: (ContentResolver, List<Uri>) -> PendingIntent = { resolver, uris ->
             MediaStore.createDeleteRequest(resolver, uris)
         }
@@ -3791,4 +3917,5 @@ class ViewerViewModel @Inject constructor(
         val width: Int,
         val height: Int,
     )
+}
 }

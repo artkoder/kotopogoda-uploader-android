@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -49,7 +50,10 @@ class PhotoRepository @Inject constructor(
     private val resolver: ContentResolver = context.contentResolver
     private val hasLoggedInitialOrder = AtomicBoolean(false)
 
-    fun observePhotos(anchor: Instant? = null): Flow<PagingData<PhotoItem>> =
+    fun observePhotos(
+        anchor: Instant? = null,
+        bounds: WindowBounds? = null,
+    ): Flow<PagingData<PhotoItem>> =
         folderRepository.observeFolder()
             .map { folder -> folder?.let(::buildQuerySpec) }
             .distinctUntilChanged()
@@ -66,7 +70,8 @@ class PhotoRepository @Inject constructor(
                         pagingSourceFactory = {
                             WindowedPhotoPagingSource(
                                 spec = spec,
-                                anchorMillis = anchor?.toEpochMilli()
+                                anchorMillis = anchor?.toEpochMilli(),
+                                bounds = bounds,
                             )
                         }
                     ).flow
@@ -282,6 +287,51 @@ class PhotoRepository @Inject constructor(
         val spec = buildQuerySpec(folder)
         maybeLogInitialPhotoOrder(spec)
         queryPhotoAt(spec, index.coerceAtLeast(0))
+    }
+
+    suspend fun buildWindowAround(index: Int, desiredSize: Int): PhotoWindow? = withContext(ioDispatcher) {
+        val folder = folderRepository.getFolder() ?: return@withContext null
+        val spec = buildQuerySpec(folder)
+        maybeLogInitialPhotoOrder(spec)
+        val totalCount = queryCount(spec)
+        if (totalCount <= 0) {
+            return@withContext PhotoWindow(
+                startIndex = 0,
+                endIndexExclusive = 0,
+                totalCount = 0,
+                bounds = null,
+            )
+        }
+        val clampedIndex = index.coerceIn(0, totalCount - 1)
+        val windowSize = desiredSize.coerceAtLeast(1)
+        val half = windowSize / 2
+        var startIndex = (clampedIndex - half).coerceAtLeast(0)
+        var endExclusive = min(totalCount, startIndex + windowSize)
+        if (endExclusive - startIndex < windowSize && endExclusive == totalCount) {
+            startIndex = max(0, endExclusive - windowSize)
+        }
+        if (endExclusive <= startIndex) {
+            endExclusive = (startIndex + 1).coerceAtMost(totalCount)
+        }
+        val upperPhoto = queryPhotoAt(spec, startIndex)
+        val lowerPhoto = if (endExclusive > startIndex) {
+            queryPhotoAt(spec, endExclusive - 1)
+        } else {
+            upperPhoto
+        }
+        val upperAnchor = upperPhoto?.toWindowAnchor()
+        val lowerAnchor = lowerPhoto?.toWindowAnchor()
+        val bounds = if (upperAnchor == null && lowerAnchor == null) {
+            null
+        } else {
+            WindowBounds(upper = upperAnchor, lower = lowerAnchor)
+        }
+        PhotoWindow(
+            startIndex = startIndex,
+            endIndexExclusive = endExclusive,
+            totalCount = totalCount,
+            bounds = bounds,
+        )
     }
 
     suspend fun clampIndex(index: Int): Int = withContext(ioDispatcher) {
@@ -543,6 +593,25 @@ class PhotoRepository @Inject constructor(
         val selectionArgs: List<String>
     )
 
+    data class WindowAnchor(
+        val sortKey: Long,
+        val mediaId: Long,
+    )
+
+    data class WindowBounds(
+        val upper: WindowAnchor?,
+        val lower: WindowAnchor?,
+    )
+
+    data class PhotoWindow(
+        val startIndex: Int,
+        val endIndexExclusive: Int,
+        val totalCount: Int,
+        val bounds: WindowBounds?,
+    ) {
+        val size: Int get() = (endIndexExclusive - startIndex).coerceAtLeast(0)
+    }
+
     private data class PhotoWindowKey(
         val sortKey: Long,
         val mediaId: Long,
@@ -554,9 +623,16 @@ class PhotoRepository @Inject constructor(
         val item: PhotoItem,
     )
 
+    private fun PhotoItem.toWindowAnchor(): WindowAnchor? {
+        val sortKey = sortKeyMillis ?: takenAt?.toEpochMilli() ?: return null
+        val mediaId = id.toLongOrNull() ?: return null
+        return WindowAnchor(sortKey = sortKey, mediaId = mediaId)
+    }
+
     private inner class WindowedPhotoPagingSource(
         private val spec: MediaStoreQuerySpec,
         private val anchorMillis: Long?,
+        private val bounds: WindowBounds?,
     ) : PagingSource<PhotoWindowKey, PhotoItem>() {
 
         override suspend fun load(params: LoadParams<PhotoWindowKey>): LoadResult<PhotoWindowKey, PhotoItem> {
@@ -592,6 +668,17 @@ class PhotoRepository @Inject constructor(
             }
             val selectionArgs = mutableListOf<String>().apply {
                 addAll(spec.selectionArgs)
+            }
+
+            bounds?.upper?.let { anchor ->
+                val (selection, args) = buildUpperBoundSelection(anchor)
+                selectionParts += selection
+                selectionArgs += args
+            }
+            bounds?.lower?.let { anchor ->
+                val (selection, args) = buildLowerBoundSelection(anchor)
+                selectionParts += selection
+                selectionArgs += args
             }
 
             when (params) {
@@ -630,6 +717,7 @@ class PhotoRepository @Inject constructor(
                 is LoadParams.Append -> "APPEND"
                 is LoadParams.Prepend -> "PREPEND"
             }
+
             Timber.tag(MEDIA_LOG_TAG).i(
                 UploadLog.message(
                     category = CATEGORY_MEDIA_REQUEST,
@@ -737,11 +825,47 @@ class PhotoRepository @Inject constructor(
             return selection to args
         }
 
+        private fun buildUpperBoundSelection(anchor: WindowAnchor): Pair<String, List<String>> {
+            val selection = buildString {
+                append("(")
+                append(SORT_KEY_EXPRESSION)
+                append(" <= CAST(? AS INTEGER) OR (")
+                append(SORT_KEY_EXPRESSION)
+                append(" = CAST(? AS INTEGER) AND ")
+                append(MediaStore.Images.Media._ID)
+                append(" <= CAST(? AS INTEGER)))")
+            }
+            val args = listOf(
+                anchor.sortKey.toString(),
+                anchor.sortKey.toString(),
+                anchor.mediaId.toString()
+            )
+            return selection to args
+        }
+
+        private fun buildLowerBoundSelection(anchor: WindowAnchor): Pair<String, List<String>> {
+            val selection = buildString {
+                append("(")
+                append(SORT_KEY_EXPRESSION)
+                append(" >= CAST(? AS INTEGER) OR (")
+                append(SORT_KEY_EXPRESSION)
+                append(" = CAST(? AS INTEGER) AND ")
+                append(MediaStore.Images.Media._ID)
+                append(" >= CAST(? AS INTEGER)))")
+            }
+            val args = listOf(
+                anchor.sortKey.toString(),
+                anchor.sortKey.toString(),
+                anchor.mediaId.toString()
+            )
+            return selection to args
+        }
+
         private fun PhotoEntry.toKey(): PhotoWindowKey = PhotoWindowKey(
             sortKey = sortKey,
             mediaId = mediaId,
         )
-    }
+        }
 
     private fun logPhotosInRange(
         spec: MediaStoreQuerySpec,
