@@ -871,6 +871,7 @@ class PhotoRepository @Inject constructor(
             val direction = if (ascending) "ASC" else "DESC"
             return buildString {
                 append("$SORT_KEY_EXPRESSION $direction")
+                append(", ${MediaStore.Images.Media._ID} $direction")
                 limit?.let {
                     append(" LIMIT $it")
                 }
