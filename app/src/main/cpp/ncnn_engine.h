@@ -125,7 +125,6 @@ private:
     );
 
     std::unique_ptr<ncnn::Net> zeroDceNet_;
-    std::unique_ptr<ncnn::Net> restormerNet_;
 
     ModelChecksums zeroDceChecksums_;
     ModelChecksums restormerChecksums_;

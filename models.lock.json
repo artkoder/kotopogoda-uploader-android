@@ -100,14 +100,14 @@
           "sha256": "2f861a39de391ff1938ea9dfe544131d709ce7d4c9275c0ec55eeb88c6583ca5",
           "size_mb": 0.6851,
           "label": "param",
-          "included": true
+          "included": false
         },
         {
           "path": "models/restormer_fp16.bin",
           "sha256": "4a507c280f86b3eb48b16a102d7159385ea932cc160cfbca5b5887629fb223f8",
           "size_mb": 50.3672,
           "label": "bin",
-          "included": true
+          "included": false
         },
         {
           "path": "restormer_simplified.onnx",
@@ -154,7 +154,7 @@
         }
       },
       "precision": "fp16",
-      "enabled": true
+      "enabled": false
     },
     "restormer_fp32": {
       "release": "models-v1",
