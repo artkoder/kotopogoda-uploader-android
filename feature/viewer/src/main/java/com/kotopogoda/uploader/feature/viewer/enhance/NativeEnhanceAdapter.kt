@@ -70,13 +70,22 @@ class NativeEnhanceAdapter @Inject constructor(
         val crashLoopSuspected = crashLoopDetector.isCrashLoopSuspected()
         logCpuOnlyMode(crashLoopSuspected)
 
+        val dummyChecksums = NativeEnhanceController.ModelChecksums(
+            param = "dummy",
+            bin = "dummy"
+        )
+        val dummyFiles = NativeEnhanceController.ModelFiles(
+            paramFile = "dummy.param",
+            binFile = "dummy.bin"
+        )
+        
         val params = NativeEnhanceController.InitParams(
             assetManager = context.assets,
             modelsDir = modelsDir,
             zeroDceChecksums = zeroDceChecksums,
-            restormerChecksums = restormerChecksums,
+            restormerChecksums = dummyChecksums,
             zeroDceFiles = zeroDceModelFiles,
-            restormerFiles = restormerModelFiles,
+            restormerFiles = dummyFiles,
             previewProfile = profile,
             forceCpu = true,
             forceCpuReason = DeviceGpuPolicy.forceCpuReason,
@@ -420,7 +429,6 @@ class NativeEnhanceAdapter @Inject constructor(
     companion object {
         private const val TAG = "NativeEnhanceAdapter"
         private const val ZERO_DCE_MODEL_NAME = "zerodcepp_fp16"
-        private const val RESTORMER_MODEL_CPU = "restormer_fp16"
         private const val PROGRESS_LOG_DELTA = 0.005f
         private val cpuOnlyLogGuard = AtomicBoolean(false)
     }

@@ -45,25 +45,12 @@ object ViewerEnhanceModule {
 
     @Provides
     @Singleton
-    @Named("restormerChecksums")
-    fun provideRestormerChecksums(lock: ModelsLock): NativeEnhanceController.ModelChecksums {
-        return try {
-            requireModelChecksums(lock.require("restormer_fp16"))
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to get restormer checksums from models.lock.json")
-            throw e
-        }
-    }
-
-    @Provides
-    @Singleton
     fun provideNativeEnhanceAdapter(
         @ApplicationContext context: Context,
         controller: NativeEnhanceController,
         modelsInstaller: EnhancerModelsInstaller,
         modelsLock: ModelsLock,
         @Named("zeroDceChecksums") zeroDceChecksums: NativeEnhanceController.ModelChecksums,
-        @Named("restormerChecksums") restormerChecksums: NativeEnhanceController.ModelChecksums,
     ): NativeEnhanceAdapter {
         return NativeEnhanceAdapter(
             context = context,
@@ -71,7 +58,6 @@ object ViewerEnhanceModule {
             modelsInstaller = modelsInstaller,
             modelsLock = modelsLock,
             zeroDceChecksums = zeroDceChecksums,
-            restormerChecksums = restormerChecksums,
         )
     }
 }
