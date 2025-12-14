@@ -40,14 +40,23 @@ class NativeEnhanceIntegrityTest {
         val tamperedFile = modelsDir.resolve("zerodcepp_fp16.bin")
         tamperedFile.writeText("tampered")
 
+        val dummyChecksums = NativeEnhanceController.ModelChecksums(
+            param = "dummy",
+            bin = "dummy"
+        )
+        val dummyFiles = NativeEnhanceController.ModelFiles(
+            paramFile = "dummy.param",
+            binFile = "dummy.bin"
+        )
+
         val controller = NativeEnhanceController()
         val params = NativeEnhanceController.InitParams(
             assetManager = context.assets,
             modelsDir = modelsDir,
             zeroDceChecksums = lock.require("zerodcepp_fp16").toChecksums(),
-            restormerChecksums = lock.require("restormer_fp16").toChecksums(),
+            restormerChecksums = dummyChecksums,
             zeroDceFiles = lock.require("zerodcepp_fp16").toModelFiles(),
-            restormerFiles = lock.require("restormer_fp16").toModelFiles(),
+            restormerFiles = dummyFiles,
             previewProfile = NativeEnhanceController.PreviewProfile.BALANCED,
         )
 
