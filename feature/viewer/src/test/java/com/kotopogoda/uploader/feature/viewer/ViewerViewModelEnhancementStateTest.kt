@@ -333,12 +333,7 @@ class ViewerViewModelEnhancementStateTest {
                 expectedChecksum = "abc123",
                 checksumOk = true,
             ),
-            restormer = EnhanceEngine.ModelUsage(
-                backend = EnhanceEngine.ModelBackend.NCNN,
-                checksum = "def456",
-                expectedChecksum = "def456",
-                checksumOk = true,
-            ),
+            restormer = null,
         )
         
         mockNativeEnhanceAdapter(mockFile)
@@ -360,12 +355,11 @@ class ViewerViewModelEnhancementStateTest {
         assertEquals(1, result.pipeline.tileCount)
         assertEquals(1f, result.pipeline.tileProgress)
         assertTrue(result.pipeline.zeroDceApplied)
-        assertTrue(result.pipeline.restormerApplied)
+        assertFalse(result.pipeline.restormerApplied)
 
         assertEquals(expectedModels.zeroDce?.checksum, result.models?.zeroDce?.checksum)
         assertEquals(expectedModels.zeroDce?.checksumOk, result.models?.zeroDce?.checksumOk)
-        assertEquals(expectedModels.restormer?.checksum, result.models?.restormer?.checksum)
-        assertEquals(expectedModels.restormer?.checksumOk, result.models?.restormer?.checksumOk)
+        assertNull(result.models?.restormer)
         assertNotNull(result.uploadInfo)
         assertEquals(0.5f, result.uploadInfo?.strength)
     }
@@ -508,12 +502,7 @@ class ViewerViewModelEnhancementStateTest {
                 expectedChecksum = "abc123",
                 checksumOk = true,
             ),
-            restormer = EnhanceEngine.ModelUsage(
-                backend = EnhanceEngine.ModelBackend.NCNN,
-                checksum = "def456",
-                expectedChecksum = "def456",
-                checksumOk = true,
-            ),
+            restormer = null,
         )
 
         every { nativeEnhanceAdapter.isReady() } returns true

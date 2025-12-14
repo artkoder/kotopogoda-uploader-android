@@ -508,12 +508,7 @@ class ViewerViewModelDocumentInfoTest {
                         expectedChecksum = "zero",
                         checksumOk = true,
                     ),
-                    restormer = EnhanceEngine.ModelUsage(
-                        backend = EnhanceEngine.ModelBackend.TFLITE,
-                        checksum = "rest",
-                        expectedChecksum = "rest",
-                        checksumOk = true,
-                    ),
+                    restormer = null,
                 ),
             )
             val stateField = ViewerViewModel::class.java.getDeclaredField("_enhancementState")

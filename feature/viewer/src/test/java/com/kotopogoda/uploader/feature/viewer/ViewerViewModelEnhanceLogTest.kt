@@ -160,12 +160,7 @@ class ViewerViewModelEnhanceLogTest {
                     expectedChecksum = "aaa",
                     checksumOk = true,
                 ),
-                restormer = EnhanceEngine.ModelUsage(
-                    backend = EnhanceEngine.ModelBackend.TFLITE,
-                    checksum = "bbb",
-                    expectedChecksum = "ccc",
-                    checksumOk = false,
-                ),
+                restormer = null,
             ),
         )
 
@@ -195,7 +190,6 @@ class ViewerViewModelEnhanceLogTest {
         assertEquals("true", loggedDetails["zero_dce_delegate_fallback"])
         assertEquals("false", loggedDetails["restormer_delegate_fallback"])
         assertEquals("true", loggedDetails["sha256_ok_zero_dce"])
-        assertEquals("false", loggedDetails["sha256_ok_restormer"])
 
         sourceFile.delete()
         resultFile.delete()
