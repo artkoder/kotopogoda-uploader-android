@@ -69,6 +69,9 @@ class ViewerViewModelJumpToDateTest {
             verify(atLeast = 1) {
                 environment.photoRepository.observePhotos(Instant.parse("2025-01-03T00:00:00Z"))
             }
+            verify(exactly = 1) {
+                environment.photoRepository.observePhotos(Instant.parse("2025-01-03T00:00:00Z"))
+            }
         }
 
     @Test
