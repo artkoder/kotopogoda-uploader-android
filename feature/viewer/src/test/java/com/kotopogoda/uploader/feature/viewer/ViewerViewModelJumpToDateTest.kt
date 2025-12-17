@@ -12,6 +12,7 @@ import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
+import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
 import com.kotopogoda.uploader.core.settings.AppSettings
 import com.kotopogoda.uploader.core.settings.ReviewProgressStore
@@ -65,8 +66,8 @@ class ViewerViewModelJumpToDateTest {
             environment.viewModel.photos.first()
 
             assertEquals(0, environment.viewModel.currentIndex.value)
-            coVerify(atLeast = 1) {
-                environment.photoRepository.getPhotoAt(any())
+            verify(atLeast = 1) {
+                environment.photoRepository.observePhotos(Instant.parse("2025-01-03T00:00:00Z"))
             }
             verify(exactly = 1) {
                 environment.photoRepository.observePhotos(Instant.parse("2025-01-03T00:00:00Z"))
@@ -151,6 +152,102 @@ class ViewerViewModelJumpToDateTest {
             assertEquals(0, environment.viewModel.currentIndex.value)
         }
 
+    @Test
+    fun `folder re-emission does not reset paging anchor`() =
+        runTest(context = mainDispatcherRule.dispatcher) {
+            val targetDate = Instant.parse("2025-01-03T00:00:00Z")
+            val folder = Folder(
+                id = 1,
+                treeUri = "content://tree/test",
+                flags = 0,
+                lastScanAt = null,
+                lastViewedPhotoId = null,
+                lastViewedAt = null,
+            )
+            val folderFlow = MutableStateFlow(folder)
+            val storedAnchors = mutableListOf<Instant?>()
+
+            val photoRepository = mockk<PhotoRepository>()
+            val folderRepository = mockk<FolderRepository>()
+            val saFileRepository = mockk<SaFileRepository>()
+            val uploadEnqueuer = mockk<UploadEnqueuer>()
+            val uploadQueueRepository = mockk<UploadQueueRepository>()
+            val deletionQueueRepository = mockk<DeletionQueueRepository>()
+            val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
+            val ocrQuotaRepository = mockk<OcrQuotaRepository>()
+            val settingsRepository = mockk<SettingsRepository>()
+            val reviewProgressStore = mockk<ReviewProgressStore>()
+            val savedStateHandle = SavedStateHandle()
+            val context = mockk<Context>(relaxed = true)
+
+            every { photoRepository.observePhotos(any()) } answers {
+                storedAnchors += arg<Instant?>(0)
+                flowOf(PagingData.empty())
+            }
+            coEvery { photoRepository.countAll() } returns 10
+            coEvery { photoRepository.getPhotoAt(any()) } returns
+                photo(id = 1, instant = "2025-01-03T00:00:00Z")
+
+            every { folderRepository.observeFolder() } returns folderFlow
+            coEvery { folderRepository.getFolder() } returns folder
+
+            coEvery { reviewProgressStore.loadPosition(any()) } returns null
+            coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
+
+            every { uploadQueueRepository.observeQueue() } returns flowOf(emptyList())
+            every { uploadQueueRepository.observeQueuedOrProcessing(any<Uri>()) } returns flowOf(false)
+            every { uploadQueueRepository.observeQueuedOrProcessing(any<String>()) } returns flowOf(false)
+            every { uploadEnqueuer.isEnqueued(any()) } returns flowOf(false)
+            every { deletionQueueRepository.observePending() } returns flowOf(emptyList())
+            coEvery { deletionQueueRepository.getPending() } returns emptyList()
+            coEvery { deletionQueueRepository.enqueue(any()) } returns 0
+            coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
+            every { ocrQuotaRepository.percent } returns MutableStateFlow(null)
+            every { settingsRepository.flow } returns flowOf(
+                AppSettings(
+                    baseUrl = "https://example.com",
+                    appLogging = true,
+                    httpLogging = true,
+                    persistentQueueNotification = false,
+                    previewQuality = PreviewQuality.BALANCED,
+                    autoDeleteAfterUpload = false,
+                    forceCpuForEnhancement = false,
+                )
+            )
+            every { nativeEnhanceAdapter.isReady() } returns false
+            coEvery { nativeEnhanceAdapter.initialize(any()) } returns Unit
+
+            val viewModel = ViewerViewModel(
+                photoRepository = photoRepository,
+                folderRepository = folderRepository,
+                saFileRepository = saFileRepository,
+                uploadEnqueuer = uploadEnqueuer,
+                uploadQueueRepository = uploadQueueRepository,
+                deletionQueueRepository = deletionQueueRepository,
+                reviewProgressStore = reviewProgressStore,
+                context = context,
+                nativeEnhanceAdapter = nativeEnhanceAdapter,
+                settingsRepository = settingsRepository,
+                ocrQuotaRepository = ocrQuotaRepository,
+                savedStateHandle = savedStateHandle
+            )
+
+            viewModel.photos.first()
+            advanceUntilIdle()
+
+            viewModel.jumpToDate(targetDate)
+            advanceUntilIdle()
+            viewModel.photos.first()
+
+            // Re-emit the same folder to mimic observer replay
+            folderFlow.value = folder
+            advanceUntilIdle()
+            viewModel.photos.first()
+
+            assertTrue(storedAnchors.contains(targetDate))
+            coVerify(exactly = 1) { reviewProgressStore.loadPosition(any()) }
+        }
+
     private fun createEnvironment(): ViewModelEnvironment {
         val photoRepository = mockk<PhotoRepository>()
         val folderRepository = mockk<FolderRepository>()
@@ -223,7 +320,7 @@ class ViewerViewModelJumpToDateTest {
 
     private fun photo(id: Int, instant: String): PhotoItem = PhotoItem(
         id = id.toString(),
-        uri = Uri.parse("content://test/photo/$id"),
+        uri = mockk(relaxed = true),
         takenAt = Instant.parse(instant)
     )
 

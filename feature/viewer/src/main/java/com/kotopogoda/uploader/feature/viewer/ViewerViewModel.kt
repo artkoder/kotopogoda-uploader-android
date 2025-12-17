@@ -340,20 +340,26 @@ class ViewerViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            var restoredFolderId: String? = null
             folderRepository.observeFolder().collect { folder ->
                 _currentFolderTreeUri.value = folder?.treeUri
                 if (folder != null) {
                     val id = reviewProgressFolderId(folder.treeUri)
+                    val isNewFolder = restoredFolderId != id
                     folderId.value = id
-                    val stored = reviewProgressStore.loadPosition(id)
-                    anchorDate.value = stored?.anchorDate
-                    pagingAnchor.value = stored?.anchorDate
-                    pendingInitialIndex = stored?.index?.coerceAtLeast(0)
-                    initialIndexRestored.value = pendingInitialIndex == null
-                    pendingInitialIndex?.let { index ->
-                        updateCurrentIndexInternal(index)
+                    if (isNewFolder) {
+                        restoredFolderId = id
+                        val stored = reviewProgressStore.loadPosition(id)
+                        anchorDate.value = stored?.anchorDate
+                        pagingAnchor.value = stored?.anchorDate
+                        pendingInitialIndex = stored?.index?.coerceAtLeast(0)
+                        initialIndexRestored.value = pendingInitialIndex == null
+                        pendingInitialIndex?.let { index ->
+                            updateCurrentIndexInternal(index)
+                        }
                     }
                 } else {
+                    restoredFolderId = null
                     folderId.value = null
                     anchorDate.value = null
                     pagingAnchor.value = null
