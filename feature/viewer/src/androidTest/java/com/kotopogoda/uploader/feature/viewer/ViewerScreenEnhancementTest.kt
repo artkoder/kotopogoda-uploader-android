@@ -185,8 +185,8 @@ class ViewerScreenEnhancementTest {
                     strength = newStrength
                     changedValues.add(newStrength)
                 },
-                onEnhancementStrengthChangeFinished = { newStrength ->
-                    finishedValue = newStrength
+                onEnhancementStrengthChangeFinished = {
+                    finishedValue = strength
                 },
                 isEnhancementAvailable = true,
                 onEnhancementUnavailable = {}

@@ -26,7 +26,6 @@ find_library(jnigraphics-lib jnigraphics REQUIRED)
 add_library(kotopogoda_enhance SHARED
     native_enhance_jni.cpp
     ncnn_engine.cpp
-    restormer_backend.cpp
     zerodce_backend.cpp
     tile_processor.cpp
     sha256_verifier.cpp

@@ -1,6 +1,5 @@
 #include "ncnn_engine.h"
 #include "sha256_verifier.h"
-#include "restormer_backend.h"
 #include "zerodce_backend.h"
 #include <ncnn/net.h>
 #include <ncnn/cpu.h>
@@ -30,9 +29,7 @@ const char* delegateToString(DelegateType delegate) {
 
 constexpr int kTileDefault = 384;
 constexpr int kTileOverlapDefault = 64;
-constexpr const char* kStageRestormerPreview = "restormer_preview";
 constexpr const char* kStageZerodcePreview = "zerodce_preview";
-constexpr const char* kStageRestormerFull = "restormer_full";
 constexpr const char* kStageZerodceFull = "zerodce_full";
 
 std::function<void(int, int)> makeStageCallback(
@@ -174,9 +171,7 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     (void)assetManager;
 
     zeroDceNet_.reset();
-    restormerNet_.reset();
     zeroDceNet_ = std::make_unique<ncnn::Net>();
-    restormerNet_ = std::make_unique<ncnn::Net>();
 
     const int cpuThreads = std::max(1, std::min(4, ncnn::get_big_cpu_count()));
     auto configureNet = [&](ncnn::Net& net) {
@@ -188,7 +183,6 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     };
 
     configureNet(*zeroDceNet_);
-    configureNet(*restormerNet_);
 
     LOGI("NCNN models configured for CPU: threads=%d", cpuThreads);
 
@@ -196,15 +190,8 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     const char* delegateName = delegateToString(delegate);
     std::string zeroDceParam = modelsDir + "/zerodcepp_fp16.param";
     std::string zeroDceBin = modelsDir + "/zerodcepp_fp16.bin";
-    std::string restormerParam = modelsDir + "/restormer_fp16.param";
-    std::string restormerBin = modelsDir + "/restormer_fp16.bin";
 
     restPrecision_ = "fp16";
-    if (delegate == DelegateType::CPU) {
-        LOGI("NcnnEngine: using Restormer FP16 for CPU backend");
-    } else {
-        LOGI("NcnnEngine: using Restormer FP16 for non-CPU backend");
-    }
 
     if (!verifyChecksum(zeroDceParam, zeroDceChecksums_.param)) {
         LOGE("Контрольная сумма Zero-DCE++ param не совпадает");
@@ -231,34 +218,6 @@ bool NcnnEngine::loadModels(AAssetManager* assetManager, const std::string& mode
     if (ret != 0) {
         LOGE("NCNN load_model_failed: model=zerodce delegate=%s path=%s ret=%d", delegateName, zeroDceBin.c_str(), ret);
         logNcnnFailureHint("load_model", "zerodce", ret);
-        return false;
-    }
-
-    if (!verifyChecksum(restormerParam, restormerChecksums_.param)) {
-        LOGE("Контрольная сумма Restormer param не совпадает");
-        return false;
-    }
-
-    logFileDiagnostics("restormer_param", restormerParam);
-    LOGI("NCNN load_param: model=restormer delegate=%s path=%s", delegateName, restormerParam.c_str());
-    ret = restormerNet_->load_param(restormerParam.c_str());
-    if (ret != 0) {
-        LOGE("NCNN load_param_failed: model=restormer delegate=%s path=%s ret=%d", delegateName, restormerParam.c_str(), ret);
-        logNcnnFailureHint("load_param", "restormer", ret);
-        return false;
-    }
-
-    if (!verifyChecksum(restormerBin, restormerChecksums_.bin)) {
-        LOGE("Контрольная сумма Restormer bin не совпадает");
-        return false;
-    }
-
-    logFileDiagnostics("restormer_bin", restormerBin);
-    LOGI("NCNN load_model: model=restormer delegate=%s path=%s", delegateName, restormerBin.c_str());
-    ret = restormerNet_->load_model(restormerBin.c_str());
-    if (ret != 0) {
-        LOGE("NCNN load_model_failed: model=restormer delegate=%s path=%s ret=%d", delegateName, restormerBin.c_str(), ret);
-        logNcnnFailureHint("load_model", "restormer", ret);
         return false;
     }
 
@@ -419,43 +378,11 @@ bool NcnnEngine::runPreview(
         telemetry.seamMeanDelta = 0.0f;
         telemetry.gpuAllocRetryCount = 0;
 
-        if (previewProfile_ == PreviewProfile::QUALITY) {
-            ncnn::Mat restOutput;
-            RestormerBackend restormer(restormerNet_.get(), cancelled_);
-            TelemetryData restormerTelemetry;
-            auto restormerProgress = makeStageCallback(progressCallback, kStageRestormerPreview);
-
-            if (!restormer.process(inputMat, restOutput, restormerTelemetry, restormerProgress)) {
-                propagateExtractorError(restormerTelemetry, "restormer_preview");
-                return false;
-            }
-
-            telemetry.timingMs += restormerTelemetry.timingMs;
-
-            ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
-            TelemetryData zeroDceTelemetry;
-            ncnn::Mat finalMat;
-            auto zeroProgress = makeStageCallback(progressCallback, kStageZerodcePreview);
-
-            if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, zeroProgress)) {
-                propagateExtractorError(zeroDceTelemetry, "zerodce_preview_quality");
-                return false;
-            }
-
-            telemetry.timingMs += zeroDceTelemetry.timingMs;
-            telemetry.tileTelemetry = zeroDceTelemetry.tileTelemetry;
-            telemetry.seamMaxDelta = zeroDceTelemetry.seamMaxDelta;
-            telemetry.seamMeanDelta = zeroDceTelemetry.seamMeanDelta;
-            telemetry.gpuAllocRetryCount = zeroDceTelemetry.gpuAllocRetryCount;
-            output = finalMat;
-            return true;
-        }
-
         ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
         auto zeroProgress = makeStageCallback(progressCallback, kStageZerodcePreview);
         bool ok = zeroDce.process(inputMat, output, strength, telemetry, zeroProgress);
         if (!ok) {
-            propagateExtractorError(telemetry, "zerodce_preview_balanced");
+            propagateExtractorError(telemetry, "zerodce_preview");
         }
         return ok;
     };
@@ -538,23 +465,11 @@ bool NcnnEngine::runFull(
         telemetry.seamMeanDelta = 0.0f;
         telemetry.gpuAllocRetryCount = 0;
 
-        RestormerBackend restormer(restormerNet_.get(), cancelled_);
-        TelemetryData restormerTelemetry;
-        auto restormerProgress = makeStageCallback(progressCallback, kStageRestormerFull);
-
-        ncnn::Mat restOutput;
-        if (!restormer.process(inputMat, restOutput, restormerTelemetry, restormerProgress)) {
-            propagateExtractorError(restormerTelemetry, "restormer_full");
-            return false;
-        }
-
-        telemetry.timingMs += restormerTelemetry.timingMs;
-
         ZeroDceBackend zeroDce(zeroDceNet_.get(), cancelled_);
         TelemetryData zeroDceTelemetry;
         auto zeroProgress = makeStageCallback(progressCallback, kStageZerodceFull);
 
-        if (!zeroDce.process(restOutput, finalMat, strength, zeroDceTelemetry, zeroProgress)) {
+        if (!zeroDce.process(inputMat, finalMat, strength, zeroDceTelemetry, zeroProgress)) {
             propagateExtractorError(zeroDceTelemetry, "zerodce_full");
             return false;
         }
@@ -600,7 +515,6 @@ void NcnnEngine::release() {
     LOGI("Освобождение ресурсов NCNN движка");
     
     zeroDceNet_.reset();
-    restormerNet_.reset();
 
     currentDelegate_.store(DelegateType::CPU);
 

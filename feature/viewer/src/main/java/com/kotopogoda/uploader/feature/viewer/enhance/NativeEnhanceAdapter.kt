@@ -32,7 +32,6 @@ class NativeEnhanceAdapter @Inject constructor(
     private val modelsInstaller: EnhancerModelsInstaller,
     private val modelsLock: ModelsLock,
     @Named("zeroDceChecksums") private val zeroDceChecksums: NativeEnhanceController.ModelChecksums,
-    @Named("restormerChecksums") private val restormerChecksums: NativeEnhanceController.ModelChecksums,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
@@ -44,7 +43,6 @@ class NativeEnhanceAdapter @Inject constructor(
     private var previewResult: NativeEnhanceController.PreviewResult? = null
     private val crashLoopDetector = NativeEnhanceCrashLoopDetector(context)
     private val zeroDceModelFiles = modelsLock.require(ZERO_DCE_MODEL_NAME).toModelFiles()
-    private val restormerModelFiles = modelsLock.require(RESTORMER_MODEL_CPU).toModelFiles()
 
     fun isReady(): Boolean = isInitialized && controller.isInitialized()
 
@@ -55,12 +53,7 @@ class NativeEnhanceAdapter @Inject constructor(
             expectedChecksum = zeroDceChecksums.bin,
             checksumOk = true,
         ),
-        restormer = ModelUsage(
-            backend = ModelBackend.NCNN,
-            checksum = restormerChecksums.bin,
-            expectedChecksum = restormerChecksums.bin,
-            checksumOk = true,
-        ),
+        restormer = null,
     )
 
     suspend fun initialize(previewQuality: PreviewQuality) = withContext(dispatcher) {
@@ -77,13 +70,22 @@ class NativeEnhanceAdapter @Inject constructor(
         val crashLoopSuspected = crashLoopDetector.isCrashLoopSuspected()
         logCpuOnlyMode(crashLoopSuspected)
 
+        val dummyChecksums = NativeEnhanceController.ModelChecksums(
+            param = "dummy",
+            bin = "dummy"
+        )
+        val dummyFiles = NativeEnhanceController.ModelFiles(
+            paramFile = "dummy.param",
+            binFile = "dummy.bin"
+        )
+        
         val params = NativeEnhanceController.InitParams(
             assetManager = context.assets,
             modelsDir = modelsDir,
             zeroDceChecksums = zeroDceChecksums,
-            restormerChecksums = restormerChecksums,
+            restormerChecksums = dummyChecksums,
             zeroDceFiles = zeroDceModelFiles,
-            restormerFiles = restormerModelFiles,
+            restormerFiles = dummyFiles,
             previewProfile = profile,
             forceCpu = true,
             forceCpuReason = DeviceGpuPolicy.forceCpuReason,
@@ -427,7 +429,6 @@ class NativeEnhanceAdapter @Inject constructor(
     companion object {
         private const val TAG = "NativeEnhanceAdapter"
         private const val ZERO_DCE_MODEL_NAME = "zerodcepp_fp16"
-        private const val RESTORMER_MODEL_CPU = "restormer_fp16"
         private const val PROGRESS_LOG_DELTA = 0.005f
         private val cpuOnlyLogGuard = AtomicBoolean(false)
     }
