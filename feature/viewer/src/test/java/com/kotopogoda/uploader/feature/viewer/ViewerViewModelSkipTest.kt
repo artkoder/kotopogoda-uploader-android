@@ -9,6 +9,7 @@ import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -25,6 +26,7 @@ import io.mockk.mockk
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -89,6 +91,7 @@ class ViewerViewModelSkipTest {
         val uploadQueueRepository = mockk<UploadQueueRepository>()
         val deletionQueueRepository = mockk<DeletionQueueRepository>()
         val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
+        val ocrQuotaRepository = mockk<OcrQuotaRepository>()
         val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
@@ -103,6 +106,7 @@ class ViewerViewModelSkipTest {
         coEvery { deletionQueueRepository.getPending() } returns emptyList()
         coEvery { deletionQueueRepository.enqueue(any()) } returns 0
         coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
+        every { ocrQuotaRepository.percent } returns MutableStateFlow(null)
         coEvery { folderRepository.getFolder() } returns null
         coEvery { reviewProgressStore.loadPosition(any()) } returns null
         coEvery { reviewProgressStore.savePosition(any(), any(), any()) } just Runs
@@ -136,6 +140,7 @@ class ViewerViewModelSkipTest {
             context = context,
             nativeEnhanceAdapter = nativeEnhanceAdapter,
             settingsRepository = settingsRepository,
+            ocrQuotaRepository = ocrQuotaRepository,
             savedStateHandle = savedStateHandle
         )
 

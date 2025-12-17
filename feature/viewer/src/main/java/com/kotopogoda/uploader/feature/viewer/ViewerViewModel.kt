@@ -80,6 +80,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -115,9 +116,6 @@ class ViewerViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    val photos: Flow<PagingData<PhotoItem>> = photoRepository.observePhotos()
-        .cachedIn(viewModelScope)
-
     private val _isPagerScrollEnabled = MutableStateFlow(true)
     val isPagerScrollEnabled: StateFlow<Boolean> = _isPagerScrollEnabled.asStateFlow()
 
@@ -130,6 +128,7 @@ class ViewerViewModel @Inject constructor(
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
 
     private val folderId = MutableStateFlow<String?>(null)
+    private val pagingAnchor = MutableStateFlow<Instant?>(null)
     private val anchorDate = MutableStateFlow<Instant?>(null)
     private val photoCount = MutableStateFlow(0)
     private val currentPhoto = MutableStateFlow<PhotoItem?>(null)
@@ -177,6 +176,10 @@ class ViewerViewModel @Inject constructor(
 
     private val _availableDates = MutableStateFlow<Set<LocalDate>?>(null)
     val availableDates: StateFlow<Set<LocalDate>?> = _availableDates.asStateFlow()
+
+    val photos: Flow<PagingData<PhotoItem>> = pagingAnchor
+        .flatMapLatest { anchor -> photoRepository.observePhotos(anchor) }
+        .cachedIn(viewModelScope)
 
     val ocrRemainingPercent: StateFlow<Int?> = ocrQuotaRepository.percent
 
@@ -344,6 +347,7 @@ class ViewerViewModel @Inject constructor(
                     folderId.value = id
                     val stored = reviewProgressStore.loadPosition(id)
                     anchorDate.value = stored?.anchorDate
+                    pagingAnchor.value = stored?.anchorDate
                     pendingInitialIndex = stored?.index?.coerceAtLeast(0)
                     initialIndexRestored.value = pendingInitialIndex == null
                     pendingInitialIndex?.let { index ->
@@ -352,6 +356,7 @@ class ViewerViewModel @Inject constructor(
                 } else {
                     folderId.value = null
                     anchorDate.value = null
+                    pagingAnchor.value = null
                     pendingInitialIndex = null
                     initialIndexRestored.value = true
                 }
@@ -607,25 +612,28 @@ class ViewerViewModel @Inject constructor(
                 return@launch
             }
 
+            val anchorInstant = candidatePhoto.takenAt ?: startOfDay
             pendingDeepScroll = PendingDeepScroll(
                 requestId = requestId,
                 selectedDate = localDate,
-                targetIndex = resolvedIndex,
+                targetIndex = 0,
                 totalCount = totalPhotos,
                 match = matchType
             )
 
             Timber.tag(CALENDAR_DEBUG_TAG).i(
-                "DeepScrollRequest requestId=%s selectedDate=%s targetIndex=%d totalCount=%d placeholdersEnabled=%s match=%s",
+                "DeepScrollRequest requestId=%s selectedDate=%s targetIndex=%d totalCount=%d placeholdersEnabled=%s match=%s anchor=%s",
                 requestId,
                 localDate.toString(),
-                resolvedIndex,
+                0,
                 totalPhotos,
                 PAGING_PLACEHOLDERS_ENABLED,
-                matchType.name
+                matchType.name,
+                anchorInstant.toString()
             )
 
-            setCurrentIndex(resolvedIndex)
+            pagingAnchor.value = anchorInstant
+            setCurrentIndex(0)
         }
     }
     private suspend fun findIndexBinarySearch(
@@ -3705,7 +3713,7 @@ class ViewerViewModel @Inject constructor(
     }
 
     companion object {
-        private const val PAGING_PLACEHOLDERS_ENABLED = true
+        private const val PAGING_PLACEHOLDERS_ENABLED = false
         private const val DEFAULT_FILE_NAME = "photo.jpg"
         private const val DEFAULT_MIME = "image/jpeg"
         private const val QUEUE_DELETE_REASON = "user_delete"
