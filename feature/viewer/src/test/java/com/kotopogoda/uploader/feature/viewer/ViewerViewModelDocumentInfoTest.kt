@@ -20,6 +20,7 @@ import com.kotopogoda.uploader.core.data.folder.Folder
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.sa.MoveResult
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadEnqueueOptions
@@ -623,6 +624,7 @@ class ViewerViewModelDocumentInfoTest {
         val uploadQueueRepository = mockk<UploadQueueRepository>()
         val deletionQueueRepository = mockk<DeletionQueueRepository>()
         val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
+        val ocrQuotaRepository = mockk<OcrQuotaRepository>()
         val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
@@ -654,6 +656,7 @@ class ViewerViewModelDocumentInfoTest {
         coEvery { deletionQueueRepository.getPending() } coAnswers { pendingDeletions.value }
         coEvery { deletionQueueRepository.enqueue(any()) } returns 0
         coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
+        every { ocrQuotaRepository.percent } returns MutableStateFlow(null)
 
         val viewModel = ViewerViewModel(
             photoRepository = photoRepository,
@@ -666,6 +669,7 @@ class ViewerViewModelDocumentInfoTest {
             context = context,
             nativeEnhanceAdapter = nativeEnhanceAdapter,
             settingsRepository = settingsRepository,
+            ocrQuotaRepository = ocrQuotaRepository,
             savedStateHandle = savedStateHandle
         )
 

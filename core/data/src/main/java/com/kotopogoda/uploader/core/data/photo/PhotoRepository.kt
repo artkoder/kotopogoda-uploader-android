@@ -901,9 +901,11 @@ class PhotoRepository @Inject constructor(
     companion object {
         private const val DEFAULT_PAGE_SIZE = 60
         private const val DEFAULT_PREFETCH_DISTANCE = 30
+        private const val DATE_TAKEN_SECONDS_THRESHOLD = 4_102_444_800L // 2100-01-01 in seconds
         internal const val SORT_KEY_EXPRESSION =
             "CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} > 0 " +
-                "THEN ${MediaStore.Images.Media.DATE_TAKEN} " +
+                "THEN CASE WHEN ${MediaStore.Images.Media.DATE_TAKEN} < $DATE_TAKEN_SECONDS_THRESHOLD " +
+                "THEN ${MediaStore.Images.Media.DATE_TAKEN} * 1000 ELSE ${MediaStore.Images.Media.DATE_TAKEN} END " +
                 "WHEN ${MediaStore.Images.Media.DATE_ADDED} > 0 " +
                 "THEN ${MediaStore.Images.Media.DATE_ADDED} * 1000 " +
                 "ELSE ${MediaStore.Images.Media.DATE_MODIFIED} * 1000 END"
