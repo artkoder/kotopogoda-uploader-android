@@ -8,6 +8,7 @@ import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.logging.test.MainDispatcherRule
@@ -23,7 +24,9 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.verify
 import java.time.Instant
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -59,9 +62,14 @@ class ViewerViewModelJumpToDateTest {
             environment.viewModel.jumpToDate(target)
             advanceUntilIdle()
 
-            assertEquals(2, environment.viewModel.currentIndex.value)
+            environment.viewModel.photos.first()
+
+            assertEquals(0, environment.viewModel.currentIndex.value)
             coVerify(atLeast = 1) {
                 environment.photoRepository.getPhotoAt(any())
+            }
+            verify(exactly = 1) {
+                environment.photoRepository.observePhotos(Instant.parse("2025-01-03T00:00:00Z"))
             }
         }
 
@@ -140,7 +148,7 @@ class ViewerViewModelJumpToDateTest {
             environment.viewModel.jumpToDate(target)
             advanceUntilIdle()
 
-            assertEquals(1, environment.viewModel.currentIndex.value)
+            assertEquals(0, environment.viewModel.currentIndex.value)
         }
 
     private fun createEnvironment(): ViewModelEnvironment {
@@ -151,11 +159,12 @@ class ViewerViewModelJumpToDateTest {
         val uploadQueueRepository = mockk<UploadQueueRepository>()
         val deletionQueueRepository = mockk<DeletionQueueRepository>()
         val nativeEnhanceAdapter = mockk<NativeEnhanceAdapter>(relaxed = true)
+        val ocrQuotaRepository = mockk<OcrQuotaRepository>()
         val settingsRepository = mockk<SettingsRepository>()
         val reviewProgressStore = mockk<ReviewProgressStore>()
         val savedStateHandle = SavedStateHandle()
 
-        every { photoRepository.observePhotos() } returns flowOf(PagingData.empty())
+        every { photoRepository.observePhotos(any()) } returns flowOf(PagingData.empty())
         every { folderRepository.observeFolder() } returns flowOf(null)
         coEvery { folderRepository.getFolder() } returns null
         coEvery { reviewProgressStore.loadPosition(any()) } returns null
@@ -168,6 +177,7 @@ class ViewerViewModelJumpToDateTest {
         coEvery { deletionQueueRepository.getPending() } returns emptyList()
         coEvery { deletionQueueRepository.enqueue(any()) } returns 0
         coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
+        every { ocrQuotaRepository.percent } returns MutableStateFlow(null)
         every { settingsRepository.flow } returns flowOf(
             AppSettings(
                 baseUrl = "https://example.com",
@@ -196,6 +206,7 @@ class ViewerViewModelJumpToDateTest {
             context = context,
             nativeEnhanceAdapter = nativeEnhanceAdapter,
             settingsRepository = settingsRepository,
+            ocrQuotaRepository = ocrQuotaRepository,
             savedStateHandle = savedStateHandle
         )
 

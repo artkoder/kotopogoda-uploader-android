@@ -8,6 +8,7 @@ import com.kotopogoda.uploader.core.data.deletion.DeletionQueueRepository
 import com.kotopogoda.uploader.core.data.folder.FolderRepository
 import com.kotopogoda.uploader.core.data.photo.PhotoItem
 import com.kotopogoda.uploader.core.data.photo.PhotoRepository
+import com.kotopogoda.uploader.core.data.ocr.OcrQuotaRepository
 import com.kotopogoda.uploader.core.data.sa.SaFileRepository
 import com.kotopogoda.uploader.core.data.upload.UploadQueueRepository
 import com.kotopogoda.uploader.core.network.upload.UploadEnqueuer
@@ -28,6 +29,7 @@ import java.time.Instant
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
@@ -79,6 +81,9 @@ class ViewerViewModelEnhancementStateTest {
     private lateinit var reviewProgressStore: ReviewProgressStore
 
     @MockK(relaxed = true)
+    private lateinit var ocrQuotaRepository: OcrQuotaRepository
+
+    @MockK(relaxed = true)
     private lateinit var context: Context
 
     @MockK(relaxed = true)
@@ -121,6 +126,7 @@ class ViewerViewModelEnhancementStateTest {
         coEvery { deletionQueueRepository.getPending() } returns emptyList()
         coEvery { deletionQueueRepository.enqueue(any()) } returns 0
         coEvery { deletionQueueRepository.markSkipped(any()) } returns 0
+        every { ocrQuotaRepository.percent } returns MutableStateFlow(null)
     }
 
     @AfterTest
@@ -490,6 +496,7 @@ class ViewerViewModelEnhancementStateTest {
             context = context,
             nativeEnhanceAdapter = nativeAdapter,
             settingsRepository = settingsRepository,
+            ocrQuotaRepository = ocrQuotaRepository,
             savedStateHandle = SavedStateHandle(),
         )
     }
