@@ -511,10 +511,10 @@ class NativeEnhanceController(
 
     private fun previewStagePlan(): List<String> = when (currentPreviewProfile) {
         PreviewProfile.BALANCED -> listOf(STAGE_ZERODCE_PREVIEW)
-        PreviewProfile.QUALITY -> listOf(STAGE_RESTORMER_PREVIEW, STAGE_ZERODCE_PREVIEW)
+        PreviewProfile.QUALITY -> listOf(STAGE_ZERODCE_PREVIEW)
     }
 
-    private fun fullStagePlan(): List<String> = listOf(STAGE_RESTORMER_FULL, STAGE_ZERODCE_FULL)
+    private fun fullStagePlan(): List<String> = listOf(STAGE_ZERODCE_FULL)
 
     private class NativeProgressAggregator(stageOrder: List<String>) {
         private val order = stageOrder.toMutableList().ifEmpty { mutableListOf(STAGE_GENERIC) }
