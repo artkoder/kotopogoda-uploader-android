@@ -454,16 +454,17 @@ internal fun ViewerScreen(
     }
 
     val clampedIndex = currentIndex.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
-    var rememberedIndex by rememberSaveable(currentIndex, itemCount) { mutableStateOf(clampedIndex) }
-    val pagerState = rememberPagerState(initialPage = rememberedIndex, pageCount = { itemCount })
+    var lastAppliedIndex by rememberSaveable { mutableStateOf(clampedIndex) }
+    val pagerState = rememberPagerState(initialPage = clampedIndex, pageCount = { itemCount })
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var showJumpSheet by rememberSaveable { mutableStateOf(false) }
     val jumpSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var currentDeletionBatch by remember { mutableStateOf<com.kotopogoda.uploader.core.data.deletion.ConfirmDeletionUseCase.DeleteBatch?>(null) }
 
-    val currentPhoto = if (rememberedIndex in 0 until itemCount) {
-        photos[rememberedIndex]
+    val currentPage = pagerState.currentPage.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+    val currentPhoto = if (currentPage in 0 until itemCount) {
+        photos[currentPage]
     } else {
         null
     }
@@ -505,12 +506,10 @@ internal fun ViewerScreen(
         }
     }
 
-    LaunchedEffect(currentIndex, itemCount) {
+    LaunchedEffect(currentIndex) {
         val clamped = currentIndex.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
-        if (clamped != rememberedIndex) {
-            rememberedIndex = clamped
-        }
-        if (itemCount > 0 && pagerState.currentPage != clamped) {
+        if (itemCount > 0 && (pagerState.currentPage != clamped || lastAppliedIndex != clamped)) {
+            lastAppliedIndex = clamped
             pagerState.scrollToPage(clamped)
         }
     }
@@ -518,14 +517,11 @@ internal fun ViewerScreen(
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
             .collectLatest { page ->
-                if (rememberedIndex != page) {
-                    rememberedIndex = page
-                }
                 onPageChanged(page)
             }
     }
 
-    LaunchedEffect(itemCount, rememberedIndex, currentPhoto?.id, currentPhoto?.takenAt) {
+    LaunchedEffect(itemCount, currentPage, currentPhoto?.id, currentPhoto?.takenAt) {
         onVisiblePhotoChanged(itemCount, currentPhoto)
     }
 
@@ -689,7 +685,10 @@ internal fun ViewerScreen(
                 VerticalPager(
                     state = pagerState,
                     userScrollEnabled = isPagerScrollEnabled && !isBusy,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    key = { index ->
+                        photos.itemSnapshotList.items.getOrNull(index)?.id ?: "placeholder_$index"
+                    }
                 ) { page ->
                     val item = photos[page]
                     Box(
@@ -707,7 +706,7 @@ internal fun ViewerScreen(
                             }
                     ) {
                         if (item != null) {
-                            val isCurrentPage = page == currentIndex
+                            val isCurrentPage = page == currentPage
                             val useEnhancedPreview = isCurrentPage &&
                                 enhancementReady &&
                                 isEnhancementResultForCurrentPhoto &&

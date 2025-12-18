@@ -623,6 +623,7 @@ class ViewerViewModel @Inject constructor(
                 requestId = requestId,
                 selectedDate = localDate,
                 targetIndex = 0,
+                expectedPhotoId = candidatePhoto.id,
                 totalCount = totalPhotos,
                 match = matchType
             )
@@ -816,6 +817,7 @@ class ViewerViewModel @Inject constructor(
         val requestId: String,
         val selectedDate: LocalDate,
         val targetIndex: Int,
+        val expectedPhotoId: String?,
         val totalCount: Int,
         val match: CalendarMatch,
     )
@@ -2384,18 +2386,20 @@ class ViewerViewModel @Inject constructor(
     private fun maybeCompleteDeepScroll(totalCount: Int, photo: PhotoItem?) {
         val pending = pendingDeepScroll ?: return
         val visiblePhoto = photo ?: return
-        val currentIndexSnapshot = _currentIndex.value
-        if (currentIndexSnapshot != pending.targetIndex) {
+        val expectedId = pending.expectedPhotoId
+        if (expectedId != null && visiblePhoto.id != expectedId) {
             return
         }
         val zone = ZoneId.systemDefault()
         val visibleDate = visiblePhoto.takenAt?.atZone(zone)?.toLocalDate()
         Timber.tag(CALENDAR_DEBUG_TAG).i(
-            "DeepScrollCompleted requestId=%s selectedDate=%s targetIndex=%d actualIndex=%d visibleDate=%s totalCount=%d match=%s uri=%s",
+            "DeepScrollCompleted requestId=%s selectedDate=%s targetIndex=%d actualIndex=%d expectedId=%s visibleId=%s visibleDate=%s totalCount=%d match=%s uri=%s",
             pending.requestId,
             pending.selectedDate.toString(),
             pending.targetIndex,
-            currentIndexSnapshot,
+            _currentIndex.value,
+            expectedId ?: "null",
+            visiblePhoto.id,
             visibleDate?.toString() ?: "null",
             totalCount,
             pending.match.name,

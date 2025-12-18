@@ -26,6 +26,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Rule
@@ -284,6 +285,97 @@ class ViewerScreenTest {
         composeRule.runOnIdle {
             assertEquals(2, deleted.size)
         }
+    }
+
+    @Test
+    fun viewerKeepsCurrentPhotoWhenPrependedItemsArrive() {
+        val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+        val anchorInstant = Instant.parse("2025-11-12T10:00:00Z")
+        val anchorPhoto = PhotoItem(
+            id = "anchor",
+            uri = Uri.parse("content://photo/anchor"),
+            takenAt = anchorInstant
+        )
+        val initialPhotos = listOf(
+            anchorPhoto,
+            PhotoItem(id = "mid", uri = Uri.parse("content://photo/mid"), takenAt = null),
+            PhotoItem(id = "last", uri = Uri.parse("content://photo/last"), takenAt = null)
+        )
+        val pagingFlow = MutableStateFlow(PagingData.from(initialPhotos))
+        val expectedDate = formatter.format(anchorInstant.atZone(ZoneId.systemDefault()).toLocalDateTime())
+        val prependedPhoto = PhotoItem(
+            id = "newest",
+            uri = Uri.parse("content://photo/newest"),
+            takenAt = Instant.parse("2025-12-17T15:00:00Z")
+        )
+        var lastPage = -1
+
+        composeRule.setContent {
+            val pagingItems = pagingFlow.collectAsLazyPagingItems()
+            ViewerScreen(
+                photos = pagingItems,
+                currentIndex = 0,
+                isPagerScrollEnabled = true,
+                undoCount = 0,
+                canUndo = false,
+                actionInProgress = null,
+                events = emptyFlow(),
+                selection = emptySet(),
+                isSelectionMode = false,
+                observeUploadEnqueued = { flowOf(false) },
+                observeDeletionQueued = { flowOf(false) },
+                onBack = {},
+                onOpenQueue = {},
+                onOpenSettings = {},
+                healthState = HealthState.Unknown,
+                isNetworkValidated = true,
+                deletionConfirmationUiState = DeletionConfirmationUiState(),
+                onConfirmDeletion = {},
+                deletionConfirmationEvents = emptyFlow(),
+                deletionPermissionsLauncher = mockk(relaxed = true),
+                onLaunchDeletionBatch = {},
+                onPageChanged = { lastPage = it },
+                onVisiblePhotoChanged = { _, _ -> },
+                onZoomStateChanged = {},
+                onSkip = { _ -> },
+                onMoveToProcessing = { _ -> },
+                onMoveSelection = {},
+                onEnqueueUpload = { _ -> },
+                onEnqueueDeletion = { _ -> },
+                onUndo = {},
+                onDelete = { _ -> },
+                onDeleteSelection = {},
+                onDeleteResult = {},
+                onWriteRequestResult = {},
+                onJumpToDate = {},
+                onScrollToNewest = {},
+                onPhotoLongPress = {},
+                onToggleSelection = {},
+                onCancelSelection = {},
+                onSelectFolder = {},
+                enhancementStrength = 0.5f,
+                enhancementInProgress = false,
+                enhancementReady = true,
+                enhancementResultUri = null,
+                isEnhancementResultForCurrentPhoto = false,
+                enhancementProgress = emptyMap(),
+                onEnhancementStrengthChange = {},
+                onEnhancementStrengthChangeFinished = {},
+                isEnhancementAvailable = true,
+                onEnhancementUnavailable = {},
+                ocrRemainingPercent = 95
+            )
+        }
+
+        composeRule.waitUntil { lastPage == 0 }
+        composeRule.onNodeWithText(expectedDate).assertExists()
+
+        composeRule.runOnIdle {
+            pagingFlow.value = PagingData.from(listOf(prependedPhoto) + initialPhotos)
+        }
+
+        composeRule.waitUntil { lastPage == 1 }
+        composeRule.onNodeWithText(expectedDate).assertExists()
     }
 
     @Test
