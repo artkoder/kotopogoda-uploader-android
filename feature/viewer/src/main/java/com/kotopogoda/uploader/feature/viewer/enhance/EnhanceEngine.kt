@@ -1082,7 +1082,7 @@ class EnhanceEngine(
                 clamp(lowLightScore * (0.34f + 0.66f * eased), 0f, 1f)
             }
 
-            val restormerMix = clamp(noise * (0.28f + 0.72f * eased), 0f, 1f)
+            val restormerMix = 0f
 
             val detailDemand = mapLow(sharpness, 0.64f, 0.26f)
             val noisePenalty = clamp01(noise * 0.75f)
