@@ -24,7 +24,7 @@ object DeviceGpuPolicy {
 
     const val forceCpuReason: String = "cpu_only"
 
-    fun shouldUseGpu(): Boolean = false
+    fun shouldUseGpu(): Boolean = true
 
     internal fun isExynosSmG99xFingerprint(fingerprint: DeviceFingerprint): Boolean {
         val normalizedModel = fingerprint.model.uppercase(Locale.US)

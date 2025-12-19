@@ -12,7 +12,6 @@ namespace ncnn {
 
 namespace kotopogoda {
 
-class TileProcessor;
 struct TelemetryData;
 
 class ZeroDceBackend {
@@ -38,7 +37,6 @@ private:
 
     ncnn::Net* net_;
     std::atomic<bool>& cancelFlag_;
-    std::unique_ptr<TileProcessor> tileProcessor_;
 };
 
 }
