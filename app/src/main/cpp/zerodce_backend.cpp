@@ -1,10 +1,10 @@
 #include "zerodce_backend.h"
-#include "tile_processor.h"
 #include "ncnn_engine.h"
 #include <ncnn/mat.h>
 #include <ncnn/net.h>
 #include <android/log.h>
 #include <chrono>
+#include <algorithm>
 
 #define LOG_TAG "ZeroDceBackend"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -14,14 +14,7 @@
 namespace kotopogoda {
 
 ZeroDceBackend::ZeroDceBackend(ncnn::Net* net, std::atomic<bool>& cancelFlag)
-    : net_(net), cancelFlag_(cancelFlag) {
-    TileConfig config;
-    config.tileSize = 384;
-    config.overlap = 64;
-    config.useReflectPadding = true;
-    config.enableHannWindow = true;
-    tileProcessor_ = std::make_unique<TileProcessor>(config, cancelFlag_);
-}
+    : net_(net), cancelFlag_(cancelFlag) {}
 
 ZeroDceBackend::~ZeroDceBackend() {
 }
@@ -41,7 +34,7 @@ bool ZeroDceBackend::processDirectly(
         *lastErrorCode = 0;
     }
 
-    const char* delegateName = "cpu";
+    const char* delegateName = net_->opt.use_vulkan_compute ? "vulkan" : "cpu";
     ncnn::Extractor ex = net_->create_extractor();
     int ret = ex.input("input", input);
     if (ret != 0) {
@@ -110,128 +103,51 @@ bool ZeroDceBackend::process(
 
     LOGI("Начало обработки Zero-DCE++: %dx%dx%d, strength=%.2f", input.w, input.h, input.c, strength);
 
-    const int64_t pixelCount = static_cast<int64_t>(input.w) * static_cast<int64_t>(input.h);
-    const int64_t tileAreaThreshold = static_cast<int64_t>(2048) * 2048;
-    const int64_t megaPixelThreshold = 12LL * 1000LL * 1000LL;
-    const bool shouldTile = tileProcessor_ && (pixelCount >= tileAreaThreshold || pixelCount >= megaPixelThreshold);
+    const int maxSide = 2048;
+    const bool needResize = input.w > maxSide || input.h > maxSide;
 
-    telemetry.tileTelemetry.tileUsed = shouldTile;
-    telemetry.tileTelemetry.tileSize = tileProcessor_ ? tileProcessor_->config().tileSize : 0;
-    telemetry.tileTelemetry.overlap = tileProcessor_ ? tileProcessor_->config().overlap : 0;
+    telemetry.tileTelemetry.tileUsed = false;
+    telemetry.tileTelemetry.tileSize = 0;
+    telemetry.tileTelemetry.overlap = 0;
+    telemetry.tileTelemetry.totalTiles = 1;
+    telemetry.tileTelemetry.processedTiles = 0;
 
-    LOGI(
-        "Zero-DCE++ стратегия: delegate=%s tile_used=%d tile_size=%d overlap=%d pixels=%lld threshold_area=%lld threshold_mp=%lld",
-        "cpu",
-        shouldTile,
-        telemetry.tileTelemetry.tileSize,
-        telemetry.tileTelemetry.overlap,
-        (long long)pixelCount,
-        (long long)tileAreaThreshold,
-        (long long)megaPixelThreshold
-    );
+    ncnn::Mat processingInput = input;
+    if (needResize) {
+        const int longestSide = std::max(input.w, input.h);
+        const float scale = static_cast<float>(maxSide) / static_cast<float>(longestSide);
+        const int targetW = std::max(1, static_cast<int>(input.w * scale + 0.5f));
+        const int targetH = std::max(1, static_cast<int>(input.h * scale + 0.5f));
 
-    bool success = false;
-    int gpuAllocRetryCount = 0;
-    int extractorErrorCode = 0;
-    telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
-
-    if (shouldTile) {
-        auto processFunc = [
-            this,
-            strength,
-            &gpuAllocRetryCount
-        ](
-            const ncnn::Mat& tileIn,
-            ncnn::Mat& tileOut,
-            ncnn::Net* net,
-            int* errorCode
-        ) -> bool {
-            const int maxAttempts = 3;
-            for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
-                if (cancelFlag_.load()) {
-                    LOGW("ENHANCE/ERROR: Обработка Zero-DCE++ отменена внутри тайла");
-                    return false;
-                }
-
-                ncnn::Extractor ex = net->create_extractor();
-                int ret = ex.input("input", tileIn);
-                if (ret != 0) {
-                    if (errorCode) {
-                        *errorCode = ret;
-                    }
-                    LOGW("ENHANCE/ERROR: Не удалось подать данные тайла в Zero-DCE++ (ret=%d)", ret);
-                    return false;
-                }
-
-                ncnn::Mat enhancedTile;
-                ret = ex.extract("output", enhancedTile);
-                if (ret == 0) {
-                    tileOut.create(tileIn.w, tileIn.h, tileIn.c);
-                    for (int c = 0; c < tileIn.c; ++c) {
-                        const float* srcChannel = tileIn.channel(c);
-                        const float* enhChannel = enhancedTile.channel(c);
-                        float* dstChannel = tileOut.channel(c);
-                        int pixelTotal = tileIn.w * tileIn.h;
-                        for (int i = 0; i < pixelTotal; ++i) {
-                            dstChannel[i] = srcChannel[i] * (1.0f - strength) + enhChannel[i] * strength;
-                        }
-                    }
-                    return true;
-                }
-
-                if (errorCode) {
-                    *errorCode = ret;
-                }
-                gpuAllocRetryCount++;
-                LOGW(
-                    "ENHANCE/ERROR: Ошибка Zero-DCE++ (ret=%d) на тайле, попытка %d/%d",
-                    ret,
-                    attempt,
-                    maxAttempts
-                );
-            }
-            return false;
-        };
-
-        auto tileProgressReporter = [&telemetry, &stageProgressCallback](int current, int total) {
-            telemetry.tileTelemetry.processedTiles = current;
-            telemetry.tileTelemetry.totalTiles = total;
-            LOGI("Zero-DCE++ прогресс тайлов: %d/%d", current, total);
-            if (stageProgressCallback) {
-                stageProgressCallback(current, total);
-            }
-        };
-
-        TileProcessStats stats;
-        success = tileProcessor_->processTiled(
-            input,
-            output,
-            net_,
-            processFunc,
-            tileProgressReporter,
-            &stats,
-            &extractorErrorCode
-        );
-        telemetry.seamMaxDelta = stats.seamMaxDelta;
-        telemetry.seamMeanDelta = stats.seamMeanDelta;
-        telemetry.tileTelemetry.totalTiles = stats.tileCount;
-        telemetry.tileTelemetry.tileSize = stats.tileSize;
-        telemetry.tileTelemetry.overlap = stats.overlap;
-        if (success) {
-            telemetry.tileTelemetry.processedTiles = stats.tileCount;
-        }
-    } else {
-        telemetry.tileTelemetry.tileUsed = false;
-        telemetry.tileTelemetry.totalTiles = 0;
-        telemetry.tileTelemetry.processedTiles = 0;
-        success = processDirectly(input, output, strength, &extractorErrorCode);
-        telemetry.seamMaxDelta = 0.0f;
-        telemetry.seamMeanDelta = 0.0f;
+        LOGI("Zero-DCE++ downscale: %dx%d -> %dx%d", input.w, input.h, targetW, targetH);
+        ncnn::Mat resized;
+        ncnn::resize_bilinear(input, resized, targetW, targetH);
+        processingInput = resized;
     }
+
+    telemetry.extractorError = TelemetryData::ExtractorErrorTelemetry{};
+    int extractorErrorCode = 0;
+    ncnn::Mat processedOutput;
+    const bool success = processDirectly(processingInput, processedOutput, strength, &extractorErrorCode);
+
+    if (success) {
+        if (needResize) {
+            ncnn::resize_bilinear(processedOutput, output, input.w, input.h);
+            LOGI("Zero-DCE++ upscale: %dx%d -> %dx%d", processedOutput.w, processedOutput.h, input.w, input.h);
+        } else {
+            output = processedOutput;
+        }
+        telemetry.tileTelemetry.processedTiles = 1;
+        if (stageProgressCallback) {
+            stageProgressCallback(1, 1);
+        }
+    }
+    telemetry.seamMaxDelta = 0.0f;
+    telemetry.seamMeanDelta = 0.0f;
 
     auto endTime = std::chrono::high_resolution_clock::now();
     telemetry.timingMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-    telemetry.gpuAllocRetryCount = gpuAllocRetryCount;
+    telemetry.gpuAllocRetryCount = 0;
 
     LOGI(
         "duration_ms_zerodce=%ld tile_used=%d tile_size=%d overlap=%d tiles=%d seam_max_delta=%.3f seam_mean_delta=%.3f gpu_alloc_retry_count=%d",
