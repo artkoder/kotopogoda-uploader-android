@@ -130,6 +130,12 @@ class EnhanceEngine(
         val restormer: ModelUsage?,
     )
 
+    data class EnhancementContext(
+        val originalBuffer: ImageBuffer,
+        val enhancedMap: ImageBuffer,
+        val metrics: Metrics,
+    )
+
     data class TileProgress(
         val index: Int,
         val total: Int,
@@ -376,6 +382,139 @@ class EnhanceEngine(
     private fun Delegate.toProbeDelegateKey(): String = when (this) {
         Delegate.GPU -> "gpu"
         Delegate.CPU -> "xnnpack"
+    }
+
+    suspend fun prepareEnhancement(source: File): EnhancementContext = withContext(dispatcher) {
+        val fullBuffer = decoder.decode(source)
+        val metrics = MetricsCalculator.calculate(fullBuffer)
+        val profile = ProfileCalculator.calculate(metrics, 1f)
+        val sourceForInference = if (
+            max(fullBuffer.width, fullBuffer.height) > OPTIMAL_INFERENCE_SIZE
+        ) {
+            resizeBuffer(fullBuffer, OPTIMAL_INFERENCE_SIZE)
+        } else {
+            fullBuffer.copy()
+        }
+        val zeroResult = applyZeroDce(
+            source = sourceForInference,
+            profile = profile,
+            delegate = Delegate.CPU,
+            iterations = DEFAULT_ZERO_DCE_ITERATIONS,
+        )
+        EnhancementContext(
+            originalBuffer = fullBuffer,
+            enhancedMap = zeroResult.buffer,
+            metrics = metrics,
+        )
+    }
+
+    suspend fun composeResult(
+        context: EnhancementContext,
+        strength: Float,
+        outputFile: File,
+        exif: ExifInterface? = null,
+    ): Result = withContext(dispatcher) {
+        val normalizedStrength = strength.coerceIn(0f, 1f)
+        val timings = Timings()
+        lateinit var profile: Profile
+        lateinit var upscaled: ImageBuffer
+        lateinit var blended: ImageBuffer
+        lateinit var sharpened: ImageBuffer
+        lateinit var saturated: ImageBuffer
+        var blendDuration = 0L
+        var sharpenDuration = 0L
+        var vibranceDuration = 0L
+        var scaleDuration = 0L
+        var encodeDuration = 0L
+        var exifDuration = 0L
+        val totalDuration = measureTimeMillis {
+            profile = ProfileCalculator.calculate(context.metrics, normalizedStrength)
+            scaleDuration = measureTimeMillis {
+                upscaled = resizeBuffer(
+                    context.enhancedMap,
+                    context.originalBuffer.width,
+                    context.originalBuffer.height,
+                )
+            }
+            blendDuration = measureTimeMillis {
+                blended = blendBuffers(
+                    context.originalBuffer,
+                    upscaled,
+                    normalizedStrength,
+                )
+            }
+            sharpenDuration = measureTimeMillis {
+                sharpened = applyEdgeAwareUnsharp(
+                    blended,
+                    profile.sharpenAmount,
+                    profile.sharpenRadius,
+                    profile.sharpenThreshold,
+                )
+            }
+            vibranceDuration = measureTimeMillis {
+                saturated = applyVibranceAndSaturation(
+                    sharpened,
+                    profile.vibranceGain,
+                    profile.saturationGain,
+                )
+            }
+            encodeDuration = measureTimeMillis {
+                encoder.encode(saturated, outputFile)
+            }
+            exifDuration = measureTimeMillis {
+                tryCopyExif(exif, outputFile, outputFile)
+            }
+        }
+        val pipeline = Pipeline(
+            stages = listOf("zero_dce", "compose"),
+            tileSize = DEFAULT_TILE_SIZE,
+            overlap = DEFAULT_TILE_OVERLAP,
+            tileUsed = false,
+            zeroDceIterations = DEFAULT_ZERO_DCE_ITERATIONS,
+            zeroDceApplied = true,
+            restormerApplied = false,
+            restormerMix = 0f,
+        )
+        val timingsWithTotals = timings.copy(
+            zeroDce = scaleDuration,
+            blend = blendDuration,
+            sharpen = sharpenDuration,
+            vibrance = vibranceDuration,
+            encode = encodeDuration,
+            exif = exifDuration,
+            total = totalDuration,
+            elapsed = totalDuration,
+        )
+        val models = ModelsTelemetry(
+            zeroDce = zeroDce?.let { model ->
+                val expected = expectedChecksums.zeroDce
+                ModelUsage(
+                    backend = model.backend,
+                    checksum = model.checksum,
+                    expectedChecksum = expected,
+                    checksumOk = expected?.equals(model.checksum, ignoreCase = true),
+                )
+            },
+            restormer = restormer?.let { model ->
+                val expected = expectedChecksums.restormer
+                ModelUsage(
+                    backend = model.backend,
+                    checksum = model.checksum,
+                    expectedChecksum = expected,
+                    checksumOk = expected?.equals(model.checksum, ignoreCase = true),
+                )
+            },
+        )
+        val profileResult = profile
+        Result(
+            file = outputFile,
+            metrics = context.metrics,
+            profile = profileResult,
+            delegate = Delegate.CPU,
+            pipeline = pipeline,
+            timings = timingsWithTotals,
+            models = models,
+        )
     }
 
     private suspend fun applyZeroDce(
@@ -880,6 +1019,58 @@ class EnhanceEngine(
         return ImageBuffer(buffer.width, buffer.height, pixels)
     }
 
+    private fun resizeBuffer(source: ImageBuffer, targetSize: Int): ImageBuffer {
+        val maxSide = max(source.width, source.height)
+        if (targetSize <= 0 || maxSide <= targetSize) {
+            return source.copy()
+        }
+        val scale = targetSize.toFloat() / maxSide.toFloat()
+        val targetWidth = max(1, (source.width * scale).roundToInt())
+        val targetHeight = max(1, (source.height * scale).roundToInt())
+        return resizeBuffer(source, targetWidth, targetHeight)
+    }
+
+    private fun resizeBuffer(source: ImageBuffer, targetWidth: Int, targetHeight: Int): ImageBuffer {
+        if (targetWidth <= 0 || targetHeight <= 0) return source.copy()
+        if (source.width == targetWidth && source.height == targetHeight) return source.copy()
+        val result = IntArray(targetWidth * targetHeight)
+        val xRatio = (source.width - 1).toFloat() / targetWidth.toFloat()
+        val yRatio = (source.height - 1).toFloat() / targetHeight.toFloat()
+        for (y in 0 until targetHeight) {
+            val srcY = y * yRatio
+            val yLow = srcY.toInt().coerceIn(0, source.height - 1)
+            val yHigh = min(yLow + 1, source.height - 1)
+            val yWeight = srcY - yLow
+            for (x in 0 until targetWidth) {
+                val srcX = x * xRatio
+                val xLow = srcX.toInt().coerceIn(0, source.width - 1)
+                val xHigh = min(xLow + 1, source.width - 1)
+                val xWeight = srcX - xLow
+
+                val topLeft = source.pixels[yLow * source.width + xLow]
+                val topRight = source.pixels[yLow * source.width + xHigh]
+                val bottomLeft = source.pixels[yHigh * source.width + xLow]
+                val bottomRight = source.pixels[yHigh * source.width + xHigh]
+
+                val rTop = Color.red(topLeft) * (1 - xWeight) + Color.red(topRight) * xWeight
+                val gTop = Color.green(topLeft) * (1 - xWeight) + Color.green(topRight) * xWeight
+                val bTop = Color.blue(topLeft) * (1 - xWeight) + Color.blue(topRight) * xWeight
+
+                val rBottom = Color.red(bottomLeft) * (1 - xWeight) + Color.red(bottomRight) * xWeight
+                val gBottom = Color.green(bottomLeft) * (1 - xWeight) + Color.green(bottomRight) * xWeight
+                val bBottom = Color.blue(bottomLeft) * (1 - xWeight) + Color.blue(bottomRight) * xWeight
+
+                val r = ((rTop * (1 - yWeight)) + (rBottom * yWeight)) / 255f
+                val g = ((gTop * (1 - yWeight)) + (gBottom * yWeight)) / 255f
+                val b = ((bTop * (1 - yWeight)) + (bBottom * yWeight)) / 255f
+
+                val alpha = Color.alpha(topLeft)
+                result[y * targetWidth + x] = composeColor(alpha, r, g, b)
+            }
+        }
+        return ImageBuffer(targetWidth, targetHeight, result)
+    }
+
     private fun blendBuffers(a: ImageBuffer, b: ImageBuffer, mix: Float): ImageBuffer {
         val amount = mix.coerceIn(0f, 1f)
         if (amount <= 1e-3f) return a
@@ -1154,6 +1345,7 @@ class EnhanceEngine(
         private const val DEFAULT_TILE_SIZE = 384
         private const val DEFAULT_TILE_OVERLAP = 64
         private const val DEFAULT_ZERO_DCE_ITERATIONS = 8
+        private const val OPTIMAL_INFERENCE_SIZE = 1024
         private const val OUTPUT_JPEG_QUALITY = 92
         private const val DARK_LUMINANCE_THRESHOLD = 0.22
         private const val NOISE_LUMA_EPSILON = 1e-3
